@@ -10,18 +10,40 @@ server:
 
 # 屏幕捕获
 capture:
-  width: 1920
-  height: 1080
-  fps: 30
+  # 捕获模式：'window' 或 'fullscreen'
+  # 注意：游戏通常使用硬件加速，window 模式会捕获黑屏，请使用 fullscreen
+  mode: "fullscreen"  # 对于游戏，使用 fullscreen 模式
   
-  # 捕获区域（可选，用于性能优化）
+  # 窗口捕获配置（mode: window 时使用）
+  window:
+    # 通过进程名称查找窗口（推荐）
+    process_name: "WorldOfTanks.exe"
+    
+    # 或通过窗口标题查找（备选方案）
+    # window_title: "World of Tanks"
+    
+    # 是否使用部分匹配
+    partial_match: true
+    
+    # 如果窗口未找到，是否降级到全屏模式
+    fallback_to_fullscreen: true
+  
+  # 全屏捕获配置（mode: fullscreen 时使用）
+  fullscreen:
+    width: 3440
+    height: 1440
+  
+  # 通用配置
+  fps: 20
+  
+  # ROI（感兴趣区域）- 已弃用，推荐使用 window 模式
   roi:
     enabled: false
     x: 0
     y: 0
-    w: 1920
-    h: 1080
-
+    w: 3440
+    h: 1440
+·
 # 网络传输
 network:
   compression: true

@@ -3,6 +3,7 @@
 
 # Game Automation
 pywin32>=305      # Windows API
+psutil>=5.9.0     # Process management
 mss>=9.0.0        # Screen capture
 pynput>=1.7.6     # Input control
 
