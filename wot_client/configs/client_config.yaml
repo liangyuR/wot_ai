@@ -1,0 +1,61 @@
+# Windows 游戏客户端配置
+
+# 服务器连接
+server:
+  host: "localhost"  # Linux 训练服务器 IP
+  port: 9999
+  reconnect: true
+  reconnect_interval: 5  # 秒
+  timeout: 10  # 连接超时
+
+# 屏幕捕获
+capture:
+  width: 1920
+  height: 1080
+  fps: 30
+  
+  # 捕获区域（可选，用于性能优化）
+  roi:
+    enabled: false
+    x: 0
+    y: 0
+    w: 1920
+    h: 1080
+
+# 网络传输
+network:
+  compression: true
+  jpeg_quality: 80  # 1-100，越高质量越好但带宽越大
+  buffer_size: 8192
+  
+  # 自适应帧率（根据网络延迟调整）
+  adaptive_fps:
+    enabled: false
+    min_fps: 10
+    max_fps: 30
+    target_latency_ms: 50
+
+# 输入控制
+control:
+  # 按键延迟（毫秒）
+  key_press_duration: 50
+  
+  # 鼠标灵敏度
+  mouse_sensitivity: 1.0
+  
+  # 安全模式（限制某些危险操作）
+  safe_mode: true
+
+# 日志
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  save_to_file: true
+  file_path: "logs/client.log"
+
+# 调试
+debug:
+  show_fps: true
+  show_latency: true
+  save_screenshots: false
+  screenshot_interval: 100  # 每 N 帧保存一次
+
