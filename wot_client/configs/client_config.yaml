@@ -1,83 +1,44 @@
-# Windows 游戏客户端配置
-
-# 服务器连接
-server:
-  host: "localhost"  # Linux 训练服务器 IP
-  port: 9999
-  reconnect: true
-  reconnect_interval: 5  # 秒
-  timeout: 10  # 连接超时
-
-# 屏幕捕获
 capture:
-  # 捕获模式：'window' 或 'fullscreen'
-  # 注意：游戏通常使用硬件加速，window 模式会捕获黑屏，请使用 fullscreen
-  mode: "fullscreen"  # 对于游戏，使用 fullscreen 模式
-  
-  # 窗口捕获配置（mode: window 时使用）
-  window:
-    # 通过进程名称查找窗口（推荐）
-    process_name: "WorldOfTanks.exe"
-    
-    # 或通过窗口标题查找（备选方案）
-    # window_title: "World of Tanks"
-    
-    # 是否使用部分匹配
-    partial_match: true
-    
-    # 如果窗口未找到，是否降级到全屏模式
-    fallback_to_fullscreen: true
-  
-  # 全屏捕获配置（mode: fullscreen 时使用）
+  fps: 15
   fullscreen:
-    width: 3440
     height: 1440
-  
-  # 通用配置
-  fps: 20
-  
-  # ROI（感兴趣区域）- 已弃用，推荐使用 window 模式
+    width: 3440
+  mode: fullscreen
   roi:
     enabled: false
+    h: 1440
+    w: 3440
     x: 0
     y: 0
-    w: 3440
-    h: 1440
-·
-# 网络传输
-network:
-  compression: true
-  jpeg_quality: 80  # 1-100，越高质量越好但带宽越大
-  buffer_size: 8192
-  
-  # 自适应帧率（根据网络延迟调整）
-  adaptive_fps:
-    enabled: false
-    min_fps: 10
-    max_fps: 30
-    target_latency_ms: 50
-
-# 输入控制
+  window:
+    fallback_to_fullscreen: true
+    partial_match: true
+    process_name: WorldOfTanks.exe
 control:
-  # 按键延迟（毫秒）
   key_press_duration: 50
-  
-  # 鼠标灵敏度
   mouse_sensitivity: 1.0
-  
-  # 安全模式（限制某些危险操作）
   safe_mode: true
-
-# 日志
-logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  save_to_file: true
-  file_path: "logs/client.log"
-
-# 调试
 debug:
+  save_screenshots: false
+  screenshot_interval: 100
   show_fps: true
   show_latency: true
-  save_screenshots: false
-  screenshot_interval: 100  # 每 N 帧保存一次
-
+logging:
+  file_path: logs/client.log
+  level: INFO
+  save_to_file: true
+network:
+  adaptive_fps:
+    enabled: false
+    max_fps: 30
+    min_fps: 10
+    target_latency_ms: 50
+  buffer_size: 8192
+  compression: true
+  jpeg_quality: 80
+server:
+  host: localhost
+  port: 9999
+  reconnect: true
+  reconnect_interval: 5
+  timeout: 10

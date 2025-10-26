@@ -1,5 +1,22 @@
 # PPO Configuration for World of Tanks AI
 
+# Data Settings
+data:
+  recordings_dir: "../wot_client/data/recordings"  # Path to recorded gameplay data
+  sessions: null  # List of specific sessions to load, null = load all
+  frame_skip: 1  # Sample every N frames
+  augment: true  # Enable data augmentation for training
+
+# Imitation Learning Settings
+imitation:
+  enabled: true
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  batch_size: 32
+  epochs: 50
+  val_split: 0.2  # Validation set ratio
+  image_size: [256, 256]  # Network input size
+
 # Environment Settings
 env:
   name: "WorldOfTanks-v0"

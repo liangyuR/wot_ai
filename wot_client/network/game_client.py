@@ -13,6 +13,7 @@ from queue import Queue
 from loguru import logger
 import sys
 from pathlib import Path
+import yaml
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -304,12 +305,30 @@ def main():
     """主函数"""
     import argparse
     
+    # 读取配置文件
+    config_path = Path(__file__).parent.parent / "configs" / "client_config.yaml"
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        logger.info(f"已加载配置文件: {config_path}")
+    except Exception as e:
+        logger.warning(f"无法读取配置文件 {config_path}: {e}, 使用默认值")
+        config = {
+            'server': {'host': 'localhost', 'port': 9999},
+            'capture': {'fps': 30, 'fullscreen': {'width': 1920, 'height': 1080}}
+        }
+    
     parser = argparse.ArgumentParser(description="World of Tanks Game Client")
-    parser.add_argument("--host", type=str, default="localhost", help="Server host")
-    parser.add_argument("--port", type=int, default=9999, help="Server port")
-    parser.add_argument("--fps", type=int, default=30, help="Capture FPS")
-    parser.add_argument("--width", type=int, default=1920, help="Screen width")
-    parser.add_argument("--height", type=int, default=1080, help="Screen height")
+    parser.add_argument("--host", type=str, 
+                       default=config['server']['host'], help="Server host")
+    parser.add_argument("--port", type=int, 
+                       default=config['server']['port'], help="Server port")
+    parser.add_argument("--fps", type=int, 
+                       default=config['capture']['fps'], help="Capture FPS")
+    parser.add_argument("--width", type=int, 
+                       default=config['capture']['fullscreen']['width'], help="Screen width")
+    parser.add_argument("--height", type=int, 
+                       default=config['capture']['fullscreen']['height'], help="Screen height")
     
     args = parser.parse_args()
     

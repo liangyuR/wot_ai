@@ -69,7 +69,7 @@ class AsyncFrameSaver:
         添加帧到保存队列
         
         Args:
-            frame: RGB 格式的帧
+            frame: BGR 格式的帧（mss 捕获的格式）
             frame_number: 帧号
             
         Returns:
@@ -99,9 +99,10 @@ class AsyncFrameSaver:
                 
                 # 保存帧
                 frame_path = self.frames_dir_ / f"frame_{frame_number:06d}.jpg"
+                # frame 已经是 BGR 格式，直接保存（cv2.imwrite 期望 BGR）
                 success = cv2.imwrite(
                     str(frame_path),
-                    cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
+                    frame,
                     [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality_]
                 )
                 

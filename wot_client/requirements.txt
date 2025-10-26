@@ -28,3 +28,9 @@ pytest>=7.3.0
 black>=23.0.0
 flake8>=6.0.0
 
+# OpenCV 及其视频流/截图支持
+opencv-contrib-python>=4.8.0     # 带扩展模块的 OpenCV
+imageio[ffmpeg]>=2.31.0          # 视频读写，ffmpeg 支持
+pyvirtualcam>=0.10.0             # 虚拟摄像头支持（可选）
+
+
