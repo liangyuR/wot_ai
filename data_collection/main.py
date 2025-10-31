@@ -4,12 +4,20 @@
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
-import yaml
 import sys
 import os
 from pathlib import Path
 import logging
 import threading
+
+try:
+    from data_collection.core.config_manager import ConfigManager
+except ImportError:
+    try:
+        from core.config_manager import ConfigManager
+    except ImportError:
+        ConfigManager = None
+        logging.warning("ConfigManager 不可用")
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -35,13 +43,18 @@ class ConfigGUI:
         
         # 配置文件路径（兼容打包后的 exe）
         base_path = get_base_path()
-        self.config_path = base_path / "configs" / "client_config.yaml"
+        config_path = base_path / "configs" / "client_config.yaml"
         
-        # 确保配置目录存在
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # 加载当前配置
-        self.load_config()
+        # 使用 ConfigManager（如果可用）
+        if ConfigManager:
+            self.config_manager_ = ConfigManager(config_path)
+            self.config = self.config_manager_.Load()
+        else:
+            # 降级到直接文件操作
+            self.config_manager_ = None
+            self.config_path = config_path
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            self.load_config()
         
         # 录制状态
         self.recording_thread_ = None
@@ -55,13 +68,17 @@ class ConfigGUI:
         self.root.protocol("WM_DELETE_WINDOW", self.on_exit)
         
     def load_config(self):
-        """加载配置文件"""
+        """加载配置文件（降级方案）"""
+        if self.config_manager_:
+            return  # 已通过 ConfigManager 加载
+        
         try:
+            import yaml
             with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config = yaml.safe_load(f)
+                self.config = yaml.safe_load(f) or {}
         except Exception as e:
             messagebox.showerror("错误", f"无法加载配置文件: {e}")
-            self.config = {
+            self.config = ConfigManager.GetDefaultConfig() if ConfigManager else {
                 'capture': {
                     'fps': 5,
                     'mode': 'fullscreen',
@@ -71,7 +88,12 @@ class ConfigGUI:
     
     def save_config(self):
         """保存配置文件"""
+        if self.config_manager_:
+            return self.config_manager_.Save(self.config)
+        
+        # 降级方案
         try:
+            import yaml
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(self.config, f, allow_unicode=True, default_flow_style=False)
             return True
@@ -161,9 +183,47 @@ class ConfigGUI:
                 value=fps
             ).pack(anchor=tk.W, pady=2)
         
-        # 3. 存储估算
+        # 3. 自动模式设置
+        ttk.Label(main_frame, text="自动检测模式:", font=("微软雅黑", 10, "bold")).grid(
+            row=4, column=0, sticky=tk.W, pady=(15, 5)
+        )
+        
+        auto_mode_frame = ttk.Frame(main_frame)
+        auto_mode_frame.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 15))
+        
+        self.auto_mode_var = tk.BooleanVar(value=self.config.get('auto_mode', False))
+        
+        auto_checkbox = ttk.Checkbutton(
+            auto_mode_frame,
+            text="启用自动检测（检测战斗开始/结束，自动录制）",
+            variable=self.auto_mode_var
+        )
+        auto_checkbox.pack(anchor=tk.W, pady=2)
+        
+        ttk.Label(
+            auto_mode_frame,
+            text="• 检测区域: 屏幕中心靠上1/3区域",
+            font=("微软雅黑", 8),
+            foreground="#7f8c8d"
+        ).pack(anchor=tk.W, padx=(20, 0))
+        
+        ttk.Label(
+            auto_mode_frame,
+            text="• 战斗开始时自动开始录制",
+            font=("微软雅黑", 8),
+            foreground="#7f8c8d"
+        ).pack(anchor=tk.W, padx=(20, 0))
+        
+        ttk.Label(
+            auto_mode_frame,
+            text="• 胜利/被击败/被击毁时自动停止录制",
+            font=("微软雅黑", 8),
+            foreground="#7f8c8d"
+        ).pack(anchor=tk.W, padx=(20, 0))
+        
+        # 4. 存储估算
         ttk.Separator(main_frame, orient=tk.HORIZONTAL).grid(
-            row=4, column=0, columnspan=2, sticky="ew", pady=15
+            row=6, column=0, columnspan=2, sticky="ew", pady=15
         )
         
         self.info_label = tk.Label(
@@ -176,7 +236,7 @@ class ConfigGUI:
             padx=10,
             pady=10
         )
-        self.info_label.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        self.info_label.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 15))
         
         self.update_info()
         
@@ -188,11 +248,11 @@ class ConfigGUI:
             fg="#27ae60",
             pady=5
         )
-        self.status_label.grid(row=6, column=0, columnspan=2, pady=(10, 5))
+        self.status_label.grid(row=8, column=0, columnspan=2, pady=(10, 5))
         
         # 按钮区域
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=7, column=0, columnspan=2, pady=(10, 0))
+        button_frame.grid(row=9, column=0, columnspan=2, pady=(10, 0))
         
         self.save_button = ttk.Button(
             button_frame,
@@ -230,7 +290,7 @@ class ConfigGUI:
             
         fps = self.fps_var.get()
         
-        # 估算存储（JPEG 压缩后约 0.1-0.3 bits per pixel）
+        # 估算存储（PNG 压缩后约 1-3 bits per pixel，比 JPEG 大但无损）
         pixels = width * height
         bytes_per_frame = pixels * 0.2  # 平均压缩率
         
@@ -271,6 +331,7 @@ class ConfigGUI:
             return
             
         fps = self.fps_var.get()
+        auto_mode = self.auto_mode_var.get()
         
         # 更新配置
         if 'capture' not in self.config:
@@ -281,10 +342,12 @@ class ConfigGUI:
         self.config['capture']['fullscreen']['width'] = width
         self.config['capture']['fullscreen']['height'] = height
         self.config['capture']['fps'] = fps
+        self.config['auto_mode'] = auto_mode
         
         # 保存
         if self.save_config():
-            messagebox.showinfo("成功", "配置已保存！\n\n可以开始录制了。")
+            mode_text = "自动模式" if auto_mode else "手动模式（F9/F10）"
+            messagebox.showinfo("成功", f"配置已保存！\n\n录制模式: {mode_text}\n\n可以开始录制了。")
     
     def start_recording(self):
         """启动录制（在后台线程中运行）"""
@@ -300,6 +363,7 @@ class ConfigGUI:
             return
             
         fps = self.fps_var.get()
+        auto_mode = self.auto_mode_var.get()
         
         if 'capture' not in self.config:
             self.config['capture'] = {}
@@ -309,13 +373,18 @@ class ConfigGUI:
         self.config['capture']['fullscreen']['width'] = width
         self.config['capture']['fullscreen']['height'] = height
         self.config['capture']['fps'] = fps
+        self.config['auto_mode'] = auto_mode
         
         if not self.save_config():
             return
         
         # 更新UI状态
         self.is_recording_ = True
-        self.status_label.config(text="状态: 录制程序运行中... (等待按 F9 开始录制)", fg="#e67e22")
+        if auto_mode:
+            status_text = "状态: 录制程序运行中... (自动检测模式)"
+        else:
+            status_text = "状态: 录制程序运行中... (等待按 F9 开始录制)"
+        self.status_label.config(text=status_text, fg="#e67e22")
         self.record_button.config(text="⏸️  录制中...", state="disabled")
         self.save_button.config(state="disabled")
         
@@ -343,20 +412,34 @@ class ConfigGUI:
         self.recording_thread_ = threading.Thread(target=run_recording, daemon=True)
         self.recording_thread_.start()
         
-        messagebox.showinfo(
-            "录制已启动",
-            "配置已保存！\n\n录制程序已在后台运行。\n\n快捷键说明：\n"
-            "• F9  - 开始录制\n"
-            "• F10 - 停止录制\n"
-            "• Ctrl+C - 退出程序\n\n"
-            "使用方法：\n"
-            "1. 进入游戏战斗\n"
-            "2. 按 F9 开始录制\n"
-            "3. 正常游戏\n"
-            "4. 按 F10 停止录制\n"
-            "5. 可重复按 F9/F10 录制多场\n"
-            "6. 可以关闭此窗口（录制会继续）"
-        )
+        if auto_mode:
+            message_text = (
+                "配置已保存！\n\n录制程序已在后台运行。\n\n自动检测模式：\n"
+                "• 自动检测战斗开始，开始录制\n"
+                "• 自动检测胜利/被击败/被击毁，停止录制\n"
+                "• 检测区域: 屏幕中心靠上1/3\n\n"
+                "快捷键说明：\n"
+                "• F9  - 手动开始录制（覆盖自动检测）\n"
+                "• F10 - 手动停止录制（覆盖自动检测）\n"
+                "• Ctrl+C - 退出程序\n\n"
+                "可以关闭此窗口（录制会继续）"
+            )
+        else:
+            message_text = (
+                "配置已保存！\n\n录制程序已在后台运行。\n\n快捷键说明：\n"
+                "• F9  - 开始录制\n"
+                "• F10 - 停止录制\n"
+                "• Ctrl+C - 退出程序\n\n"
+                "使用方法：\n"
+                "1. 进入游戏战斗\n"
+                "2. 按 F9 开始录制\n"
+                "3. 正常游戏\n"
+                "4. 按 F10 停止录制\n"
+                "5. 可重复按 F9/F10 录制多场\n"
+                "6. 可以关闭此窗口（录制会继续）"
+            )
+        
+        messagebox.showinfo("录制已启动", message_text)
     
     def reset_recording_state(self):
         """重置录制状态"""

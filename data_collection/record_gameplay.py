@@ -51,6 +51,63 @@ except ImportError:
         logger.warning("异步帧保存器不可用，将使用同步保存（可能导致卡顿）")
         ASYNC_SAVER_AVAILABLE = False
 
+# 游戏状态检测器（OCR）
+try:
+    from data_collection.detection.game_state_detector import GameStateDetector
+    OCR_DETECTOR_AVAILABLE = True
+except ImportError:
+    try:
+        from detection.game_state_detector import GameStateDetector
+        OCR_DETECTOR_AVAILABLE = True
+    except ImportError:
+        try:
+            from game_state_detector import GameStateDetector
+            OCR_DETECTOR_AVAILABLE = True
+        except ImportError:
+            OCR_DETECTOR_AVAILABLE = False
+
+# 游戏状态检测器（YOLO）
+try:
+    from data_collection.detection.yolo_state_detector import YoloGameStateDetector
+    YOLO_DETECTOR_AVAILABLE = True
+except ImportError:
+    try:
+        from detection.yolo_state_detector import YoloGameStateDetector
+        YOLO_DETECTOR_AVAILABLE = True
+    except ImportError:
+        YOLO_DETECTOR_AVAILABLE = False
+
+# 综合检测器可用性
+STATE_DETECTOR_AVAILABLE = OCR_DETECTOR_AVAILABLE or YOLO_DETECTOR_AVAILABLE
+
+# 录制状态覆盖层
+try:
+    from data_collection.recording_overlay import RecordingOverlay
+    OVERLAY_AVAILABLE = True
+except ImportError:
+    try:
+        from recording_overlay import RecordingOverlay
+        OVERLAY_AVAILABLE = True
+    except ImportError:
+        logger.warning("录制状态覆盖层不可用")
+        OVERLAY_AVAILABLE = False
+
+# 录制事件系统
+try:
+    from data_collection.recording_events import EventDispatcher, RecordingEvent, RecordingEventType, RecordingStats
+    EVENTS_AVAILABLE = True
+except ImportError:
+    try:
+        from recording_events import EventDispatcher, RecordingEvent, RecordingEventType, RecordingStats
+        EVENTS_AVAILABLE = True
+    except ImportError:
+        logger.warning("录制事件系统不可用")
+        EVENTS_AVAILABLE = False
+        EventDispatcher = None
+        RecordingEvent = None
+        RecordingEventType = None
+        RecordingStats = None
+
 # 全局键盘监听器
 try:
     from data_collection.global_hotkey import GlobalKeyboardListener
@@ -78,7 +135,10 @@ class GameplayRecorder:
         frame_step: int = 1,
         screen_width: int = 1920,
         screen_height: int = 1080,
-        use_global_hook: bool = True
+        use_global_hook: bool = True,
+        auto_mode: bool = False,
+        detector_type: str = 'auto',
+        yolo_model_path: str = None
     ):
         """
         Initialize recorder
@@ -89,7 +149,7 @@ class GameplayRecorder:
             capture_mode: 'window' or 'fullscreen'
             process_name: Process name for window capture (e.g., 'WorldOfTanks.exe')
             window_title: Window title for window capture (e.g., 'World of Tanks')
-            save_format: 'frames' (save JPEG frames), 'video' (encode video), 'both'
+            save_format: 'frames' (save PNG frames), 'video' (encode video), 'both'
             frame_step: Save every N frames (1 = save all, 5 = save every 5th frame)
         """
         self.output_dir_ = Path(output_dir)
@@ -103,6 +163,52 @@ class GameplayRecorder:
         self.screen_width_ = screen_width
         self.screen_height_ = screen_height
         self.use_global_hook_ = use_global_hook and GLOBAL_HOOK_AVAILABLE
+        self.auto_mode_ = auto_mode
+        self.detector_type_ = detector_type
+        
+        # 初始化事件系统
+        self.event_dispatcher_ = EventDispatcher() if EVENTS_AVAILABLE else None
+        self.stats_ = RecordingStats() if EVENTS_AVAILABLE else None
+        
+        # 初始化游戏状态检测器（如果启用自动模式）
+        self.state_detector_ = None
+        if self.auto_mode_ and STATE_DETECTOR_AVAILABLE:
+            try:
+                # 优先使用YOLO检测器（如果可用），否则使用OCR
+                use_yolo = (self.detector_type_ == 'yolo' or 
+                          (self.detector_type_ == 'auto' and YOLO_DETECTOR_AVAILABLE))
+                
+                if use_yolo and YOLO_DETECTOR_AVAILABLE:
+                    # 使用YOLO检测器（支持UI特征检测，可选YOLO模型）
+                    self.state_detector_ = YoloGameStateDetector(
+                        screen_width=screen_width,
+                        screen_height=screen_height,
+                        yolo_model_path=yolo_model_path,  # 如果提供则加载YOLO模型
+                        use_yolo=(yolo_model_path is not None),  # 如果提供模型则使用
+                        use_ui_features=True,
+                        confidence_threshold=0.5
+                    )
+                    if yolo_model_path:
+                        logger.info("✓ YOLO游戏状态检测器初始化成功（YOLO模型 + UI特征检测）")
+                    else:
+                        logger.info("✓ YOLO游戏状态检测器初始化成功（UI特征检测模式）")
+                elif OCR_DETECTOR_AVAILABLE:
+                    # 使用OCR检测器（向后兼容）
+                    self.state_detector_ = GameStateDetector(
+                        screen_width=screen_width,
+                        screen_height=screen_height
+                    )
+                    logger.info("✓ OCR游戏状态检测器初始化成功")
+                else:
+                    raise RuntimeError("没有可用的检测器")
+                    
+            except Exception as e:
+                logger.warning(f"游戏状态检测器初始化失败: {e}")
+                logger.warning("将退回到手动模式（F9/F10）")
+                self.auto_mode_ = False
+        elif self.auto_mode_ and not STATE_DETECTOR_AVAILABLE:
+            logger.warning("游戏状态检测器不可用，将退回到手动模式（F9/F10）")
+            self.auto_mode_ = False
         
         # Recording state
         self.recording_ = False
@@ -127,6 +233,20 @@ class GameplayRecorder:
         self.screen_capture_ = None
         self.sct_ = None
         self.async_saver_ = None  # 异步帧保存器
+        
+        # 录制状态覆盖层（通过事件系统自动更新）
+        self.overlay_ = None
+        if OVERLAY_AVAILABLE:
+            try:
+                self.overlay_ = RecordingOverlay(
+                    screen_width=screen_width,
+                    screen_height=screen_height,
+                    event_dispatcher=self.event_dispatcher_  # 传递事件分发器，自动订阅
+                )
+                logger.info("✓ 录制状态覆盖层已初始化")
+            except Exception as e:
+                logger.warning(f"录制状态覆盖层初始化失败: {e}")
+                self.overlay_ = None
         
         # Initialize screen capture
         logger.info("初始化屏幕捕获模块...")
@@ -333,6 +453,21 @@ class GameplayRecorder:
         self.frames_ = []  # 仅视频模式使用
         self.actions_ = []
         self.frame_numbers_ = []
+        self.recording_start_time_ = time.time()  # 记录录制开始时间
+        
+        # 更新统计信息
+        if self.stats_:
+            self.stats_.Start()
+            self.stats_.start_time_ = self.recording_start_time_
+        
+        # 发送录制开始事件
+        if self.event_dispatcher_ and RecordingEventType:
+            event = RecordingEvent(RecordingEventType.RECORDING_STARTED)
+            self.event_dispatcher_.Emit(event)
+        
+        # 启动覆盖层
+        if self.overlay_:
+            self.overlay_.Start()
         
         # 创建 session 目录
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -348,7 +483,7 @@ class GameplayRecorder:
             if ASYNC_SAVER_AVAILABLE:
                 self.async_saver_ = AsyncFrameSaver(
                     frames_dir=self.frames_dir_,
-                    jpeg_quality=95,
+                    png_compression=3,  # PNG 压缩级别 0-9，默认3（平衡速度和压缩比）
                     queue_size=60  # 队列可容纳 2 秒的帧（30 FPS）
                 )
                 self.async_saver_.Start()
@@ -399,9 +534,15 @@ class GameplayRecorder:
                                 self.async_saver_.SaveFrame(frame, frame_count)
                             else:
                                 # 回退到同步保存
-                                frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.jpg"
-                                # frame 已经是 BGR 格式，直接保存
-                                cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                                if self.frames_dir_ is not None:
+                                    if self.frames_dir_ is not None:
+                                        frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.png"
+                                        # frame 已经是 BGR 格式，直接保存为 PNG
+                                        cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                                    else:
+                                        logger.warning(f"frames_dir_ 未初始化，无法保存帧 {frame_count}")
+                                else:
+                                    logger.warning(f"frames_dir_ 未初始化，无法保存帧 {frame_count}")
                     
                     # 仅在视频模式下存储到内存
                     if self.save_format_ in ["video", "both"]:
@@ -413,8 +554,23 @@ class GameplayRecorder:
                     
                     frame_count += 1
                     
+                    # 更新统计信息并发送事件（每秒一次）
+                    current_time_frame = time.time()
+                    if current_time_frame - last_log_time >= 1.0:
+                        if self.stats_:
+                            self.stats_.UpdateFrameCount(frame_count)
+                            self.stats_.UpdateDuration(timestamp)
+                        
+                        # 发送帧捕获事件（覆盖层会自动更新）
+                        if self.event_dispatcher_ and RecordingEventType:
+                            event = RecordingEvent(
+                                RecordingEventType.FRAME_CAPTURED,
+                                {'frame_count': frame_count, 'duration_seconds': timestamp}
+                            )
+                            self.event_dispatcher_.Emit(event)
+                    
                     # Log progress every 5 seconds
-                    if time.time() - last_log_time >= 5.0:
+                    if current_time_frame - last_log_time >= 5.0:
                         actual_fps = frame_count / timestamp if timestamp > 0 else 0
                         log_msg = f"录制中... 帧数: {frame_count}, 时长: {timestamp:.1f}s, FPS: {actual_fps:.1f}"
                         
@@ -454,6 +610,21 @@ class GameplayRecorder:
         self.recording_ = False  # 确保停止录制
         self.saved_ = True  # 标记为已保存（即使失败也不重试）
         
+        # 更新统计信息
+        final_duration = (time.time() - self.recording_start_time_) if hasattr(self, 'recording_start_time_') else 0.0
+        if self.stats_:
+            self.stats_.Stop()
+            self.stats_.UpdateFrameCount(len(self.frame_numbers_))
+            self.stats_.UpdateDuration(final_duration)
+        
+        # 发送录制停止事件（覆盖层会自动更新）
+        if self.event_dispatcher_ and RecordingEventType:
+            event = RecordingEvent(
+                RecordingEventType.RECORDING_STOPPED,
+                {'frame_count': len(self.frame_numbers_), 'duration_seconds': final_duration}
+            )
+            self.event_dispatcher_.Emit(event)
+        
         # 停止异步帧保存器（等待队列清空）
         if self.async_saver_:
             logger.info("等待异步保存队列清空...")
@@ -491,7 +662,7 @@ class GameplayRecorder:
             # 获取分辨率信息
             if self.save_format_ in ["frames", "both"]:
                 # 从已保存的第一帧读取分辨率
-                first_frame_path = self.frames_dir_ / "frame_000000.jpg"
+                first_frame_path = self.frames_dir_ / "frame_000000.png"
                 if first_frame_path.exists():
                     first_frame = cv2.imread(str(first_frame_path))
                     resolution = [first_frame.shape[1], first_frame.shape[0]]
@@ -549,7 +720,7 @@ class GameplayRecorder:
             logger.info(f"  - 平均 FPS: {total_frames / duration:.2f}" if duration > 0 else "  - 平均 FPS: N/A")
             if self.save_format_ in ["frames", "both"]:
                 saved_frames = total_frames // self.frame_step_
-                logger.info(f"  - 已保存帧: {saved_frames} 张 JPEG")
+                logger.info(f"  - 已保存帧: {saved_frames} 张 PNG")
             if self.save_format_ in ["video", "both"]:
                 logger.info(f"  - 视频: gameplay.avi")
             logger.info("=" * 80)
@@ -598,6 +769,10 @@ class GameplayRecorder:
         
     def runRecordingLoop(self):
         """运行录制循环 - 支持 F9 开始，F10 停止，可多次录制"""
+        if self.auto_mode_:
+            self.runAutoRecordingLoop()
+            return
+        
         logger.info("=" * 80)
         logger.info("🎮 录制器已就绪")
         logger.info("=" * 80)
@@ -686,11 +861,17 @@ class GameplayRecorder:
             )
             self.keyboard_listener_.start()
         
+        # 启动覆盖层（即使不在录制状态也显示等待状态）
+        if self.overlay_:
+            self.overlay_.Start()
+            # 初始状态：通过直接调用设置（覆盖层还未完全启动时）
+            self.overlay_.UpdateDisplay(is_recording=False, frame_count=0, duration_seconds=0.0)
+        
         # 主循环
         session_count = 0
         try:
             while not self.should_exit_:
-                # 等待开始录制
+                # 等待开始录制（覆盖层状态通过事件系统自动更新，无需手动更新）
                 while self.waiting_start_ and not self.should_exit_:
                     time.sleep(0.1)
                 
@@ -727,9 +908,12 @@ class GameplayRecorder:
                                 if self.async_saver_:
                                     self.async_saver_.SaveFrame(frame, frame_count)
                                 else:
-                                    frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.jpg"
-                                    # frame 已经是 BGR 格式，直接保存
-                                    cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                                    if self.frames_dir_ is not None:
+                                        frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.png"
+                                        # frame 已经是 BGR 格式，直接保存为 PNG
+                                        cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                                    else:
+                                        logger.warning(f"frames_dir_ 未初始化，无法保存帧 {frame_count}")
                         
                         # 视频模式下存储到内存
                         if self.save_format_ in ["video", "both"]:
@@ -781,8 +965,265 @@ class GameplayRecorder:
         finally:
             logger.info(f"\n📊 总共完成 {session_count} 次录制")
     
+    def runAutoRecordingLoop(self):
+        """运行自动录制循环 - 自动检测战斗开始和结束"""
+        logger.info("=" * 80)
+        logger.info("🎮 自动录制模式已启用")
+        logger.info("=" * 80)
+        logger.info("")
+        logger.info("📋 自动检测规则:")
+        logger.info("  - 检测区域: 屏幕中心靠上1/3区域")
+        logger.info("  - 战斗开始时: 自动开始录制")
+        logger.info("  - 胜利/被击败/被击毁时: 自动停止录制")
+        logger.info("")
+        logger.info("⌨️  快捷键:")
+        logger.info("  F9  - 手动开始录制（覆盖自动检测）")
+        logger.info("  F10 - 手动停止录制（覆盖自动检测）")
+        logger.info("  Ctrl+C - 退出程序")
+        logger.info("")
+        logger.info("正在监控游戏状态...")
+        logger.info("=" * 80)
+        
+        if not self.state_detector_:
+            logger.error("❌ 状态检测器未初始化，无法使用自动模式")
+            logger.info("退回到手动模式")
+            self.auto_mode_ = False
+            self.runRecordingLoop()
+            return
+        
+        # 添加热键状态
+        self.waiting_start_ = True
+        self.should_exit_ = False
+        
+        # 注册全局热键处理（F9 手动开始，F10 手动停止）
+        def on_hotkey_press(key_name: str):
+            if key_name == 'f9' and self.waiting_start_:
+                logger.info("")
+                logger.info("🔴 检测到 F9，手动开始录制...")
+                self.waiting_start_ = False
+                self.prepareRecording()
+            elif key_name == 'f10' and self.recording_:
+                logger.info("")
+                logger.info("⏹️  检测到 F10，手动停止录制...")
+                self.recording_ = False
+        
+        # 替换当前的热键处理
+        if self.global_keyboard_:
+            # 停止旧的监听器
+            self.global_keyboard_.Stop()
+            # 创建新的监听器
+            def on_key_press_wrapper(key_name: str):
+                if key_name not in self.current_keys_:
+                    self.current_keys_.add(key_name)
+                on_hotkey_press(key_name)
+            
+            def on_key_release_wrapper(key_name: str):
+                if key_name in self.current_keys_:
+                    self.current_keys_.discard(key_name)
+            
+            self.global_keyboard_ = GlobalKeyboardListener(
+                on_press=on_key_press_wrapper,
+                on_release=on_key_release_wrapper
+            )
+            self.global_keyboard_.Start()
+        else:
+            # 使用 pynput 的情况
+            self.keyboard_listener_.stop()
+            
+            def on_press(key):
+                try:
+                    key_str = key.char
+                    if key_str not in self.current_keys_:
+                        self.current_keys_.add(key_str)
+                except AttributeError:
+                    key_str = str(key).replace('Key.', '')
+                    if key_str not in self.current_keys_:
+                        self.current_keys_.add(key_str)
+                
+                # 处理热键
+                if key == keyboard.Key.f9 and self.waiting_start_:
+                    logger.info("")
+                    logger.info("🔴 检测到 F9，手动开始录制...")
+                    self.waiting_start_ = False
+                    self.prepareRecording()
+                elif key == keyboard.Key.f10 and self.recording_:
+                    logger.info("")
+                    logger.info("⏹️  检测到 F10，手动停止录制...")
+                    self.recording_ = False
+            
+            def on_release(key):
+                try:
+                    key_str = key.char
+                    if key_str in self.current_keys_:
+                        self.current_keys_.discard(key_str)
+                except AttributeError:
+                    key_str = str(key).replace('Key.', '')
+                    if key_str in self.current_keys_:
+                        self.current_keys_.discard(key_str)
+            
+            self.keyboard_listener_ = keyboard.Listener(
+                on_press=on_press,
+                on_release=on_release
+            )
+            self.keyboard_listener_.start()
+        
+        # 主循环
+        session_count = 0
+        state_check_interval = 1.0  # 每1秒检测一次状态（避免频繁检测影响性能）
+        last_state_check = 0
+        
+        try:
+            while not self.should_exit_:
+                current_time = time.time()
+                
+                # 状态检测（仅在未录制时检测"战斗开始"，录制时检测结束状态）
+                if current_time - last_state_check >= state_check_interval:
+                    try:
+                        # 快速截屏用于状态检测（不需要保存）
+                        frame = self.captureScreen()
+                        # 传入 frame_number=None 因为还未开始录制，使用优化检测
+                        detected_state = self.state_detector_.DetectState(frame, frame_number=None)
+                        
+                        if detected_state:
+                            if detected_state == 'battle_start' and self.waiting_start_:
+                                logger.info("")
+                                logger.info("🎯 检测到：战斗开始！自动开始录制...")
+                                self.waiting_start_ = False
+                                self.prepareRecording()
+                                session_count += 1
+                                logger.info(f"📹 开始第 {session_count} 次录制...")
+                            elif detected_state in ['victory', 'defeat', 'destroyed'] and self.recording_:
+                                logger.info("")
+                                logger.info(f"🎯 检测到：{detected_state}！自动停止录制...")
+                                self.recording_ = False
+                    except Exception as e:
+                        logger.debug(f"状态检测失败: {e}")
+                    
+                    last_state_check = current_time
+                
+                # 等待开始录制
+                while self.waiting_start_ and not self.should_exit_:
+                    time.sleep(0.1)
+                
+                if self.should_exit_:
+                    break
+                
+                # 录制循环
+                start_time = time.time()
+                frame_count = 0
+                last_log_time = start_time
+                last_state_check_in_recording = start_time
+                
+                while self.recording_ and not self.should_exit_:
+                    frame_start = time.time()
+                    
+                    try:
+                        # Capture frame
+                        frame = self.captureScreen()
+                        action = self.getCurrentAction()
+                        timestamp = time.time() - start_time
+                        
+                        # 调试：保存第一帧
+                        if frame_count == 0:
+                            debug_path = self.session_dir_ / "debug_first_frame.png"
+                            cv2.imwrite(str(debug_path), frame)
+                            logger.info(f"[调试] 第一帧已保存: {debug_path.name}")
+                        
+                        # 录制过程中定期检测结束状态
+                        current_time_in_recording = time.time()
+                        if current_time_in_recording - last_state_check_in_recording >= state_check_interval:
+                            try:
+                                # 传入当前帧号以启用采样检测优化
+                                detected_state = self.state_detector_.DetectState(frame, frame_number=frame_count)
+                                if detected_state in ['victory', 'defeat', 'destroyed']:
+                                    logger.info("")
+                                    logger.info(f"🎯 检测到：{detected_state}！自动停止录制...")
+                                    self.recording_ = False
+                                    break
+                            except Exception as e:
+                                logger.debug(f"状态检测失败: {e}")
+                            last_state_check_in_recording = current_time_in_recording
+                        
+                        # 实时保存帧
+                        if self.save_format_ in ["frames", "both"]:
+                            if frame_count % self.frame_step_ == 0:
+                                if self.async_saver_:
+                                    self.async_saver_.SaveFrame(frame, frame_count)
+                                else:
+                                    frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.png"
+                                    cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                        
+                        # 视频模式下存储到内存
+                        if self.save_format_ in ["video", "both"]:
+                            self.frames_.append(frame)
+                        
+                        # 记录操作
+                        self.actions_.append(action)
+                        self.frame_numbers_.append(frame_count)
+                        
+                        frame_count += 1
+                        
+                        # 更新统计信息并发送事件（每秒一次，覆盖层会自动更新）
+                        current_time_check = time.time()
+                        if current_time_check - last_log_time >= 1.0:
+                            if self.stats_:
+                                self.stats_.UpdateFrameCount(frame_count)
+                                self.stats_.UpdateDuration(timestamp)
+                            
+                            # 发送帧捕获事件（覆盖层会自动更新）
+                            if self.event_dispatcher_ and RecordingEventType:
+                                event = RecordingEvent(
+                                    RecordingEventType.FRAME_CAPTURED,
+                                    {'frame_count': frame_count, 'duration_seconds': timestamp}
+                                )
+                                self.event_dispatcher_.Emit(event)
+                        
+                        # 定期日志
+                        if current_time_check - last_log_time >= 5.0:
+                            actual_fps = frame_count / timestamp if timestamp > 0 else 0
+                            log_msg = f"录制中... 帧数: {frame_count}, 时长: {timestamp:.1f}s, FPS: {actual_fps:.1f}"
+                            
+                            if self.async_saver_:
+                                queue_size = self.async_saver_.GetQueueSize()
+                                log_msg += f", 队列: {queue_size}/60"
+                            
+                            logger.info(log_msg)
+                            last_log_time = current_time_check
+                            
+                    except Exception as e:
+                        logger.error(f"捕获帧失败: {e}")
+                    
+                    # 维持 FPS
+                    elapsed = time.time() - frame_start
+                    sleep_time = max(0, self.frame_interval_ - elapsed)
+                    time.sleep(sleep_time)
+                
+                # 录制结束，保存数据
+                if not self.should_exit_:
+                    self.stopRecording()
+                    
+                    # 准备下一次录制
+                    logger.info("")
+                    logger.info("=" * 80)
+                    logger.info("💡 等待下一场战斗开始，或按 F9 手动开始，按 Ctrl+C 退出")
+                    logger.info("=" * 80)
+                    self.waiting_start_ = True
+                
+        except KeyboardInterrupt:
+            logger.info("\n\n⚠️  录制被用户中断")
+        except Exception as e:
+            logger.error(f"\n\n❌ 录制过程出错: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            logger.info(f"\n📊 总共完成 {session_count} 次录制")
+    
     def cleanup(self):
         """Clean up resources"""
+        # 关闭覆盖层
+        if self.overlay_:
+            self.overlay_.Stop()
+        
         if self.keyboard_listener_:
             self.keyboard_listener_.stop()
         if self.mouse_listener_:
@@ -828,6 +1269,7 @@ def run_with_config(config_dict=None):
     fullscreen_config = capture_config.get('fullscreen', {})
     width = fullscreen_config.get('width', 1920)
     height = fullscreen_config.get('height', 1080)
+    auto_mode = config_dict.get('auto_mode', False)  # 自动模式
     
     logger.info("=" * 80)
     logger.info("🎮 World of Tanks - 游戏录制工具")
@@ -837,6 +1279,7 @@ def run_with_config(config_dict=None):
     logger.info(f"  录制 FPS: {fps}")
     logger.info(f"  捕获模式: {mode}")
     logger.info(f"  分辨率: {width}x{height}")
+    logger.info(f"  自动模式: {auto_mode}")
     logger.info("")
     
     # 创建录制器
@@ -850,7 +1293,8 @@ def run_with_config(config_dict=None):
             frame_step=2,
             screen_width=width,
             screen_height=height,
-            use_global_hook=False  # 暂时禁用全局钩子
+            use_global_hook=False,  # 暂时禁用全局钩子
+            auto_mode=auto_mode
         )
         logger.info("✓ 录制器初始化成功\n")
     except Exception as e:

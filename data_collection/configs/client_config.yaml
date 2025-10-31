@@ -1,3 +1,4 @@
+auto_mode: true
 capture:
   fps: 5
   fullscreen:
