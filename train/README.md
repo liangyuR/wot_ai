@@ -58,21 +58,34 @@ data_collection/data/recordings/
     └── ...
 ```
 
+## 模型架构
+
+使用 **ResNet18 + LSTM** 时序模型：
+
+- **特征提取**: ResNet18 (ImageNet预训练)
+- **时序建模**: 2层LSTM，处理连续帧序列（默认4帧）
+- **输入格式**: `[B, T, 3, H, W]` - 批次大小B，序列长度T，3通道RGB，高H宽W
+- **输出**: 11维动作向量
+
 ## 模型输出
 
-模型输出8维动作向量：
-- `[0:4]` - W, A, S, D 按键状态
-- `[4:6]` - 鼠标左键、右键状态  
-- `[6:8]` - 归一化的鼠标X、Y坐标
+模型输出11维动作向量：
+- `[0:4]` - W, A, S, D 移动按键状态（二进制）
+- `[4:6]` - mouse_left, mouse_right 鼠标按键状态（二进制）
+- `[6:8]` - dx_norm, dy_norm 归一化的鼠标相对位移（连续值，范围[-1,1]）
+- `[8:11]` - space, shift, t 特殊按键状态（二进制：刹车、瞄准镜、交互）
 
 ## 训练参数
 
 可在 `train_imitation.py` 中调整：
 
-- `BATCH_SIZE = 32` - 批次大小
+- `BATCH_SIZE = 32` - 批次大小（序列输入建议较小）
 - `LEARNING_RATE = 1e-4` - 学习率
 - `EPOCHS = 20` - 训练轮数
-- `TARGET_W, TARGET_H = 84, 84` - 输入图像尺寸
+- `SEQUENCE_LENGTH = 4` - 连续帧序列长度
+- `TARGET_W, TARGET_H = 256, 256` - 输入图像尺寸
+- `USE_PRETRAINED = True` - 使用ImageNet预训练ResNet18
+- `FREEZE_BACKBONE = False` - 是否冻结ResNet18 backbone（可先冻结训练再微调）
 
 ## 输出文件
 
