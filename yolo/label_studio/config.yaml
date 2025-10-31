@@ -1,0 +1,5 @@
+label_studio:
+  url: http://localhost:8080
+  api_key: a71e72c08bc6378ffefc95d4780e1c6859266353
+  project_name: Tanks
+
