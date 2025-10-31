@@ -1,0 +1,11 @@
+# Minimal dependencies for data_collection
+PyYAML
+opencv-python
+numpy
+mss
+pynput
+loguru
+
+# Optional (only needed for window-capture mode via external utils)
+# psutil
+# pywin32
