@@ -135,6 +135,8 @@ class GameplayRecorder:
         frame_step: int = 1,
         screen_width: int = 1920,
         screen_height: int = 1080,
+        target_width: int = 960,
+        target_height: int = 540,
         use_global_hook: bool = True,
         auto_mode: bool = False,
         detector_type: str = 'auto',
@@ -162,6 +164,8 @@ class GameplayRecorder:
         self.frame_step_ = frame_step
         self.screen_width_ = screen_width
         self.screen_height_ = screen_height
+        self.target_width_ = target_width
+        self.target_height_ = target_height
         self.use_global_hook_ = use_global_hook and GLOBAL_HOOK_AVAILABLE
         self.auto_mode_ = auto_mode
         self.detector_type_ = detector_type
@@ -438,6 +442,34 @@ class GameplayRecorder:
             import traceback
             traceback.print_exc()
             raise
+    
+    def ResizeFrame(self, frame: np.ndarray) -> np.ndarray:
+        """
+        将帧缩放到目标分辨率
+        
+        Args:
+            frame: 原始帧（BGR 格式）
+            
+        Returns:
+            缩放后的帧（BGR 格式）
+        """
+        if frame is None:
+            return None
+        
+        frame_height, frame_width = frame.shape[:2]
+        
+        # 如果已经是目标分辨率，直接返回
+        if frame_width == self.target_width_ and frame_height == self.target_height_:
+            return frame
+        
+        # 使用 cv2.INTER_AREA 进行降采样（适合缩小分辨率）
+        resized_frame = cv2.resize(
+            frame,
+            (self.target_width_, self.target_height_),
+            interpolation=cv2.INTER_AREA
+        )
+        
+        return resized_frame
         
     def getCurrentAction(self) -> dict:
         """Get current input action"""
@@ -529,24 +561,27 @@ class GameplayRecorder:
                     # 实时保存帧（如果启用）
                     if self.save_format_ in ["frames", "both"]:
                         if frame_count % self.frame_step_ == 0:
+                            # 缩放帧到目标分辨率
+                            resized_frame = self.ResizeFrame(frame)
                             # 使用异步保存器（如果可用）
                             if self.async_saver_:
-                                self.async_saver_.SaveFrame(frame, frame_count)
+                                self.async_saver_.SaveFrame(resized_frame, frame_count)
                             else:
                                 # 回退到同步保存
                                 if self.frames_dir_ is not None:
                                     if self.frames_dir_ is not None:
                                         frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.png"
-                                        # frame 已经是 BGR 格式，直接保存为 PNG
-                                        cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                                        # resized_frame 已经是 BGR 格式，直接保存为 PNG
+                                        cv2.imwrite(str(frame_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
                                     else:
                                         logger.warning(f"frames_dir_ 未初始化，无法保存帧 {frame_count}")
                                 else:
                                     logger.warning(f"frames_dir_ 未初始化，无法保存帧 {frame_count}")
                     
-                    # 仅在视频模式下存储到内存
+                    # 仅在视频模式下存储到内存（也需要缩放）
                     if self.save_format_ in ["video", "both"]:
-                        self.frames_.append(frame)
+                        resized_frame = self.ResizeFrame(frame)
+                        self.frames_.append(resized_frame)
                     
                     # 记录操作和对应的帧号
                     self.actions_.append(action)
@@ -659,7 +694,7 @@ class GameplayRecorder:
             total_frames = len(self.frame_numbers_)
             duration = (self.frame_numbers_[-1] / self.fps_) if total_frames > 0 else 0
             
-            # 获取分辨率信息
+            # 获取分辨率信息（使用缩放后的分辨率）
             if self.save_format_ in ["frames", "both"]:
                 # 从已保存的第一帧读取分辨率
                 first_frame_path = self.frames_dir_ / "frame_000000.png"
@@ -667,11 +702,11 @@ class GameplayRecorder:
                     first_frame = cv2.imread(str(first_frame_path))
                     resolution = [first_frame.shape[1], first_frame.shape[0]]
                 else:
-                    resolution = [self.screen_width_, self.screen_height_]  # 使用配置的分辨率
+                    resolution = [self.target_width_, self.target_height_]  # 使用目标分辨率
             elif self.save_format_ == "video" and self.frames_:
                 resolution = [self.frames_[0].shape[1], self.frames_[0].shape[0]]
             else:
-                resolution = [self.screen_width_, self.screen_height_]
+                resolution = [self.target_width_, self.target_height_]  # 使用目标分辨率
             
             meta_data = {
                 "session_id": self.session_dir_.name,
@@ -1269,6 +1304,10 @@ def run_with_config(config_dict=None):
     fullscreen_config = capture_config.get('fullscreen', {})
     width = fullscreen_config.get('width', 1920)
     height = fullscreen_config.get('height', 1080)
+    # 目标分辨率（用于保存帧）
+    target_config = config_dict.get('target_resolution', {})
+    target_width = target_config.get('width', 960)
+    target_height = target_config.get('height', 540)
     auto_mode = config_dict.get('auto_mode', False)  # 自动模式
     
     logger.info("=" * 80)
@@ -1278,7 +1317,8 @@ def run_with_config(config_dict=None):
     logger.info("📋 当前配置:")
     logger.info(f"  录制 FPS: {fps}")
     logger.info(f"  捕获模式: {mode}")
-    logger.info(f"  分辨率: {width}x{height}")
+    logger.info(f"  捕获分辨率: {width}x{height}")
+    logger.info(f"  保存分辨率: {target_width}x{target_height}")
     logger.info(f"  自动模式: {auto_mode}")
     logger.info("")
     
@@ -1293,6 +1333,8 @@ def run_with_config(config_dict=None):
             frame_step=2,
             screen_width=width,
             screen_height=height,
+            target_width=target_width,
+            target_height=target_height,
             use_global_hook=False,  # 暂时禁用全局钩子
             auto_mode=auto_mode
         )
@@ -1359,7 +1401,8 @@ def main():
                 'fps': 30,
                 'mode': 'fullscreen',
                 'window': {'process_name': 'WorldOfTanks.exe'},
-                'fullscreen': {'width': 1920, 'height': 1080}
+                'fullscreen': {'width': 1920, 'height': 1080},
+                'target_resolution': {'width': 960, 'height': 540}
             }
         }
     
@@ -1400,6 +1443,19 @@ def main():
         type=int,
         default=config['capture'].get('fullscreen', {}).get('height', 1080),
         help="Screen height for fullscreen capture"
+    )
+    target_resolution_config = config.get('target_resolution', {})
+    parser.add_argument(
+        "--target-width",
+        type=int,
+        default=target_resolution_config.get('width', 960),
+        help="Target width for saved frames (default: 960)"
+    )
+    parser.add_argument(
+        "--target-height",
+        type=int,
+        default=target_resolution_config.get('height', 540),
+        help="Target height for saved frames (default: 540)"
     )
     parser.add_argument(
         "--window-title",
@@ -1541,6 +1597,8 @@ def main():
             frame_step=args.frame_step,
             screen_width=args.width,
             screen_height=args.height,
+            target_width=args.target_width,
+            target_height=args.target_height,
             use_global_hook=args.use_global_hook
         )
         logger.info("✓ 录制器初始化成功\n")

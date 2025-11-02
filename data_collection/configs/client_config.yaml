@@ -15,6 +15,9 @@ capture:
     fallback_to_fullscreen: true
     partial_match: true
     process_name: WorldOfTanks.exe
+target_resolution:
+  height: 540
+  width: 960
 control:
   key_press_duration: 50
   mouse_sensitivity: 1.0

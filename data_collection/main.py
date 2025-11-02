@@ -282,16 +282,14 @@ class ConfigGUI:
     
     def update_info(self):
         """更新存储估算信息"""
-        # 使用检测到的分辨率
-        try:
-            width, height = map(int, self.detected_resolution.split('x'))
-        except:
-            width, height = 1920, 1080
-            
+        # 使用目标分辨率（960x540）进行估算，而不是捕获分辨率
+        target_width = 960
+        target_height = 540
+        
         fps = self.fps_var.get()
         
         # 估算存储（PNG 压缩后约 1-3 bits per pixel，比 JPEG 大但无损）
-        pixels = width * height
+        pixels = target_width * target_height
         bytes_per_frame = pixels * 0.2  # 平均压缩率
         
         # 每分钟 (考虑 frame_step=2)
@@ -311,7 +309,7 @@ class ConfigGUI:
         
         info_text = f"""📊 存储估算 (frame_step=2):
 
-分辨率: {width}x{height}
+保存分辨率: {target_width}x{target_height}
 录制帧率: {fps} FPS
 实际保存: {actual_fps:.1f} FPS
 
