@@ -1,7 +1,7 @@
 # Minimal dependencies for data_collection
 PyYAML
 opencv-python
-numpy
+numpy==1.26.4
 mss
 pynput
 loguru
@@ -20,8 +20,9 @@ dxcam>=0.0.5
 ultralytics>=8.0.0
 # Option 2: OCR-based detection (legacy, slower)
 # easyocr
-# pytesseract
+pytesseract
 
 # Optional (only needed for window-capture mode via external utils)
 # psutil
 # pywin32
+pyinstaller

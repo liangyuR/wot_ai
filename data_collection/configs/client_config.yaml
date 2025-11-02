@@ -2,8 +2,8 @@ auto_mode: true
 capture:
   fps: 5
   fullscreen:
-    height: 2160
-    width: 3840
+    height: 1440
+    width: 3440
   mode: fullscreen
   roi:
     enabled: false

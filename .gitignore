@@ -67,3 +67,4 @@ temp/
 # OS
 Thumbs.db
 .DS_Store
+data_collection/WoTDataCollection.spec
