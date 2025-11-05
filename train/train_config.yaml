@@ -13,15 +13,19 @@ action:
   mouse_keys: ["mouse_left", "mouse_right"]
   # 特殊按键：刹车、瞄准镜、交互
   special_keys: ["space", "shift", "t"]
-  # 动作维度（自动计算：4移动 + 2鼠标按键 + 2鼠标位移 + 3特殊按键 = 11）
-  action_dim: 11
+  # 速度控制按键：r增加速度，f减少速度（共4节速度）
+  speed_keys: ["r", "f"]
+  # 鼠标滚轮：拉远放大视角，拉近缩小视角
+  mouse_wheel_keys: ["mouse_wheel_up", "mouse_wheel_down"]
+  # 动作维度（自动计算：4移动 + 2鼠标按键 + 2鼠标位移 + 3特殊按键 + 2速度控制 + 2鼠标滚轮 = 15）
+  action_dim: 15
 
 # 时序模型配置
 model:
   # Backbone类型 (resnet18, efficientnet_v2_s, convnext_tiny等)
   backbone: resnet18
   # 连续帧序列长度
-  sequence_length: 4
+  sequence_length: 10 # 覆盖 2 秒
   # 是否使用ImageNet预训练权重
   use_pretrained: true
   # 是否冻结backbone（可先冻结训练再微调）
@@ -38,7 +42,7 @@ model:
   # 是否使用Flash Attention（需要安装flash-attn）
   use_flash_attention: false
   # 是否使用torch.compile优化（PyTorch 2.0+）
-  torch_compile: false
+  torch_compile: true
 
 # 训练配置
 training:
@@ -76,8 +80,8 @@ paths:
 # 注意：实际分辨率将从数据的 meta.json 中读取
 # 以下值为默认值，如果 meta.json 不存在则使用
 resolution:
-  default_width: 3840
-  default_height: 2160
+  default_width: 1920
+  default_height: 1080
 
 # 数据加载优化配置
 data:

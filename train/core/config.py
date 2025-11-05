@@ -25,7 +25,9 @@ def LoadConfig(config_path: Optional[Path] = None) -> Dict:
             'movement_keys': ['w', 'a', 's', 'd'],
             'mouse_keys': ['mouse_left', 'mouse_right'],
             'special_keys': ['space', 'shift', 't'],
-            'action_dim': 11
+            'speed_keys': ['r', 'f'],
+            'mouse_wheel_keys': ['mouse_wheel_up', 'mouse_wheel_down'],
+            'action_dim': 15
         },
         'model': {
             'backbone': 'resnet18',  # 可选: resnet18, efficientnet_v2_s, convnext_tiny
