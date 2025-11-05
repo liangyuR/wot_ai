@@ -940,19 +940,22 @@ class GameplayRecorder:
                         # 实时保存帧
                         if self.save_format_ in ["frames", "both"]:
                             if frame_count % self.frame_step_ == 0:
+                                # 缩放帧到目标分辨率
+                                resized_frame = self.ResizeFrame(frame)
                                 if self.async_saver_:
-                                    self.async_saver_.SaveFrame(frame, frame_count)
+                                    self.async_saver_.SaveFrame(resized_frame, frame_count)
                                 else:
                                     if self.frames_dir_ is not None:
                                         frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.png"
-                                        # frame 已经是 BGR 格式，直接保存为 PNG
-                                        cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                                        # resized_frame 已经是 BGR 格式，直接保存为 PNG
+                                        cv2.imwrite(str(frame_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
                                     else:
                                         logger.warning(f"frames_dir_ 未初始化，无法保存帧 {frame_count}")
                         
-                        # 视频模式下存储到内存
+                        # 视频模式下存储到内存（也需要缩放）
                         if self.save_format_ in ["video", "both"]:
-                            self.frames_.append(frame)
+                            resized_frame = self.ResizeFrame(frame)
+                            self.frames_.append(resized_frame)
                         
                         # 记录操作
                         self.actions_.append(action)
@@ -1182,15 +1185,19 @@ class GameplayRecorder:
                         # 实时保存帧
                         if self.save_format_ in ["frames", "both"]:
                             if frame_count % self.frame_step_ == 0:
+                                # 缩放帧到目标分辨率
+                                resized_frame = self.ResizeFrame(frame)
                                 if self.async_saver_:
-                                    self.async_saver_.SaveFrame(frame, frame_count)
+                                    self.async_saver_.SaveFrame(resized_frame, frame_count)
                                 else:
                                     frame_path = self.frames_dir_ / f"frame_{frame_count:06d}.png"
-                                    cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                                    # resized_frame 已经是 BGR 格式，直接保存为 PNG
+                                    cv2.imwrite(str(frame_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 3])
                         
-                        # 视频模式下存储到内存
+                        # 视频模式下存储到内存（也需要缩放）
                         if self.save_format_ in ["video", "both"]:
-                            self.frames_.append(frame)
+                            resized_frame = self.ResizeFrame(frame)
+                            self.frames_.append(resized_frame)
                         
                         # 记录操作
                         self.actions_.append(action)
