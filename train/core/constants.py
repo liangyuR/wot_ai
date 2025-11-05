@@ -28,7 +28,7 @@ def _init_config():
     
     # 提取配置常量
     global TARGET_W, TARGET_H
-    global ACTION_KEYS, MOUSE_KEYS, SPECIAL_KEYS, ACTION_DIM
+    global ACTION_KEYS, MOUSE_KEYS, SPECIAL_KEYS, SPEED_KEYS, MOUSE_WHEEL_KEYS, ACTION_DIM
     global SEQUENCE_LENGTH, USE_PRETRAINED, FREEZE_BACKBONE
     global LSTM_HIDDEN_SIZE, LSTM_NUM_LAYERS
     global BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_WORKERS, VAL_SPLIT
@@ -43,6 +43,8 @@ def _init_config():
     ACTION_KEYS = _config['action']['movement_keys']
     MOUSE_KEYS = _config['action']['mouse_keys']
     SPECIAL_KEYS = _config['action']['special_keys']
+    SPEED_KEYS = _config['action'].get('speed_keys', ['r', 'f'])
+    MOUSE_WHEEL_KEYS = _config['action'].get('mouse_wheel_keys', ['mouse_wheel_up', 'mouse_wheel_down'])
     ACTION_DIM = _config['action']['action_dim']
     
     SEQUENCE_LENGTH = _config['model']['sequence_length']
