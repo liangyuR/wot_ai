@@ -83,6 +83,11 @@ class AimAssistGUI:
         notebook.add(status_frame, text="状态")
         self.CreateStatusTab(status_frame)
         
+        # 路径规划标签页
+        path_planning_frame = ttk.Frame(notebook, padding=15)
+        notebook.add(path_planning_frame, text="路径规划")
+        self.CreatePathPlanningTab(path_planning_frame)
+        
         # 底部按钮
         button_frame = ttk.Frame(self.root)
         button_frame.pack(fill=tk.X, padx=10, pady=10)
@@ -314,6 +319,186 @@ class AimAssistGUI:
         
         self.stats_text.insert("1.0", "等待启动...\n")
         self.stats_text.config(state=tk.DISABLED)
+    
+    def CreatePathPlanningTab(self, parent):
+        """创建路径规划标签页"""
+        # 路径规划控制器
+        self.path_planning_controller_ = None
+        
+        # 配置区域
+        config_frame = ttk.LabelFrame(parent, text="路径规划配置", padding=10)
+        config_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # 模型路径
+        ttk.Label(config_frame, text="模型路径:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.path_model_path_var = tk.StringVar(value="path_planning/config/path_planning_config.yaml")
+        ttk.Entry(config_frame, textvariable=self.path_model_path_var, width=40).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(
+            config_frame,
+            text="选择配置",
+            command=self.SelectPathPlanningConfig
+        ).grid(row=0, column=2, padx=5, pady=5)
+        
+        # 小地图区域设置
+        minimap_frame = ttk.LabelFrame(config_frame, text="小地图区域", padding=5)
+        minimap_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=5)
+        
+        ttk.Label(minimap_frame, text="X:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        self.minimap_x_var = tk.StringVar(value="1600")
+        ttk.Entry(minimap_frame, textvariable=self.minimap_x_var, width=10).grid(row=0, column=1, padx=5, pady=2)
+        
+        ttk.Label(minimap_frame, text="Y:").grid(row=0, column=2, sticky=tk.W, padx=5, pady=2)
+        self.minimap_y_var = tk.StringVar(value="800")
+        ttk.Entry(minimap_frame, textvariable=self.minimap_y_var, width=10).grid(row=0, column=3, padx=5, pady=2)
+        
+        ttk.Label(minimap_frame, text="宽度:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        self.minimap_width_var = tk.StringVar(value="320")
+        ttk.Entry(minimap_frame, textvariable=self.minimap_width_var, width=10).grid(row=1, column=1, padx=5, pady=2)
+        
+        ttk.Label(minimap_frame, text="高度:").grid(row=1, column=2, sticky=tk.W, padx=5, pady=2)
+        self.minimap_height_var = tk.StringVar(value="320")
+        ttk.Entry(minimap_frame, textvariable=self.minimap_height_var, width=10).grid(row=1, column=3, padx=5, pady=2)
+        
+        # 控制按钮
+        button_frame = ttk.Frame(config_frame)
+        button_frame.grid(row=2, column=0, columnspan=3, pady=10)
+        
+        self.path_start_button = ttk.Button(
+            button_frame,
+            text="▶ 启动路径规划",
+            command=self.StartPathPlanning,
+            width=15
+        )
+        self.path_start_button.pack(side=tk.LEFT, padx=5)
+        
+        self.path_stop_button = ttk.Button(
+            button_frame,
+            text="⏹ 停止",
+            command=self.StopPathPlanning,
+            width=15,
+            state=tk.DISABLED
+        )
+        self.path_stop_button.pack(side=tk.LEFT, padx=5)
+        
+        # 状态显示
+        status_frame = ttk.LabelFrame(parent, text="路径规划状态", padding=10)
+        status_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.path_status_label = tk.Label(
+            status_frame,
+            text="状态: 未启动",
+            font=("微软雅黑", 12, "bold"),
+            fg="#e74c3c"
+        )
+        self.path_status_label.pack(pady=10)
+        
+        # 统计信息
+        self.path_stats_text = tk.Text(
+            status_frame,
+            height=10,
+            font=("Consolas", 10),
+            wrap=tk.WORD
+        )
+        self.path_stats_text.pack(fill=tk.BOTH, expand=True)
+        self.path_stats_text.insert("1.0", "等待启动...\n")
+        self.path_stats_text.config(state=tk.DISABLED)
+    
+    def SelectPathPlanningConfig(self):
+        """选择路径规划配置文件"""
+        filename = filedialog.askopenfilename(
+            title="选择路径规划配置文件",
+            filetypes=[("YAML文件", "*.yaml"), ("所有文件", "*.*")],
+            initialdir=str(Path(__file__).resolve().parent / "path_planning" / "config")
+        )
+        if filename:
+            try:
+                rel_path = Path(filename).relative_to(Path(__file__).resolve().parent)
+                self.path_model_path_var.set(str(rel_path))
+            except ValueError:
+                self.path_model_path_var.set(filename)
+    
+    def StartPathPlanning(self):
+        """启动路径规划"""
+        if self.path_planning_controller_ and self.path_planning_controller_.IsRunning():
+            messagebox.showwarning("警告", "路径规划已在运行")
+            return
+        
+        try:
+            try:
+                from path_planning.controller.path_planning_controller import PathPlanningController
+            except ImportError:
+                # 备用导入路径
+                import sys
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from path_planning.controller.path_planning_controller import PathPlanningController
+            
+            config_path = Path(self.path_model_path_var.get())
+            if not config_path.is_absolute():
+                config_path = Path(__file__).resolve().parent / config_path
+            
+            if not config_path.exists():
+                messagebox.showerror("错误", f"配置文件不存在: {config_path}")
+                return
+            
+            # 创建控制器
+            self.path_planning_controller_ = PathPlanningController(config_path)
+            
+            # 设置回调
+            self.path_planning_controller_.SetStatusCallback(self.OnPathPlanningStatusUpdate)
+            self.path_planning_controller_.SetStatsCallback(self.OnPathPlanningStatsUpdate)
+            
+            # 启动
+            if self.path_planning_controller_.Start():
+                self.path_start_button.config(state=tk.DISABLED)
+                self.path_stop_button.config(state=tk.NORMAL)
+                messagebox.showinfo("成功", "路径规划已启动")
+            else:
+                messagebox.showerror("错误", "路径规划启动失败")
+        except Exception as e:
+            messagebox.showerror("错误", f"启动失败: {e}")
+            logger.error(f"启动路径规划失败: {e}")
+    
+    def StopPathPlanning(self):
+        """停止路径规划"""
+        if not self.path_planning_controller_ or not self.path_planning_controller_.IsRunning():
+            return
+        
+        try:
+            self.path_planning_controller_.Stop()
+            self.path_start_button.config(state=tk.NORMAL)
+            self.path_stop_button.config(state=tk.DISABLED)
+            messagebox.showinfo("成功", "路径规划已停止")
+        except Exception as e:
+            messagebox.showerror("错误", f"停止失败: {e}")
+    
+    def OnPathPlanningStatusUpdate(self, status: str):
+        """路径规划状态更新回调"""
+        def update():
+            if status == "运行中":
+                self.path_status_label.config(text=f"状态: {status}", fg="#27ae60")
+            elif status == "已停止":
+                self.path_status_label.config(text=f"状态: {status}", fg="#e74c3c")
+            else:
+                self.path_status_label.config(text=f"状态: {status}", fg="#3498db")
+        
+        self.root.after(0, update)
+    
+    def OnPathPlanningStatsUpdate(self, stats: dict):
+        """路径规划统计信息更新回调"""
+        def update():
+            self.path_stats_text.config(state=tk.NORMAL)
+            self.path_stats_text.delete("1.0", tk.END)
+            
+            stats_str = f"""FPS: {stats.get('fps', 0):.1f}
+总帧数: {stats.get('frame_count', 0)}
+检测次数: {stats.get('detection_count', 0)}
+路径规划次数: {stats.get('path_planning_count', 0)}
+导航执行次数: {stats.get('navigation_count', 0)}
+"""
+            self.path_stats_text.insert("1.0", stats_str)
+            self.path_stats_text.config(state=tk.DISABLED)
+        
+        self.root.after(0, update)
     
     def AutoDetectResolution(self):
         """自动检测屏幕分辨率"""
@@ -573,9 +758,20 @@ class AimAssistGUI:
     
     def OnExit(self):
         """退出"""
+        need_confirm = False
+        
         if self.controller_ and self.controller_.IsRunning():
-            if messagebox.askyesno("确认", "控制器正在运行，是否退出？"):
-                self.controller_.Stop()
+            need_confirm = True
+        
+        if hasattr(self, 'path_planning_controller_') and self.path_planning_controller_ and self.path_planning_controller_.IsRunning():
+            need_confirm = True
+        
+        if need_confirm:
+            if messagebox.askyesno("确认", "有控制器正在运行，是否退出？"):
+                if self.controller_ and self.controller_.IsRunning():
+                    self.controller_.Stop()
+                if hasattr(self, 'path_planning_controller_') and self.path_planning_controller_ and self.path_planning_controller_.IsRunning():
+                    self.path_planning_controller_.Stop()
                 self.root.destroy()
         else:
             self.root.destroy()
