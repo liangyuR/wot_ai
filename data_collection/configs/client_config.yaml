@@ -1,9 +1,9 @@
-auto_mode: true
+auto_mode: false
 capture:
   fps: 5
   fullscreen:
-    height: 1440
-    width: 3440
+    height: 2160
+    width: 3840
   mode: fullscreen
   roi:
     enabled: false
@@ -15,10 +15,10 @@ capture:
     fallback_to_fullscreen: true
     partial_match: true
     process_name: WorldOfTanks.exe
-target_resolution:
-  height: 540
-  width: 960
 control:
   key_press_duration: 50
   mouse_sensitivity: 1.0
   safe_mode: true
+target_resolution:
+  height: 540
+  width: 960

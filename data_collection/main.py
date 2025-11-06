@@ -10,6 +10,39 @@ from pathlib import Path
 import logging
 import threading
 
+
+def GetDpiScale():
+    """获取 DPI 缩放比例（用于高 DPI 屏幕适配）"""
+    try:
+        # Windows 系统
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                # 尝试获取 DPI
+                dpi = ctypes.windll.user32.GetDpiForSystem()
+                # 标准 DPI 是 96，缩放比例 = DPI / 96
+                scale = dpi / 96.0
+                return max(1.0, min(scale, 3.0))  # 限制在 1.0-3.0 之间
+            except:
+                # 如果获取失败，尝试根据分辨率估算
+                try:
+                    # 使用 Windows API 获取屏幕分辨率
+                    import ctypes
+                    user32 = ctypes.windll.user32
+                    width = user32.GetSystemMetrics(0)  # SM_CXSCREEN
+                    # 假设标准 1080p 是基准，4K (3840) 大约是 2x
+                    if width >= 3840:
+                        return 2.0
+                    elif width >= 2560:
+                        return 1.5
+                    else:
+                        return 1.0
+                except:
+                    return 1.0
+        return 1.0
+    except:
+        return 1.0
+
 try:
     from data_collection.core.config_manager import ConfigManager
 except ImportError:
@@ -36,10 +69,27 @@ def get_base_path():
 class ConfigGUI:
     def __init__(self, root):
         self.root = root
+        
+        # 获取 DPI 缩放比例
+        self.dpi_scale_ = GetDpiScale()
+        
+        # 设置高 DPI 感知（Windows）
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                # 设置 DPI 感知
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_PER_MONITOR_DPI_AWARE
+            except:
+                pass
+        
         self.root.title("坦克世界 AI - 数据采集配置")
-        self.root.geometry("550x550")
+        
+        # 根据 DPI 缩放调整窗口大小
+        base_width = 550
+        base_height = 900
+        self.root.geometry(f"{int(base_width * self.dpi_scale_)}x{int(base_height * self.dpi_scale_)}")
         self.root.resizable(True, True)
-        self.root.minsize(550, 800)  # 最小尺寸
+        self.root.minsize(int(base_width * self.dpi_scale_), int(base_height * self.dpi_scale_))
         
         # 配置文件路径（兼容打包后的 exe）
         base_path = get_base_path()
@@ -103,27 +153,37 @@ class ConfigGUI:
     
     def create_widgets(self):
         """创建界面组件"""
+        # 根据 DPI 缩放计算字体大小
+        title_font_size = int(16 * self.dpi_scale_)
+        heading_font_size = int(10 * self.dpi_scale_)
+        normal_font_size = int(9 * self.dpi_scale_)
+        small_font_size = int(8 * self.dpi_scale_)
+        info_font_size = int(9 * self.dpi_scale_)
+        
         # 标题
-        title_frame = tk.Frame(self.root, bg="#2c3e50", height=70)
+        title_height = int(70 * self.dpi_scale_)
+        title_frame = tk.Frame(self.root, bg="#2c3e50", height=title_height)
         title_frame.pack(fill=tk.X)
         title_frame.pack_propagate(False)
         
+        title_pady = int(20 * self.dpi_scale_)
         title_label = tk.Label(
             title_frame,
             text="🎮 坦克世界 AI 数据采集工具",
-            font=("微软雅黑", 16, "bold"),
+            font=("微软雅黑", title_font_size, "bold"),
             bg="#2c3e50",
             fg="white"
         )
-        title_label.pack(pady=20)
+        title_label.pack(pady=title_pady)
         
         # 主配置区域
-        main_frame = ttk.Frame(self.root, padding=20)
+        main_padding = int(20 * self.dpi_scale_)
+        main_frame = ttk.Frame(self.root, padding=main_padding)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # 1. 屏幕分辨率显示（自动检测）
-        ttk.Label(main_frame, text="屏幕分辨率:", font=("微软雅黑", 10, "bold")).grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 5)
+        ttk.Label(main_frame, text="屏幕分辨率:", font=("微软雅黑", heading_font_size, "bold")).grid(
+            row=0, column=0, sticky=tk.W, pady=(0, int(5 * self.dpi_scale_))
         )
         
         # 自动检测屏幕分辨率
@@ -140,29 +200,29 @@ class ConfigGUI:
             detected_width, detected_height = 1920, 1080
         
         resolution_info_frame = ttk.Frame(main_frame)
-        resolution_info_frame.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 15))
+        resolution_info_frame.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, int(15 * self.dpi_scale_)))
         
         ttk.Label(
             resolution_info_frame,
             text=f"自动检测: {self.detected_resolution}",
-            font=("微软雅黑", 9),
+            font=("微软雅黑", normal_font_size),
             foreground="#2c3e50"
         ).pack(anchor=tk.W)
         
         ttk.Label(
             resolution_info_frame,
             text="✓ 将自动使用当前屏幕分辨率进行录制",
-            font=("微软雅黑", 8),
+            font=("微软雅黑", small_font_size),
             foreground="#27ae60"
         ).pack(anchor=tk.W)
         
         # 2. FPS 设置
-        ttk.Label(main_frame, text="录制帧率 (FPS):", font=("微软雅黑", 10, "bold")).grid(
-            row=2, column=0, sticky=tk.W, pady=(15, 5)
+        ttk.Label(main_frame, text="录制帧率 (FPS):", font=("微软雅黑", heading_font_size, "bold")).grid(
+            row=2, column=0, sticky=tk.W, pady=(int(15 * self.dpi_scale_), int(5 * self.dpi_scale_))
         )
         
         fps_frame = ttk.Frame(main_frame)
-        fps_frame.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(0, 15))
+        fps_frame.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(0, int(15 * self.dpi_scale_)))
         
         self.fps_var = tk.IntVar(value=self.config.get('capture', {}).get('fps', 5))
         
@@ -181,15 +241,15 @@ class ConfigGUI:
                 text=label,
                 variable=self.fps_var,
                 value=fps
-            ).pack(anchor=tk.W, pady=2)
+            ).pack(anchor=tk.W, pady=int(2 * self.dpi_scale_))
         
         # 3. 自动模式设置
-        ttk.Label(main_frame, text="自动检测模式:", font=("微软雅黑", 10, "bold")).grid(
-            row=4, column=0, sticky=tk.W, pady=(15, 5)
+        ttk.Label(main_frame, text="自动检测模式:", font=("微软雅黑", heading_font_size, "bold")).grid(
+            row=4, column=0, sticky=tk.W, pady=(int(15 * self.dpi_scale_), int(5 * self.dpi_scale_))
         )
         
         auto_mode_frame = ttk.Frame(main_frame)
-        auto_mode_frame.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 15))
+        auto_mode_frame.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, int(15 * self.dpi_scale_)))
         
         self.auto_mode_var = tk.BooleanVar(value=self.config.get('auto_mode', False))
         
@@ -198,84 +258,90 @@ class ConfigGUI:
             text="启用自动检测（检测战斗开始/结束，自动录制）",
             variable=self.auto_mode_var
         )
-        auto_checkbox.pack(anchor=tk.W, pady=2)
+        auto_checkbox.pack(anchor=tk.W, pady=int(2 * self.dpi_scale_))
         
+        label_padx = int(20 * self.dpi_scale_)
         ttk.Label(
             auto_mode_frame,
             text="• 检测区域: 屏幕中心靠上1/3区域",
-            font=("微软雅黑", 8),
+            font=("微软雅黑", small_font_size),
             foreground="#7f8c8d"
-        ).pack(anchor=tk.W, padx=(20, 0))
+        ).pack(anchor=tk.W, padx=(label_padx, 0))
         
         ttk.Label(
             auto_mode_frame,
             text="• 战斗开始时自动开始录制",
-            font=("微软雅黑", 8),
+            font=("微软雅黑", small_font_size),
             foreground="#7f8c8d"
-        ).pack(anchor=tk.W, padx=(20, 0))
+        ).pack(anchor=tk.W, padx=(label_padx, 0))
         
         ttk.Label(
             auto_mode_frame,
             text="• 胜利/被击败/被击毁时自动停止录制",
-            font=("微软雅黑", 8),
+            font=("微软雅黑", small_font_size),
             foreground="#7f8c8d"
-        ).pack(anchor=tk.W, padx=(20, 0))
+        ).pack(anchor=tk.W, padx=(label_padx, 0))
         
         # 4. 存储估算
         ttk.Separator(main_frame, orient=tk.HORIZONTAL).grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=15
+            row=6, column=0, columnspan=2, sticky="ew", pady=int(15 * self.dpi_scale_)
         )
         
+        info_padx = int(10 * self.dpi_scale_)
+        info_pady = int(10 * self.dpi_scale_)
         self.info_label = tk.Label(
             main_frame,
             text="",
-            font=("Consolas", 9),
+            font=("Consolas", info_font_size),
             justify=tk.LEFT,
             bg="#ecf0f1",
             fg="#34495e",
-            padx=10,
-            pady=10
+            padx=info_padx,
+            pady=info_pady
         )
-        self.info_label.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        self.info_label.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, int(15 * self.dpi_scale_)))
         
         self.update_info()
         
         # 状态显示
+        status_pady = int(5 * self.dpi_scale_)
         self.status_label = tk.Label(
             main_frame,
             text="状态: 就绪",
-            font=("微软雅黑", 9),
+            font=("微软雅黑", normal_font_size),
             fg="#27ae60",
-            pady=5
+            pady=status_pady
         )
-        self.status_label.grid(row=8, column=0, columnspan=2, pady=(10, 5))
+        self.status_label.grid(row=8, column=0, columnspan=2, pady=(int(10 * self.dpi_scale_), status_pady))
         
         # 按钮区域
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=9, column=0, columnspan=2, pady=(10, 0))
+        button_frame.grid(row=9, column=0, columnspan=2, pady=(int(10 * self.dpi_scale_), 0))
         
+        button_width = int(15 * self.dpi_scale_)
+        button_padx = int(5 * self.dpi_scale_)
         self.save_button = ttk.Button(
             button_frame,
             text="💾 保存配置",
             command=self.apply_config,
-            width=15
+            width=button_width
         )
-        self.save_button.pack(side=tk.LEFT, padx=5)
+        self.save_button.pack(side=tk.LEFT, padx=button_padx)
         
         self.record_button = ttk.Button(
             button_frame,
             text="🎬 开始录制",
             command=self.start_recording,
-            width=15
+            width=button_width
         )
-        self.record_button.pack(side=tk.LEFT, padx=5)
+        self.record_button.pack(side=tk.LEFT, padx=button_padx)
         
         ttk.Button(
             button_frame,
             text="❌ 退出",
             command=self.on_exit,
-            width=15
-        ).pack(side=tk.LEFT, padx=5)
+            width=button_width
+        ).pack(side=tk.LEFT, padx=button_padx)
         
         # 绑定变量改变事件
         self.fps_var.trace('w', lambda *args: self.update_info())
