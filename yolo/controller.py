@@ -10,12 +10,22 @@ import time
 import logging
 import threading
 
-from core.screen_capture import ScreenCapture, MssScreenCapture
-from core.detection_engine import DetectionEngine
-from core.aim_controller import AimController
-from core.hotkey_manager import HotkeyManager
-from core.config_manager import AimConfigManager
-from aim_assist import AimAssist
+# 统一导入方式
+try:
+    from yolo.core.screen_capture import ScreenCapture, MssScreenCapture
+    from yolo.core.detection_engine import DetectionEngine
+    from yolo.core.aim_controller import AimController
+    from yolo.core.hotkey_manager import HotkeyManager
+    from yolo.core.config_manager import AimConfigManager
+    from yolo.aim_assist import AimAssist
+except ImportError:
+    # 回退：如果 yolo 包不可用，使用相对导入
+    from core.screen_capture import ScreenCapture, MssScreenCapture
+    from core.detection_engine import DetectionEngine
+    from core.aim_controller import AimController
+    from core.hotkey_manager import HotkeyManager
+    from core.config_manager import AimConfigManager
+    from aim_assist import AimAssist
 
 logger = logging.getLogger(__name__)
 

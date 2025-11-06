@@ -108,7 +108,7 @@ class CvMinimapDetector:
         self.arrow_params_ = {
             'min_area': 50,
             'max_area': 1500,
-            'min_aspect_ratio': 1.1,
+            'min_aspect_ratio': 0.9,
             'max_aspect_ratio': 3.5,
             'min_vertices': 3,
             'max_vertices': 7
@@ -220,16 +220,20 @@ class CvMinimapDetector:
             过滤后的轮廓列表
         """
         filtered = []
-        for cnt in contours:
+        for idx, cnt in enumerate(contours):
             # 先按面积过滤（快速检查）
             area = cv2.contourArea(cnt)
             if area < params['min_area'] or area > params['max_area']:
+                logger.debug(f"轮廓 {idx}: 面积 {area:.2f} 不在范围 [{params['min_area']}, {params['max_area']}]，被过滤")
                 continue
             
             # 再检查宽高比（快速检查）
             x, y, w_box, h_box = cv2.boundingRect(cnt)
             aspect_ratio = w_box / h_box if h_box > 0 else 0
             if not (params['min_aspect_ratio'] < aspect_ratio < params['max_aspect_ratio']):
+                logger.debug(
+                    f"轮廓 {idx}: 宽高比 {aspect_ratio:.2f} 不在范围 ({params['min_aspect_ratio']}, {params['max_aspect_ratio']})，被过滤"
+                )
                 continue
             
             # 最后计算approxPolyDP（较慢，但已过滤大部分）
@@ -238,8 +242,14 @@ class CvMinimapDetector:
             vertices_count = len(approx)
             
             if params['min_vertices'] <= vertices_count <= params['max_vertices']:
+                logger.debug(f"轮廓 {idx}: 通过过滤 (面积: {area:.2f}，宽高比: {aspect_ratio:.2f}，顶点数: {vertices_count})")
                 filtered.append(cnt)
+            else:
+                logger.debug(
+                    f"轮廓 {idx}: 顶点数 {vertices_count} 不在范围 [{params['min_vertices']}, {params['max_vertices']}]，被过滤"
+                )
         
+        logger.debug(f"总轮廓数: {len(contours)}，过滤后: {len(filtered)}")
         return filtered
     
     def GetContourCenter(self, cnt: np.ndarray) -> Optional[Tuple[int, int]]:

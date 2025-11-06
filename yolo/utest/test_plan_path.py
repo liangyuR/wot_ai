@@ -14,11 +14,6 @@ try:
 except ImportError:
     from core.cv_minimap_detector import CvMinimapDetector
 
-try:
-    from path_planning.core.minimap_binarizer import MinimapBinarizer
-except ImportError:
-    from core.minimap_binarizer import MinimapBinarizer
-
 # 导入DWA相关函数
 import sys
 from pathlib import Path
@@ -150,23 +145,53 @@ def ExtractObstaclesFromBinary(binary_mask: np.ndarray, sample_interval: int = 5
 
 def main():
     """主函数"""
-    # 读取截图
-    img_path = "frame_000278.jpg"
-    img = cv2.imread(img_path)
-    if img is None:
-        print(f"无法读取图像: {img_path}")
+    # 加载手动标注的二值化图片
+    binary_img_path = "path_planning/maps/01_b.png"
+    binary_img = cv2.imread(binary_img_path)
+    if binary_img is None:
+        print(f"无法读取二值化图像: {binary_img_path}")
         return
     
-    # 配置小地图区域（使用比例配置）
-    h, w = img.shape[:2]
+    # 转换为灰度图（如果是彩色图）
+    if len(binary_img.shape) == 3:
+        binary_mask = cv2.cvtColor(binary_img, cv2.COLOR_BGR2GRAY)
+    else:
+        binary_mask = binary_img.copy()
+    
+    # 确保白色区域（255）= 可通行，黑色区域（0）= 障碍物
+    # 如果图片是反色的，需要反转
+    # 这里假设用户提供的图片已经是正确的格式：白色=可通行，黑色=障碍物
+    print(f"加载手动标注图片: {binary_img_path}")
+    print(f"图片尺寸: {binary_mask.shape[1]}x{binary_mask.shape[0]}")
+    
+    # 加载原始小地图图片用于检测位置
+    minimap_path = "path_planning/maps/01.png"
+    minimap = cv2.imread(minimap_path)
+    if minimap is None:
+        print(f"无法读取原始小地图: {minimap_path}")
+        return
+    
+    print(f"加载原始小地图: {minimap_path}")
+    print(f"小地图尺寸: {minimap.shape[1]}x{minimap.shape[0]}")
+    
+    # 检查两张图片尺寸是否一致
+    if minimap.shape[:2] != binary_mask.shape[:2]:
+        print(f"错误：两张图片尺寸不一致！")
+        print(f"  原始小地图: {minimap.shape[1]}x{minimap.shape[0]}")
+        print(f"  二值化图片: {binary_mask.shape[1]}x{binary_mask.shape[0]}")
+        print("请确保两张图片尺寸相同")
+        return
+    
+    # 配置小地图区域（对于静态图片，使用整个图片作为小地图）
+    h, w = minimap.shape[:2]
     minimap_region = {
-        'x_ratio': 0.75,
-        'y_ratio': 0.65,
-        'width_ratio': 0.25,
-        'height_ratio': 0.35
+        'x': 0,
+        'y': 0,
+        'width': w,
+        'height': h
     }
     
-    # 配置检测开关（可选，默认全部开启）
+    # 配置检测开关
     detect_config = {
         'detect_self': True,        # 检测己方位置
         'detect_allies': False,     # 检测队友
@@ -175,11 +200,34 @@ def main():
         'detect_enemy_base': True   # 检测敌方基地
     }
     
-    # 创建检测器
+    # 创建检测器（使用整张图片作为小地图）
     detector = CvMinimapDetector(minimap_region, detect_config=detect_config)
     
-    # 解析小地图
-    results = detector.Parse(img)
+    # 直接在小地图上检测（不通过 Parse，避免再次裁切）
+    # 因为传入的 minimap 已经是小地图本身，不需要 ExtractMinimap
+    self_result = None
+    if detect_config['detect_self']:
+        self_result = detector.DetectSelf(minimap)
+    
+    bases = detector.DetectBases(minimap)
+    
+    # 组合结果（格式与 Parse 方法返回的一致）
+    if self_result:
+        self_pos = (self_result[0], self_result[1])
+        self_angle = self_result[2]
+    else:
+        self_pos = None
+        self_angle = None
+    
+    results = {
+        'self': {
+            'pos': self_pos,
+            'angle': self_angle
+        },
+        'allies': [],
+        'enemies': [],
+        'bases': bases
+    }
     
     # 打印结果
     print("=" * 50)
@@ -205,12 +253,6 @@ def main():
     print(f"敌方基地: {results['bases']['enemy']}")
     print("=" * 50)
     
-    # 提取小地图
-    minimap = detector.ExtractMinimap(img)
-    if minimap is None:
-        print("无法提取小地图区域")
-        return
-    
     # 检查检测结果有效性
     if not results['self']['pos']:
         print("错误：无法检测到己方位置")
@@ -220,10 +262,8 @@ def main():
         print("错误：无法检测到敌方基地位置")
         return
     
-    # 提取障碍物（使用KMeans二值化）
+    # 从手动标注图片提取障碍物
     print("\n开始提取障碍物...")
-    binarizer = MinimapBinarizer(n_clusters=3)
-    binary_mask = binarizer.Binarize(minimap)  # 白色=道路，黑色=障碍物
     obstacles = ExtractObstaclesFromBinary(binary_mask, sample_interval=5)
     
     if len(obstacles) == 0:
@@ -233,6 +273,7 @@ def main():
         print(f"提取到 {len(obstacles)} 个障碍物点")
     
     # 获取起点和终点（像素坐标）
+    # 检测器返回的坐标是相对于小地图图片的，直接使用即可
     self_pos = results['self']['pos']
     enemy_base_pos = results['bases']['enemy']
     self_angle = results['self']['angle']
@@ -274,11 +315,12 @@ def main():
     max_iterations = 1000
     iteration = 0
     
-    # 初始化可视化（创建两个子图：主图和二值化图）
+    # 初始化可视化（创建三个子图：主路径规划、原始图片、二值化图片）
     plt.ion()
-    fig = plt.figure(figsize=(16, 8))
-    ax = fig.add_subplot(1, 2, 1)  # 主图：路径规划
-    ax_binary = fig.add_subplot(1, 2, 2)  # 二值化图
+    fig = plt.figure(figsize=(20, 6))
+    ax = fig.add_subplot(1, 3, 1)  # 子图1：主路径规划视图
+    ax_original = fig.add_subplot(1, 3, 2)  # 子图2：原始图片
+    ax_binary = fig.add_subplot(1, 3, 3)  # 子图3：手动标注的二值化图片
     
     while iteration < max_iterations:
         u, predicted_trajectory = dwa_control(x, config, goal, obstacles)
@@ -287,19 +329,21 @@ def main():
         
         # 可视化
         ax.clear()
+        ax_original.clear()
         ax_binary.clear()
         
-        # 主图：显示小地图背景
+        # 子图1：主路径规划视图
+        # 显示原始小地图背景
         minimap_rgb = cv2.cvtColor(minimap, cv2.COLOR_BGR2RGB)
         ax.imshow(minimap_rgb, extent=[0, minimap.shape[1], minimap.shape[0], 0], alpha=0.7)
         
-        # 显示可通行区域（白色区域）
+        # 叠加显示可通行区域（白色区域，半透明绿色）
         road_vis = np.zeros_like(binary_mask)
         road_vis[binary_mask == 255] = 255
         ax.imshow(road_vis, extent=[0, minimap.shape[1], minimap.shape[0], 0], 
                  cmap='Greens', alpha=0.2, vmin=0, vmax=255)
         
-        # 显示障碍物区域（黑色区域）
+        # 叠加显示障碍物区域（黑色区域，半透明红色）
         obstacle_vis = np.zeros_like(binary_mask)
         obstacle_vis[binary_mask == 0] = 255
         ax.imshow(obstacle_vis, extent=[0, minimap.shape[1], minimap.shape[0], 0], 
@@ -331,14 +375,22 @@ def main():
         ax.legend()
         ax.set_title(f"DWA路径规划 - 迭代 {iteration}")
         
-        # 二值化图：显示二值化结果
+        # 子图2：显示原始图片
+        ax_original.imshow(minimap_rgb, extent=[0, minimap.shape[1], minimap.shape[0], 0])
+        ax_original.set_xlim(0, minimap.shape[1])
+        ax_original.set_ylim(minimap.shape[0], 0)
+        ax_original.set_aspect('equal')
+        ax_original.grid(True)
+        ax_original.set_title("原始小地图 (01.png)")
+        
+        # 子图3：显示手动标注的二值化图片
         ax_binary.imshow(binary_mask, extent=[0, minimap.shape[1], minimap.shape[0], 0], 
                         cmap='gray', vmin=0, vmax=255)
         ax_binary.set_xlim(0, minimap.shape[1])
         ax_binary.set_ylim(minimap.shape[0], 0)
         ax_binary.set_aspect('equal')
         ax_binary.grid(True)
-        ax_binary.set_title("二值化结果（白色=可通行，黑色=障碍物）")
+        ax_binary.set_title("手动标注图片 (01_b.png)\n白色=可通行，黑色=障碍物")
         
         plt.tight_layout()
         plt.pause(0.01)

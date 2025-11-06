@@ -10,8 +10,14 @@ from pathlib import Path
 import logging
 import threading
 
-from controller import AimAssistMainController
-from core.config_manager import AimConfigManager
+# 统一导入方式
+try:
+    from yolo.controller import AimAssistMainController
+    from yolo.core.config_manager import AimConfigManager
+except ImportError:
+    # 回退：如果 yolo 包不可用，使用相对导入
+    from controller import AimAssistMainController
+    from core.config_manager import AimConfigManager
 
 logging.basicConfig(
     level=logging.INFO,

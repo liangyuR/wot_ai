@@ -8,7 +8,20 @@ from typing import Optional, Tuple
 import logging
 
 from pynput import mouse
-from aim_assist import AimAssist
+
+# 统一导入方式
+try:
+    from yolo.aim_assist import AimAssist
+except ImportError:
+    # 回退：如果 yolo 包不可用，尝试相对导入
+    import sys
+    from pathlib import Path
+    # 确保项目根目录在路径中
+    current_file = Path(__file__).resolve()
+    project_root = current_file.parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from yolo.aim_assist import AimAssist
 
 logger = logging.getLogger(__name__)
 

@@ -21,7 +21,12 @@ import mss
 from pynput import mouse, keyboard
 from pynput.keyboard import Key, Listener as KeyboardListener
 
-from aim_assist import AimAssist
+# 统一导入方式
+try:
+    from yolo.aim_assist import AimAssist
+except ImportError:
+    # 回退：如果 yolo 包不可用，使用相对导入
+    from aim_assist import AimAssist
 
 
 logging.basicConfig(
