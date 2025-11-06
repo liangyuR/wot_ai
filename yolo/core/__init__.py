@@ -9,6 +9,7 @@ from .detection_engine import DetectionEngine
 from .aim_controller import AimController
 from .hotkey_manager import HotkeyManager
 from .config_manager import AimConfigManager
+from .cv_minimap_detector import CvMinimapDetector
 
 __all__ = [
     'ScreenCapture',
@@ -17,5 +18,6 @@ __all__ = [
     'AimController',
     'HotkeyManager',
     'AimConfigManager',
+    'CvMinimapDetector',
 ]
 
