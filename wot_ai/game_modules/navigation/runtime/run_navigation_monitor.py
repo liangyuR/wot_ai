@@ -76,7 +76,7 @@ def ParseArgs():
         "--perf", 
         type=str, 
         choices=["high", "medium", "low"],
-        default="medium", 
+        default="high", 
         help="性能档位: high(30fps) / medium(15fps) / low(8fps) (默认: medium)"
     )
     

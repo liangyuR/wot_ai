@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小地图检测模块（重构版）
+minimap_detector_simplified_with_heading_logfile.py
 
-支持 YOLO / 传统方案 + 异步检测 + 结果缓存
+小地图检测器（简洁版 + 朝向估计 + 控制台/文件日志）
+输出:
+    - self_pos: 我方中心位置 (x, y)
+    - self_angle: 朝向角度 (度)
+    - flag_pos: 敌方基地位置 (x, y)
+日志:
+    - 控制台打印主要信息
+    - 同步写入 logs/minimap_detect_YYYY-MM-DD.log
 """
 
 import cv2
 import numpy as np
-import threading
-import time
-from typing import Dict, Optional, List
+import os
+import logging
+from datetime import datetime
 from pathlib import Path
+from typing import Optional, Tuple
 from ultralytics import YOLO
 
-# 统一导入机制
 from wot_ai.utils.paths import setup_python_path, resolve_path
-from wot_ai.utils.imports import try_import_multiple, import_function
 setup_python_path()
 
-# 尝试多种导入方式
+# 导入平滑器
+from wot_ai.utils.imports import import_function
+
 PositionSmoother = import_function([
     'wot_ai.game_modules.navigation.core.position_smoother',
     'game_modules.navigation.core.position_smoother',
@@ -28,319 +36,178 @@ PositionSmoother = import_function([
 if PositionSmoother is None:
     from .position_smoother import PositionSmoother
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
 
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
+# =============================
+# 日志系统
+# =============================
+def setup_logger(name: str, log_dir: str = "logs"):
+    """配置日志系统，写入文件 + 控制台"""
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = Path(log_dir) / f"{name}_{datetime.now().strftime('%Y-%m-%d')}.log"
 
-logger = SetupLogger(__name__)
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+
+    # 文件日志
+    fh = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    fh.setLevel(logging.DEBUG)
+
+    # 控制台日志
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', "%H:%M:%S")
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+
+    if not logger.handlers:
+        logger.addHandler(fh)
+        logger.addHandler(ch)
+
+    logger.info(f"日志记录已启动: {log_file}")
+    return logger
 
 
 # =============================
-# 通用接口定义
+# 检测器主体
 # =============================
-class BaseMinimapDetector:
-    """抽象基类，定义统一接口"""
-    def Detect(self, frame: np.ndarray) -> Dict:
-        raise NotImplementedError("Detect() must be implemented.")
+class MinimapDetector:
+    """小地图检测器：输出 (self_pos, self_angle, flag_pos)，带文件日志"""
 
-
-# =============================
-# YOLO 方案
-# =============================
-class YOLODetector(BaseMinimapDetector):
-    def __init__(self, model_path: str, confidence_threshold: float = 0.25):
-        self.model_path_ = model_path
-        self.confidence_threshold_ = confidence_threshold
+    def __init__(self, model_path: str, minimap_region: dict,
+                 base_dir: Optional[Path] = None, log_dir: str = "logs"):
+        self.model_path_ = str(resolve_path(model_path, base_dir))
+        self.minimap_region_ = minimap_region
+        self.base_dir_ = base_dir
         self.model_ = None
+        self.conf_threshold_ = 0.25
+
         self.self_pos_smoother_ = PositionSmoother(window=3)
         self.flag_pos_smoother_ = PositionSmoother(window=3)
+        self.angle_smoother_ = PositionSmoother(window=5)
 
-    def LoadModel(self) -> bool:
+        # 初始化日志
+        self.logger_ = setup_logger("minimap_detect", log_dir)
+
+    def load_model(self) -> bool:
         """加载 YOLO 模型"""
         try:
-            model_path_obj = Path(self.model_path_)
-            if not model_path_obj.exists():
-                logger.error(f"模型文件不存在: {self.model_path_}")
+            path = Path(self.model_path_)
+            if not path.exists():
+                self.logger_.error(f"模型不存在: {path}")
                 return False
-            
-            logger.info(f"加载小地图检测模型: {model_path_obj.absolute()}")
-            self.model_ = YOLO(str(model_path_obj))
-            logger.info("小地图检测模型加载成功")
+            self.model_ = YOLO(str(path))
+            self.logger_.info(f"小地图检测模型加载成功: {path}")
             return True
         except Exception as e:
-            logger.error(f"加载模型失败: {e}")
+            self.logger_.error(f"加载模型失败: {e}")
             return False
 
-    def Detect(self, frame: np.ndarray) -> Dict:
-        if self.model_ is None:
-            logger.error("模型未加载，请先调用 LoadModel()")
-            return self._Empty()
-        
+    def extract_minimap(self, frame: np.ndarray) -> Optional[np.ndarray]:
+        """直接取屏幕右下角指定长宽的小地图区域"""
         try:
-            results = self.model_(frame, conf=self.confidence_threshold_, verbose=False)
-            detections = []
+            w = self.minimap_region_['width']
+            h = self.minimap_region_['height']
+            fw, fh = frame.shape[1], frame.shape[0]
+            if w > fw or h > fh:
+                self.logger_.warning("小地图尺寸超出屏幕范围")
+                return None
+            x = fw - w
+            y = fh - h
+            return frame[y:y+h, x:x+w]
+        except Exception as e:
+            self.logger_.error(f"提取小地图失败: {e}")
+            return None
+
+    def detect(self, minimap: np.ndarray) -> Tuple[
+        Optional[Tuple[float, float]],
+        Optional[float],
+        Optional[Tuple[float, float]]
+    ]:
+        """
+        检测我方与敌方基地位置与朝向
+
+        Returns:
+            (self_pos, self_angle, flag_pos)
+        """
+        if self.model_ is None:
+            self.logger_.error("模型未加载，请先调用 load_model()")
+            return None, None, None
+
+        try:
+            results = self.model_(minimap, conf=self.conf_threshold_, verbose=False)
+            self_pos, flag_pos, angle = None, None, None
+
             for r in results:
                 for box in r.boxes:
                     cls = int(box.cls[0])
                     conf = float(box.conf[0])
                     xyxy = box.xyxy[0].tolist()
-                    detections.append((cls, conf, xyxy))
-            return self._ParseDetections(detections)
+                    cx = (xyxy[0] + xyxy[2]) / 2
+                    cy = (xyxy[1] + xyxy[3]) / 2
+
+                    role = None
+                    if cls == 0:  # 自己箭头
+                        self_pos = self.self_pos_smoother_.Smooth((cx, cy))
+                        angle = self._estimate_angle(minimap, xyxy)
+                        if angle is not None:
+                            angle = self.angle_smoother_.Smooth((angle, 0))[0]
+                        role = "self"
+                    elif cls == 3:  # 敌方基地
+                        flag_pos = self.flag_pos_smoother_.Smooth((cx, cy))
+                        role = "flag"
+                    else:
+                        role = f"class_{cls}"
+
+                    self.logger_.debug(
+                        f"[Detect] label={role:<6} conf={conf:.2f} "
+                        f"bbox=({xyxy[0]:.1f},{xyxy[1]:.1f},{xyxy[2]:.1f},{xyxy[3]:.1f})"
+                    )
+
+            # 输出最终结果汇总日志
+            summary = []
+            if self_pos:
+                summary.append(f"我方位置={tuple(round(v, 1) for v in self_pos)}")
+            if angle is not None:
+                summary.append(f"朝向={angle:.1f}°")
+            if flag_pos:
+                summary.append(f"敌方基地={tuple(round(v, 1) for v in flag_pos)}")
+
+            if summary:
+                self.logger_.info(" | ".join(summary))
+
+            return self_pos, angle, flag_pos
+
         except Exception as e:
-            logger.error(f"YOLO检测失败: {e}")
-            return self._Empty()
+            self.logger_.error(f"检测失败: {e}")
+            return None, None, None
 
-    def _ParseDetections(self, dets):
-        result = {'self_pos': None, 'flag_pos': None, 'obstacles': [], 'roads': []}
-        for cls, conf, xyxy in dets:
-            cx = (xyxy[0] + xyxy[2]) / 2
-            cy = (xyxy[1] + xyxy[3]) / 2
-            if cls == 0:  # 自己箭头
-                result['self_pos'] = self.self_pos_smoother_.Smooth((cx, cy))
-            elif cls == 3:  # 基地
-                result['flag_pos'] = self.flag_pos_smoother_.Smooth((cx, cy))
-            elif cls == 4:  # 障碍
-                result['obstacles'].append(xyxy)
-            elif cls == 5:  # 道路
-                result['roads'].append(xyxy)
-        return result
-
-    def _Empty(self):
-        return {'self_pos': None, 'flag_pos': None, 'obstacles': [], 'roads': []}
-
-    def ResetSmoothers(self):
-        """重置位置平滑器"""
-        self.self_pos_smoother_.Reset()
-        self.flag_pos_smoother_.Reset()
-
-
-# =============================
-# 传统方案
-# =============================
-class TraditionalDetector(BaseMinimapDetector):
-    """传统方案：颜色+形状检测箭头，HSV检测基地"""
-    def __init__(self):
-        self.self_pos_smoother_ = PositionSmoother(window=3)
-
-    def Detect(self, frame: np.ndarray) -> Dict:
-        result = {'self_pos': None, 'flag_pos': None, 'obstacles': [], 'roads': []}
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-        # --- 检测自己箭头（白色）---
-        lower_white = np.array([0, 0, 180])
-        upper_white = np.array([180, 40, 255])
-        mask = cv2.inRange(hsv, lower_white, upper_white)
-        mask = cv2.medianBlur(mask, 5)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for c in contours:
-            area = cv2.contourArea(c)
-            if 30 < area < 500:
-                x, y, w, h = cv2.boundingRect(c)
-                result['self_pos'] = self.self_pos_smoother_.Smooth((x + w / 2, y + h / 2))
-                break
-
-        # --- 检测基地（红色圆）---
-        lower_red1 = np.array([0, 120, 70])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([170, 120, 70])
-        upper_red2 = np.array([180, 255, 255])
-        red_mask = cv2.inRange(hsv, lower_red1, upper_red1) + cv2.inRange(hsv, lower_red2, upper_red2)
-        red_mask = cv2.GaussianBlur(red_mask, (5, 5), 0)
-        contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            c = max(contours, key=cv2.contourArea)
-            (x, y), radius = cv2.minEnclosingCircle(c)
-            if radius > 5:
-                result['flag_pos'] = (x, y)
-        return result
-
-    def ResetSmoothers(self):
-        """重置位置平滑器"""
-        self.self_pos_smoother_.Reset()
-
-
-# =============================
-# 管理器：异步 + 模式切换
-# =============================
-class MinimapManager:
-    """封装异步检测与缓存逻辑"""
-    def __init__(self, mode: str = "yolo", model_path: Optional[str] = None):
-        self.mode_ = mode
-        self.model_path_ = model_path
-        self.detector_ = None
-        self.result_cache_ = {'self_pos': None, 'flag_pos': None, 'obstacles': [], 'roads': []}
-        self.last_detect_time_ = 0.0
-        self.interval_ = 0.3  # 检测间隔
-        self.thread_ = None
-        self.stop_flag_ = False
-        self._InitDetector()
-
-    def _InitDetector(self):
-        if self.mode_ == "yolo":
-            if self.model_path_ is None:
-                raise ValueError("YOLO模式需要提供model_path")
-            self.detector_ = YOLODetector(self.model_path_)
-            if not self.detector_.LoadModel():
-                raise RuntimeError("YOLO模型加载失败")
-        else:
-            self.detector_ = TraditionalDetector()
-
-    def SwitchMode(self, mode: str):
-        """切换检测模式"""
-        logger.info(f"切换检测模式: {self.mode_} -> {mode}")
-        self.mode_ = mode
-        self._InitDetector()
-
-    def _DetectThread(self, frame: np.ndarray):
-        """检测线程函数"""
-        self.result_cache_ = self.detector_.Detect(frame)
-        self.last_detect_time_ = time.time()
-
-    def Detect(self, frame: np.ndarray) -> Dict:
-        """检测接口（异步）"""
-        now = time.time()
-        if now - self.last_detect_time_ > self.interval_:
-            if self.thread_ is None or not self.thread_.is_alive():
-                self.thread_ = threading.Thread(target=self._DetectThread, args=(frame,))
-                self.thread_.daemon = True
-                self.thread_.start()
-        return self.result_cache_
-
-
-# =============================
-# 兼容层：保持原有接口
-# =============================
-class MinimapDetector:
-    """小地图检测器（兼容原有接口）"""
-    def __init__(self, model_path: str, minimap_region: Dict, base_dir: Optional[Path] = None):
-        """
-        初始化小地图检测器
-        
-        Args:
-            model_path: YOLO模型路径
-            minimap_region: 小地图区域配置 {'x': int, 'y': int, 'width': int, 'height': int}
-            base_dir: 基础目录（用于解析相对路径）
-        """
-        # 使用统一路径解析
-        self.model_path_ = str(resolve_path(model_path, base_dir))
-        
-        self.minimap_region_ = minimap_region
-        self.base_dir_ = base_dir
-        
-        # 使用 YOLO 检测器
-        self.detector_ = YOLODetector(self.model_path_)
-        self.model_loaded_ = False
-
-    def LoadModel(self) -> bool:
-        """加载 YOLO 模型"""
-        if self.model_loaded_:
-            return True
-        success = self.detector_.LoadModel()
-        if success:
-            self.model_loaded_ = True
-        return success
-
-    def ExtractMinimap(self, frame: np.ndarray) -> Optional[np.ndarray]:
-        """
-        从完整屏幕帧中提取小地图区域
-        
-        Args:
-            frame: 屏幕帧（BGR格式），可能是完整屏幕或已裁剪的小地图区域
-        
-        Returns:
-            小地图区域（BGR格式），如果区域无效则返回 None
-        """
-        try:
-            width = self.minimap_region_['width']
-            height = self.minimap_region_['height']
-            
-            # 如果 frame 的尺寸已经匹配小地图区域，说明已经裁剪过了，直接返回
-            if frame.shape[0] == height and frame.shape[1] == width:
-                return frame
-            
-            # 否则，从完整屏幕帧中提取小地图区域
-            x = self.minimap_region_['x']
-            y = self.minimap_region_['y']
-            
-            # 检查边界
-            if x < 0 or y < 0:
-                logger.warning(f"小地图区域坐标无效: ({x}, {y})")
-                return None
-            
-            frame_height, frame_width = frame.shape[:2]
-            if x + width > frame_width or y + height > frame_height:
-                logger.warning(f"小地图区域超出屏幕范围: frame={frame_width}x{frame_height}, "
-                             f"region=({x},{y})+{width}x{height}")
-                return None
-            
-            minimap = frame[y:y+height, x:x+width]
-            return minimap
-        except Exception as e:
-            logger.error(f"提取小地图失败: {e}")
-            import traceback
-            traceback.print_exc()
+    def _estimate_angle(self, minimap: np.ndarray, bbox) -> Optional[float]:
+        """通过箭头形状估计朝向"""
+        x1, y1, x2, y2 = map(int, bbox)
+        region = minimap[y1:y2, x1:x2]
+        if region.size == 0:
             return None
 
-    def Detect(self, frame: np.ndarray, confidence_threshold: float = 0.25) -> Dict:
-        """
-        检测小地图中的元素
-        
-        Args:
-            frame: 完整屏幕帧（BGR格式）
-            confidence_threshold: 置信度阈值
-        
-        Returns:
-            检测结果字典
-        """
-        if not self.model_loaded_:
-            logger.error("模型未加载，请先调用 LoadModel()")
-            return self._EmptyResult()
-        
-        # 提取小地图区域
-        minimap = self.ExtractMinimap(frame)
-        if minimap is None:
-            return self._EmptyResult()
-        
-        # 更新置信度阈值
-        self.detector_.confidence_threshold_ = confidence_threshold
-        
-        # 检测
-        return self.detector_.Detect(minimap)
+        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
 
-    def ParseDetections(self, detections: List[Dict]) -> Dict:
-        """
-        解析检测结果，转换为结构化格式（兼容方法）
-        
-        Args:
-            detections: YOLO检测结果列表
-        
-        Returns:
-            结构化检测结果
-        """
-        # 转换为新格式
-        dets = []
-        for det in detections:
-            dets.append((det['class'], det['confidence'], det['bbox']))
-        return self.detector_._ParseDetections(dets)
+        cnt = max(contours, key=cv2.contourArea)
+        if len(cnt) < 5:
+            return None
 
-    def _EmptyResult(self) -> Dict:
-        """返回空的检测结果"""
-        return {
-            'self_pos': None,
-            'flag_pos': None,
-            'obstacles': [],
-            'roads': []
-        }
+        try:
+            (_, _), (MA, ma), angle = cv2.fitEllipse(cnt)
+            angle = (angle + 90) % 360 - 180
+            return angle
+        except Exception:
+            return None
 
-    def ResetSmoothers(self):
-        """重置位置平滑器"""
-        self.detector_.ResetSmoothers()
+    def reset(self):
+        """重置位置和平滑器"""
+        self.self_pos_smoother_.Reset()
+        self.flag_pos_smoother_.Reset()
+        self.angle_smoother_.Reset()

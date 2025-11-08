@@ -63,6 +63,7 @@ class TransparentOverlay:
         self.current_path_ = []
         self.current_detections_ = {}
         self.minimap_size_ = (width, height)
+        self.grid_size_ = (64, 64)  # 默认栅格大小
         
         # DPG Overlay 管理器
         self.overlay_manager_ = None
@@ -117,9 +118,9 @@ class TransparentOverlay:
         # 绘制路径
         if self.current_path_ and len(self.current_path_) > 1:
             # 计算坐标缩放（从栅格坐标到像素坐标）
-            if self.minimap_size_:
-                scale_x = self.minimap_size_[0] / 64.0  # 假设栅格是 64x64
-                scale_y = self.minimap_size_[1] / 64.0
+            if self.minimap_size_ and self.grid_size_:
+                scale_x = self.minimap_size_[0] / float(self.grid_size_[0])
+                scale_y = self.minimap_size_[1] / float(self.grid_size_[1])
                 coord_scale = (scale_x, scale_y)
             else:
                 coord_scale = None
@@ -157,7 +158,8 @@ class TransparentOverlay:
         pass
     
     def DrawPath(self, minimap: np.ndarray, path: List[Tuple[int, int]], 
-                 detections: dict, minimap_size: Tuple[int, int] = None):
+                 detections: dict, minimap_size: Tuple[int, int] = None,
+                 grid_size: Tuple[int, int] = None):
         """
         在小地图上绘制路径（主要接口）
         
@@ -166,6 +168,7 @@ class TransparentOverlay:
             path: 路径坐标列表 [(x, y), ...]（栅格坐标）
             detections: 检测结果字典
             minimap_size: 小地图尺寸 (width, height)
+            grid_size: 栅格地图尺寸 (width, height)，默认 (64, 64)
         """
         self.current_path_ = path
         self.current_detections_ = detections
@@ -173,6 +176,8 @@ class TransparentOverlay:
             self.minimap_size_ = minimap_size
         elif minimap is not None:
             self.minimap_size_ = (minimap.shape[1], minimap.shape[0])
+        if grid_size:
+            self.grid_size_ = grid_size
     
     def SetPosition(self, x: int, y: int):
         """

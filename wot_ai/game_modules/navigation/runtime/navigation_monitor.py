@@ -83,7 +83,7 @@ class NavigationMonitor:
         
         # 小地图检测器
         self.detector_ = MinimapDetector(model_path, minimap_region, base_dir)
-        if not self.detector_.LoadModel():
+        if not self.detector_.load_model():
             raise RuntimeError("YOLO 模型加载失败")
         
         # 地图建模器
@@ -175,16 +175,26 @@ class NavigationMonitor:
         Args:
             frame: 屏幕帧（BGR格式）
         """
-        # 检测小地图元素（Detect 内部会提取小地图）
-        detections = self.detector_.Detect(
-            frame, 
-            confidence_threshold=self.profile_.GetConfidence()
-        )
+        # 更新置信度阈值
+        self.detector_.conf_threshold_ = self.profile_.GetConfidence()
         
-        # 提取小地图区域用于显示
-        minimap = self.detector_.ExtractMinimap(frame)
+        # 提取小地图区域
+        minimap = self.detector_.extract_minimap(frame)
         if minimap is None:
             return
+
+        # 检测小地图元素（返回元组：self_pos, angle, flag_pos）
+        # 注意：detect() 现在接收 minimap 而不是 frame
+        self_pos, angle, flag_pos = self.detector_.detect(minimap)
+        
+        # 转换为字典格式（兼容 MapModeler）
+        detections = {
+            'self_pos': self_pos,
+            'flag_pos': flag_pos,
+            'angle': angle,
+            'obstacles': [],  # 新接口暂不支持障碍物
+            'roads': []
+        }
         
         # 构建栅格地图
         minimap_size = (minimap.shape[1], minimap.shape[0])
@@ -215,8 +225,14 @@ class NavigationMonitor:
         # 计算小地图尺寸
         minimap_size = (minimap.shape[1], minimap.shape[0])
         
-        # 使用新的 DrawPath 接口（DearPyGui 方案）
-        self.overlay_.DrawPath(minimap, path, detections, minimap_size)
+        # 使用新的 DrawPath 接口
+        self.overlay_.DrawPath(
+            minimap=minimap,
+            path=path,
+            detections=detections,
+            minimap_size=minimap_size,
+            grid_size=self.modeler_.grid_size_
+        )
     
     def IsRunning(self) -> bool:
         """
