@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-透明浮窗模块：在游戏画面上创建透明窗口显示路径
+透明浮窗模块：使用 DearPyGui + Win32 在游戏画面上创建透明窗口显示路径
 """
 
-from typing import Optional, Tuple, List
+import threading
+from typing import Tuple, List
 import numpy as np
-import cv2
 
 # 统一导入机制
 from wot_ai.utils.paths import setup_python_path
@@ -28,13 +28,17 @@ if SetupLogger is None:
 
 logger = SetupLogger(__name__)
 
+# 导入 DPG Overlay 管理器
+from .overlay_dpg import DPGOverlayManager, OverlayConfig
+
 
 class TransparentOverlay:
-    """透明浮窗：在游戏画面上叠加显示路径"""
+    """透明浮窗：在游戏画面上叠加显示路径（基于 DearPyGui）"""
     
     def __init__(self, width: int, height: int, 
                  window_name: str = "WOT_AI Overlay",
-                 pos_x: int = 0, pos_y: int = 0):
+                 pos_x: int = 0, pos_y: int = 0,
+                 fps: int = 30, alpha: int = 180):
         """
         初始化透明浮窗
         
@@ -44,150 +48,131 @@ class TransparentOverlay:
             window_name: 窗口名称
             pos_x: 窗口X坐标
             pos_y: 窗口Y坐标
+            fps: 帧率
+            alpha: 透明度 (0-255)
         """
         self.width_ = width
         self.height_ = height
         self.window_name_ = window_name
         self.pos_x_ = pos_x
         self.pos_y_ = pos_y
-        self.hwnd_ = None
-        self.hInstance_ = None
-        self._InitWindow()
+        self.fps_ = fps
+        self.alpha_ = alpha
+        
+        # 当前要显示的数据
+        self.current_path_ = []
+        self.current_detections_ = {}
+        self.minimap_size_ = (width, height)
+        
+        # DPG Overlay 管理器
+        self.overlay_manager_ = None
+        self.overlay_thread_ = None
+        self.running_ = False
+        
+        # 启动 Overlay
+        self._StartOverlay()
     
-    def _InitWindow(self):
-        """初始化 Windows 透明窗口"""
+    def _StartOverlay(self):
+        """在后台线程中启动 Overlay"""
+        config = OverlayConfig(
+            width=self.width_,
+            height=self.height_,
+            pos_x=self.pos_x_,
+            pos_y=self.pos_y_,
+            fps=self.fps_,
+            alpha=self.alpha_,
+            title=self.window_name_,
+            target_window_title=None,  # 可以后续绑定到游戏窗口
+            click_through=True
+        )
+        
+        self.overlay_manager_ = DPGOverlayManager(config)
+        
+        # 在后台线程中运行
+        self.overlay_thread_ = threading.Thread(
+            target=self._OverlayThread,
+            daemon=True
+        )
+        self.overlay_thread_.start()
+    
+    def _OverlayThread(self):
+        """Overlay 线程主循环"""
+        self.running_ = True
+        self.overlay_manager_.Run(self._DrawCallback)
+        self.running_ = False
+    
+    def _DrawCallback(self, drawlist_id: int, mgr: DPGOverlayManager):
+        """
+        DearPyGui 绘制回调
+        
+        Args:
+            drawlist_id: DearPyGui drawlist ID
+            mgr: Overlay 管理器实例
+        """
         try:
-            import win32gui
-            import win32con
-            import win32api
-            
-            self.hInstance_ = win32api.GetModuleHandle(None)
-            className = "TransparentOverlayClass"
-            
-            # 注册窗口类
-            wndClass = win32gui.WNDCLASS()
-            wndClass.lpfnWndProc = lambda hWnd, msg, wParam, lParam: 0
-            wndClass.lpszClassName = className
-            wndClass.hInstance = self.hInstance_
-            
-            try:
-                win32gui.RegisterClass(wndClass)
-            except Exception:
-                # 类可能已注册，忽略错误
-                pass
-            
-            # 创建窗口
-            self.hwnd_ = win32gui.CreateWindowEx(
-                win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT | win32con.WS_EX_TOPMOST,
-                className,
-                self.window_name_,
-                win32con.WS_POPUP,
-                self.pos_x_,
-                self.pos_y_,
-                self.width_,
-                self.height_,
-                0,
-                0,
-                self.hInstance_,
-                None
-            )
-            
-            # 设置窗口位置（置顶）
-            win32gui.SetWindowPos(
-                self.hwnd_,
-                win32con.HWND_TOPMOST,
-                self.pos_x_,
-                self.pos_y_,
-                self.width_,
-                self.height_,
-                win32con.SWP_SHOWWINDOW
-            )
-            
-            win32gui.ShowWindow(self.hwnd_, win32con.SW_SHOW)
-            logger.info(f"透明浮窗初始化成功: {self.width_}x{self.height_} @ ({self.pos_x_}, {self.pos_y_})")
-            
+            import dearpygui.dearpygui as dpg
         except ImportError:
-            logger.error("pywin32 未安装，请运行: pip install pywin32")
-            raise
-        except Exception as e:
-            logger.error(f"透明浮窗初始化失败: {e}")
-            raise
+            return
+        
+        # 绘制路径
+        if self.current_path_ and len(self.current_path_) > 1:
+            # 计算坐标缩放（从栅格坐标到像素坐标）
+            if self.minimap_size_:
+                scale_x = self.minimap_size_[0] / 64.0  # 假设栅格是 64x64
+                scale_y = self.minimap_size_[1] / 64.0
+                coord_scale = (scale_x, scale_y)
+            else:
+                coord_scale = None
+            
+            mgr.DrawPath(
+                drawlist_id,
+                self.current_path_,
+                color=(0, 255, 0, 255),  # 绿色路径
+                thickness=2.0,
+                coord_scale=coord_scale
+            )
+        
+        # 绘制起点（自己位置）
+        if self.current_detections_.get('self_pos') is not None:
+            pos = self.current_detections_['self_pos']
+            x, y = float(pos[0]), float(pos[1])
+            dpg.draw_circle((x, y), 8, color=(255, 255, 0, 255), thickness=2, parent=drawlist_id)
+            dpg.draw_circle((x, y), 5, color=(255, 255, 0, 255), fill=(255, 255, 0, 255), parent=drawlist_id)
+        
+        # 绘制终点（基地位置）
+        if self.current_detections_.get('flag_pos') is not None:
+            pos = self.current_detections_['flag_pos']
+            x, y = float(pos[0]), float(pos[1])
+            dpg.draw_circle((x, y), 8, color=(0, 0, 255, 255), thickness=2, parent=drawlist_id)
+            dpg.draw_circle((x, y), 5, color=(0, 0, 255, 255), fill=(0, 0, 255, 255), parent=drawlist_id)
     
     def Draw(self, img: np.ndarray):
         """
-        在透明窗口上绘制图像
+        在透明窗口上绘制图像（兼容接口，实际使用 DrawPath）
         
         Args:
-            img: BGR 格式的 numpy 数组
+            img: BGR 格式的 numpy 数组（此方法保留兼容性，实际绘制通过 DrawPath）
         """
-        if self.hwnd_ is None:
-            return
-        
-        try:
-            import win32gui
-            import win32con
-            from PIL import Image
-            
-            # 调整图像大小
-            if img.shape[0] != self.height_ or img.shape[1] != self.width_:
-                img = cv2.resize(img, (self.width_, self.height_))
-            
-            # 转换为 BGRA 格式（添加 alpha 通道）
-            if img.shape[2] == 3:
-                bgra = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
-            else:
-                bgra = img.copy()
-            
-            # 转换为 PIL Image
-            img_pil = Image.fromarray(bgra)
-            
-            # 获取设备上下文
-            hdc = win32gui.GetDC(0)
-            
-            # 更新分层窗口
-            win32gui.UpdateLayeredWindow(
-                self.hwnd_,
-                hdc,
-                (self.pos_x_, self.pos_y_),
-                (self.width_, self.height_),
-                img_pil.tobytes(),
-                (0, 0, self.width_, self.height_),
-                0,
-                (255, win32con.AC_SRC_ALPHA)
-            )
-            
-            win32gui.ReleaseDC(0, hdc)
-            
-        except ImportError:
-            logger.error("PIL 未安装，请运行: pip install Pillow")
-        except Exception as e:
-            logger.error(f"绘制失败: {e}")
+        # DearPyGui 方案不需要这个，但保留接口兼容
+        pass
     
     def DrawPath(self, minimap: np.ndarray, path: List[Tuple[int, int]], 
-                 scale: float = 1.0):
+                 detections: dict, minimap_size: Tuple[int, int] = None):
         """
-        在小地图上绘制路径
+        在小地图上绘制路径（主要接口）
         
         Args:
-            minimap: 小地图图像（BGR格式）
-            path: 路径坐标列表 [(x, y), ...]
-            scale: 缩放因子
+            minimap: 小地图图像（BGR格式，用于参考）
+            path: 路径坐标列表 [(x, y), ...]（栅格坐标）
+            detections: 检测结果字典
+            minimap_size: 小地图尺寸 (width, height)
         """
-        overlay_img = minimap.copy()
-        
-        if len(path) > 1:
-            # 绘制路径线条
-            for i in range(len(path) - 1):
-                pt1 = (int(path[i][0] * scale), int(path[i][1] * scale))
-                pt2 = (int(path[i+1][0] * scale), int(path[i+1][1] * scale))
-                cv2.line(overlay_img, pt1, pt2, (0, 255, 0), 2)
-            
-            # 绘制路径点
-            for pt in path:
-                center = (int(pt[0] * scale), int(pt[1] * scale))
-                cv2.circle(overlay_img, center, 3, (0, 255, 0), -1)
-        
-        self.Draw(overlay_img)
+        self.current_path_ = path
+        self.current_detections_ = detections
+        if minimap_size:
+            self.minimap_size_ = minimap_size
+        elif minimap is not None:
+            self.minimap_size_ = (minimap.shape[1], minimap.shape[0])
     
     def SetPosition(self, x: int, y: int):
         """
@@ -200,30 +185,34 @@ class TransparentOverlay:
         self.pos_x_ = x
         self.pos_y_ = y
         
-        if self.hwnd_ is not None:
-            try:
-                import win32gui
-                import win32con
-                win32gui.SetWindowPos(
-                    self.hwnd_,
-                    win32con.HWND_TOPMOST,
-                    x,
-                    y,
-                    self.width_,
-                    self.height_,
-                    win32con.SWP_SHOWWINDOW
-                )
-            except Exception as e:
-                logger.error(f"设置窗口位置失败: {e}")
+        # DearPyGui 的窗口位置在初始化时设置，这里可以绑定到游戏窗口
+        if self.overlay_manager_:
+            # 可以通过 attach_to_window 来绑定
+            pass
+    
+    def SetFps(self, fps: int):
+        """
+        设置帧率
+        
+        Args:
+            fps: 目标帧率
+        """
+        self.fps_ = fps
+        if self.overlay_manager_:
+            self.overlay_manager_.config_.fps = fps
     
     def Close(self):
         """关闭窗口"""
-        if self.hwnd_ is not None:
+        self.running_ = False
+        if self.overlay_manager_:
             try:
-                import win32gui
-                win32gui.DestroyWindow(self.hwnd_)
-                self.hwnd_ = None
-                logger.info("透明浮窗已关闭")
+                import dearpygui.dearpygui as dpg
+                # 停止 DPG 主循环
+                dpg.stop_dearpygui()
             except Exception as e:
                 logger.error(f"关闭窗口失败: {e}")
-
+        
+        if self.overlay_thread_ and self.overlay_thread_.is_alive():
+            self.overlay_thread_.join(timeout=2.0)
+        
+        logger.info("透明浮窗已关闭")

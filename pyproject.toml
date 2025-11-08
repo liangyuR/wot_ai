@@ -19,6 +19,7 @@ ultralytics = ">=8.0.0"
 pytesseract = "*"
 pyinstaller = "*"
 pywin32 = "*"
+dearpygui = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

@@ -101,7 +101,9 @@ class NavigationMonitor:
             width=minimap_region['width'],
             height=minimap_region['height'],
             pos_x=minimap_region['x'],
-            pos_y=minimap_region['y']
+            pos_y=minimap_region['y'],
+            fps=int(self.profile_.GetFps()),
+            alpha=180  # 半透明
         )
         
         # 运行状态
@@ -210,50 +212,11 @@ class NavigationMonitor:
             path: 路径坐标列表（栅格坐标）
             detections: 检测结果
         """
-        # 创建叠加图像
-        overlay_img = minimap.copy()
+        # 计算小地图尺寸
+        minimap_size = (minimap.shape[1], minimap.shape[0])
         
-        # 计算缩放比例（从栅格坐标到像素坐标）
-        grid_size = self.modeler_.grid_size_
-        minimap_width = minimap.shape[1]
-        minimap_height = minimap.shape[0]
-        scale_x = minimap_width / grid_size[0]
-        scale_y = minimap_height / grid_size[1]
-        
-        # 绘制路径
-        if len(path) > 1:
-            # 转换为像素坐标
-            pixel_path = []
-            for pt in path:
-                px = int(pt[0] * scale_x)
-                py = int(pt[1] * scale_y)
-                pixel_path.append((px, py))
-            
-            # 绘制路径线条
-            for i in range(len(pixel_path) - 1):
-                cv2.line(overlay_img, pixel_path[i], pixel_path[i+1], 
-                        (0, 255, 0), 2)
-            
-            # 绘制路径点
-            for pt in pixel_path:
-                cv2.circle(overlay_img, pt, 3, (0, 255, 0), -1)
-        
-        # 绘制起点（自己位置）
-        if detections.get('self_pos') is not None:
-            pos = detections['self_pos']
-            center = (int(pos[0]), int(pos[1]))
-            cv2.circle(overlay_img, center, 5, (255, 255, 0), -1)
-            cv2.circle(overlay_img, center, 8, (255, 255, 0), 2)
-        
-        # 绘制终点（基地位置）
-        if detections.get('flag_pos') is not None:
-            pos = detections['flag_pos']
-            center = (int(pos[0]), int(pos[1]))
-            cv2.circle(overlay_img, center, 5, (0, 0, 255), -1)
-            cv2.circle(overlay_img, center, 8, (0, 0, 255), 2)
-        
-        # 更新透明浮窗
-        self.overlay_.Draw(overlay_img)
+        # 使用新的 DrawPath 接口（DearPyGui 方案）
+        self.overlay_.DrawPath(minimap, path, detections, minimap_size)
     
     def IsRunning(self) -> bool:
         """
