@@ -1,0 +1,30 @@
+# 瞄准辅助系统配置文件
+
+# 屏幕分辨率
+screen:
+  width: 1920
+  height: 1080
+
+# FOV设置（视场角）
+fov:
+  # 水平视场角（度），通常在游戏设置中可查
+  # 常见值：60-120度，默认90度
+  horizontal: 90.0
+  # 垂直视场角（度），如果设置为null则根据宽高比自动计算
+  vertical: null
+
+# 鼠标设置
+mouse:
+  # 鼠标灵敏度（游戏内设置的值）
+  sensitivity: 1.0
+  # 标定系数（度/鼠标单位），需要通过calibration.py测量
+  # 如果为null，将使用默认估算值
+  calibration_factor: null
+
+# 平滑参数
+smoothing:
+  # 平滑系数（0-1），越小越平滑，建议0.2-0.5
+  factor: 0.3
+  # 单次最大移动步长（鼠标单位）
+  max_step: 50.0
+

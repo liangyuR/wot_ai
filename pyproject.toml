@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "wot-ai"
+version = "0.1.0"
+description = "WoT AI - 坦克世界 AI 辅助工具"
+authors = ["Liangyu Ran <1160158693@qq.com>"]
+readme = "README.md"
+packages = [{include = "wot_ai"}]
+
+[tool.poetry.dependencies]
+python = "3.11.9"
+PyYAML = "*"
+opencv-python = "*"
+numpy = "1.26.4"
+mss = "*"
+pynput = "*"
+loguru = "*"
+dxcam = ">=0.0.5"
+ultralytics = ">=8.0.0"
+pytesseract = "*"
+pyinstaller = "*"
+pywin32 = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+
