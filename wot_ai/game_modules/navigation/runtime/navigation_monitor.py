@@ -9,10 +9,9 @@ from pathlib import Path
 import numpy as np
 import cv2
 import threading
-import time
 
 # 统一导入机制
-from wot_ai.utils.paths import setup_python_path, resolve_path
+from wot_ai.utils.paths import setup_python_path
 from wot_ai.utils.imports import try_import_multiple
 setup_python_path()
 
@@ -192,7 +191,7 @@ class NavigationMonitor:
             'self_pos': self_pos,
             'flag_pos': flag_pos,
             'angle': angle,
-            'obstacles': [],  # 新接口暂不支持障碍物
+            'obstacles': [],  # 地形分析得到的障碍物
             'roads': []
         }
         
@@ -233,6 +232,31 @@ class NavigationMonitor:
             minimap_size=minimap_size,
             grid_size=self.modeler_.grid_size_
         )
+    
+    def _MaskToBoundingBoxes(self, mask: np.ndarray, min_area: int = 50) -> List:
+        """
+        将障碍物掩码转换为边界框列表
+        
+        Args:
+            mask: 二值掩码（1=障碍物，0=可通行）
+            min_area: 最小区域面积（过滤小噪声）
+        
+        Returns:
+            边界框列表 [[x1, y1, x2, y2], ...]
+        """
+        # 找到障碍物轮廓
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        obstacles = []
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < min_area:
+                continue
+            
+            x, y, w, h = cv2.boundingRect(cnt)
+            obstacles.append([x, y, x + w, y + h])  # [x1, y1, x2, y2] 格式
+        
+        return obstacles
     
     def IsRunning(self) -> bool:
         """

@@ -6,6 +6,7 @@
 
 from typing import Dict, Tuple, Optional
 import numpy as np
+import cv2
 # 统一导入机制
 from wot_ai.utils.paths import setup_python_path
 from wot_ai.utils.imports import try_import_multiple
@@ -155,5 +156,29 @@ class MapModeler:
         Returns:
             栅格地图数组，如果未构建则返回 None
         """
+        return self.grid_
+    
+    def BuildGridFromMask(self, mask01: np.ndarray) -> np.ndarray:
+        """
+        直接从0/1掩码构建栅格地图
+        
+        Args:
+            mask01: 二值掩码（0=可通行，1=障碍），尺寸为小地图尺寸
+        
+        Returns:
+            栅格地图（0=可通行，1=障碍），尺寸为grid_size_
+        """
+        assert mask01.ndim == 2, "掩码必须是2维数组"
+        
+        # 使用最近邻插值缩放掩码到栅格尺寸
+        grid = cv2.resize(
+            mask01.astype(np.uint8),
+            (self.grid_size_[0], self.grid_size_[1]),
+            interpolation=cv2.INTER_NEAREST
+        )
+        
+        # 确保为0/1格式
+        self.grid_ = (grid > 0).astype(np.uint8)
+        
         return self.grid_
 

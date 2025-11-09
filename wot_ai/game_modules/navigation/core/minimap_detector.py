@@ -19,7 +19,7 @@ import os
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from ultralytics import YOLO
 
 from wot_ai.utils.paths import setup_python_path, resolve_path
@@ -35,6 +35,10 @@ PositionSmoother = import_function([
 ], 'PositionSmoother')
 if PositionSmoother is None:
     from .position_smoother import PositionSmoother
+
+# 导入角点检测器和掩码提供器
+from .corner_detector import detect_minimap_corners
+from .map_mask_provider import MapMaskProvider
 
 
 # =============================
@@ -75,7 +79,9 @@ class MinimapDetector:
     """小地图检测器：输出 (self_pos, self_angle, flag_pos)，带文件日志"""
 
     def __init__(self, model_path: str, minimap_region: dict,
-                 base_dir: Optional[Path] = None, log_dir: str = "logs"):
+                 base_dir: Optional[Path] = None, log_dir: str = "logs",
+                 map_id: Optional[str] = None, maps_dir: str = "data/maps", 
+                 inflate_px: int = 4):
         self.model_path_ = str(resolve_path(model_path, base_dir))
         self.minimap_region_ = minimap_region
         self.base_dir_ = base_dir
@@ -88,6 +94,17 @@ class MinimapDetector:
 
         # 初始化日志
         self.logger_ = setup_logger("minimap_detect", log_dir)
+        
+        # 静态掩码支持
+        self.map_id_ = map_id
+        if map_id:
+            # 解析maps_dir路径（支持相对路径）
+            if base_dir and not Path(maps_dir).is_absolute():
+                maps_dir = str(Path(base_dir).parent.parent / maps_dir)
+            self.mask_provider_ = MapMaskProvider(maps_dir, inflate_px)
+            self.logger_.info(f"已启用静态掩码支持: map_id={map_id}, maps_dir={maps_dir}, inflate_px={inflate_px}")
+        else:
+            self.mask_provider_ = None
 
     def load_model(self) -> bool:
         """加载 YOLO 模型"""
@@ -206,6 +223,71 @@ class MinimapDetector:
         except Exception:
             return None
 
+    def Detect(self, frame: np.ndarray, confidence_threshold: float = None) -> Dict:
+        """
+        检测小地图元素（返回字典格式，包含obstacle_mask）
+        
+        Args:
+            frame: 完整屏幕帧（BGR格式）
+            confidence_threshold: 置信度阈值（可选，默认使用self.conf_threshold_）
+        
+        Returns:
+            检测结果字典，包含：
+            - 'self_pos': (x, y) 或 None
+            - 'flag_pos': (x, y) 或 None
+            - 'angle': 角度（度）或 None
+            - 'obstacle_mask': 0/1掩码（如果启用静态掩码）或 None
+            - 'obstacles': []（向后兼容，保留空列表）
+        """
+        if confidence_threshold is not None:
+            self.conf_threshold_ = confidence_threshold
+        
+        # 提取小地图
+        minimap = self.extract_minimap(frame)
+        if minimap is None:
+            return self._EmptyResult()
+        
+        # 检测位置和角度（使用现有的detect方法）
+        self_pos, angle, flag_pos = self.detect(minimap)
+        
+        # 构建结果字典
+        result = {
+            'self_pos': self_pos,
+            'flag_pos': flag_pos,
+            'angle': angle,
+            'obstacles': [],  # 向后兼容
+            'roads': []
+        }
+        
+        # 如果启用了静态掩码，进行角点检测和对齐
+        if self.map_id_ and self.mask_provider_:
+            try:
+                corners = detect_minimap_corners(minimap)
+                obstacle_mask = self.mask_provider_.GetAlignedMask(
+                    self.map_id_, minimap, corners
+                )
+                result['obstacle_mask'] = obstacle_mask
+                self.logger_.debug(f"静态掩码已对齐: shape={obstacle_mask.shape}, "
+                                 f"障碍像素数={np.sum(obstacle_mask)}")
+            except Exception as e:
+                self.logger_.warning(f"静态掩码对齐失败: {e}，使用空掩码")
+                result['obstacle_mask'] = None
+        else:
+            result['obstacle_mask'] = None
+        
+        return result
+    
+    def _EmptyResult(self) -> Dict:
+        """返回空的检测结果"""
+        return {
+            'self_pos': None,
+            'flag_pos': None,
+            'angle': None,
+            'obstacle_mask': None,
+            'obstacles': [],
+            'roads': []
+        }
+    
     def reset(self):
         """重置位置和平滑器"""
         self.self_pos_smoother_.Reset()
