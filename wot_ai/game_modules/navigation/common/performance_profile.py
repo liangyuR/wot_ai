@@ -4,27 +4,18 @@
 性能档位配置模块：管理不同性能模式下的参数
 """
 
+# 标准库导入
 from typing import Dict
 
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
+# 本地模块导入
+from ..common.imports import GetLogger
+from ..common.constants import (
+    FPS_HIGH, FPS_MEDIUM, FPS_LOW,
+    CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIDENCE_LOW,
+    SCALE_HIGH, SCALE_MEDIUM, SCALE_LOW
+)
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
+logger = GetLogger()(__name__)
 
 
 class PerformanceProfile:
@@ -32,19 +23,19 @@ class PerformanceProfile:
     
     MODES = {
         "high": {
-            "fps": 30,
-            "conf": 0.25,
-            "scale": 1.0
+            "fps": FPS_HIGH,
+            "conf": CONFIDENCE_HIGH,
+            "scale": SCALE_HIGH
         },
         "medium": {
-            "fps": 15,
-            "conf": 0.35,
-            "scale": 0.75
+            "fps": FPS_MEDIUM,
+            "conf": CONFIDENCE_MEDIUM,
+            "scale": SCALE_MEDIUM
         },
         "low": {
-            "fps": 8,
-            "conf": 0.45,
-            "scale": 0.6
+            "fps": FPS_LOW,
+            "conf": CONFIDENCE_LOW,
+            "scale": SCALE_LOW
         }
     }
     
@@ -61,13 +52,18 @@ class PerformanceProfile:
         self.scale_ = 0.75
         self.SetMode(mode)
     
-    def SetMode(self, mode: str):
+    def SetMode(self, mode: str) -> None:
         """
         设置性能模式
         
         Args:
             mode: 性能模式 ("high", "medium", "low")
+        
+        Raises:
+            ValueError: 无效的性能模式
         """
+        if not isinstance(mode, str):
+            raise ValueError("mode必须是字符串")
         if mode not in self.MODES:
             logger.warning(f"未知的性能模式: {mode}，使用默认模式 medium")
             mode = "medium"

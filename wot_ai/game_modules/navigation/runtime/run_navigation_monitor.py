@@ -36,7 +36,7 @@ if SetupLogger is None:
 logger = SetupLogger(__name__)
 
 # 导入导航监控器
-from .navigation_monitor import NavigationMonitor
+from ..controller.navigation_monitor import NavigationMonitor
 
 
 def ParseArgs():

@@ -4,32 +4,35 @@
 地图建模模块：将检测结果转换为二维栅格地图
 """
 
-from typing import Dict, Tuple, Optional
-import numpy as np
+# 标准库导入
+from typing import Tuple, Optional
+
+# 第三方库导入
 import cv2
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
+import numpy as np
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
+# 本地模块导入
+from ..common.imports import GetLogger
+from .interfaces import IModeler, DetectionResult
 
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
+logger = GetLogger()(__name__)
 
 
-class MapModeler:
-    """地图建模器：将检测结果转换为栅格地图"""
+class MapModeler(IModeler):
+    """
+    地图建模器：将检测结果转换为栅格地图
+    
+    实现IModeler接口，负责将检测结果转换为可用于路径规划的栅格地图。
+    支持从检测结果字典或静态掩码构建栅格地图。
+    
+    示例:
+        ```python
+        modeler = MapModeler(grid_size=(64, 64), scale_factor=1.0)
+        grid = modeler.BuildGrid(detections, minimap_size=(320, 320))
+        start = modeler.GetStartPos()
+        goal = modeler.GetGoalPos()
+        ```
+    """
     
     def __init__(self, grid_size: Tuple[int, int], scale_factor: float = 1.0):
         """
@@ -38,7 +41,17 @@ class MapModeler:
         Args:
             grid_size: 栅格地图尺寸 (width, height)
             scale_factor: 缩放因子（用于适配不同分辨率）
+        
+        Raises:
+            ValueError: 输入参数无效
         """
+        if not isinstance(grid_size, tuple) or len(grid_size) != 2:
+            raise ValueError("grid_size必须是包含两个整数的元组")
+        if grid_size[0] <= 0 or grid_size[1] <= 0:
+            raise ValueError("grid_size的宽度和高度必须大于0")
+        if not isinstance(scale_factor, (int, float)) or scale_factor <= 0:
+            raise ValueError("scale_factor必须是正数")
+        
         self.grid_size_ = grid_size
         self.scale_factor_ = scale_factor
         self.grid_ = None
@@ -47,7 +60,7 @@ class MapModeler:
         self.minimap_width_ = None
         self.minimap_height_ = None
     
-    def BuildGrid(self, detections: Dict, minimap_size: Tuple[int, int]) -> np.ndarray:
+    def BuildGrid(self, detections: DetectionResult, minimap_size: Tuple[int, int]) -> np.ndarray:
         """
         构建栅格地图
         
@@ -57,7 +70,17 @@ class MapModeler:
         
         Returns:
             栅格地图（0=可通行，1=不可通行）
+        
+        Raises:
+            ValueError: 输入参数无效
         """
+        if not isinstance(minimap_size, tuple) or len(minimap_size) != 2:
+            raise ValueError("minimap_size必须是包含两个整数的元组")
+        if minimap_size[0] <= 0 or minimap_size[1] <= 0:
+            raise ValueError("minimap_size的宽度和高度必须大于0")
+        if detections is None:
+            raise ValueError("detections不能为None")
+        
         self.minimap_width_, self.minimap_height_ = minimap_size
         
         # 初始化栅格地图（全为0，可通行）

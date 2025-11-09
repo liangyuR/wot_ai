@@ -4,42 +4,32 @@
 导航执行模块：将路径转换为游戏操作
 """
 
+# 标准库导入
 from typing import List, Tuple, Optional
-import time
 import math
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
+import time
 
-ControlService, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.service.control_service',
-    'game_modules.navigation.service.control_service',
-    'navigation.service.control_service'
-])
+# 本地模块导入
+from ..common.imports import GetLogger, ImportNavigationModule
+from ..common.constants import (
+    DEFAULT_MOVE_SPEED,
+    DEFAULT_ROTATION_SMOOTH,
+    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_MOVE_DURATION,
+    MAX_MOVE_DURATION
+)
+
+ControlService = ImportNavigationModule('service.control_service', 'ControlService')
 if ControlService is None:
     from ..service.control_service import ControlService
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
+logger = GetLogger()(__name__)
 
 
 class NavigationExecutor:
     """导航执行器：将路径转换为游戏操作"""
     
-    def __init__(self, control_service: ControlService, move_speed: float = 1.0, rotation_smooth: float = 0.3):
+    def __init__(self, control_service: ControlService, move_speed: float = DEFAULT_MOVE_SPEED, rotation_smooth: float = DEFAULT_ROTATION_SMOOTH):
         """
         初始化导航执行器
         
@@ -47,14 +37,24 @@ class NavigationExecutor:
             control_service: 控制服务实例
             move_speed: 移动速度系数
             rotation_smooth: 转向平滑系数
+        
+        Raises:
+            ValueError: 输入参数无效
         """
+        if control_service is None:
+            raise ValueError("control_service不能为None")
+        if not isinstance(move_speed, (int, float)) or move_speed <= 0:
+            raise ValueError("move_speed必须是正数")
+        if not isinstance(rotation_smooth, (int, float)) or rotation_smooth < 0 or rotation_smooth > 1:
+            raise ValueError("rotation_smooth必须在0-1之间")
+        
         self.control_service_ = control_service
         self.move_speed_ = move_speed
         self.rotation_smooth_ = rotation_smooth
         self.current_smoothed_angle_ = 0.0
     
     def ExecutePath(self, path: List[Tuple[int, int]], current_pos: Optional[Tuple[float, float]], 
-                    update_interval: float = 0.1) -> None:
+                    update_interval: float = DEFAULT_UPDATE_INTERVAL) -> None:
         """
         执行路径
         
@@ -62,10 +62,17 @@ class NavigationExecutor:
             path: 路径坐标列表
             current_pos: 当前位置（小地图坐标，可为None）
             update_interval: 更新间隔（秒）
+        
+        Raises:
+            ValueError: 输入参数无效
         """
         if not path:
             logger.warning("路径为空，无法执行")
             return
+        if not isinstance(path, list):
+            raise ValueError("path必须是列表")
+        if update_interval <= 0:
+            raise ValueError("update_interval必须是正数")
         
         if len(path) == 1:
             logger.info("已到达目标位置")
@@ -83,7 +90,7 @@ class NavigationExecutor:
                     self.RotateToward(waypoint, prev_point)
                 
                 # 前进
-                self.MoveForward(0.5 * self.move_speed_)
+                self.MoveForward(DEFAULT_MOVE_DURATION * self.move_speed_)
                 time.sleep(update_interval)
             else:
                 # 转向目标
@@ -96,7 +103,7 @@ class NavigationExecutor:
                 )
                 
                 # 根据距离计算前进时间
-                duration = min(distance / 100.0 * self.move_speed_, 2.0)  # 最大2秒
+                duration = min(distance / 100.0 * self.move_speed_, MAX_MOVE_DURATION)
                 self.MoveForward(duration)
                 
                 # 更新当前位置（假设已经到达）

@@ -4,52 +4,37 @@
 导航运行时循环：端到端的导航处理流程
 """
 
-from typing import Dict, List, Tuple, Optional
+# 标准库导入
 from pathlib import Path
+from typing import Dict, List, Tuple, Optional
+
+# 第三方库导入
 import numpy as np
-import cv2
 
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import import_function, try_import_multiple
-setup_python_path()
+# 本地模块导入
+from ..common.imports import GetLogger, ImportNavigationModule
+from ..common.constants import (
+    DEFAULT_GRID_SIZE,
+    DEFAULT_MAPS_DIR,
+    DEFAULT_INFLATE_PX,
+    SMOOTH_WEIGHT_LOW,
+    SMOOTH_WEIGHT_MEDIUM,
+    SMOOTH_WEIGHT_HIGH
+)
+from ..common.exceptions import ModelLoadError, InitializationError
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__) if SetupLogger else None
+logger = GetLogger()(__name__)
 
 # 导入核心模块
-MinimapDetector = import_function([
-    'wot_ai.game_modules.navigation.core.minimap_detector',
-    'game_modules.navigation.core.minimap_detector',
-    'navigation.core.minimap_detector'
-], 'MinimapDetector')
+MinimapDetector = ImportNavigationModule('core.minimap_detector', 'MinimapDetector')
 if MinimapDetector is None:
     from ..core.minimap_detector import MinimapDetector
 
-MapModeler = import_function([
-    'wot_ai.game_modules.navigation.core.map_modeler',
-    'game_modules.navigation.core.map_modeler',
-    'navigation.core.map_modeler'
-], 'MapModeler')
+MapModeler = ImportNavigationModule('core.map_modeler', 'MapModeler')
 if MapModeler is None:
     from ..core.map_modeler import MapModeler
 
-AStarPlanner = import_function([
-    'wot_ai.game_modules.navigation.core.path_planner',
-    'game_modules.navigation.core.path_planner',
-    'navigation.core.path_planner'
-], 'AStarPlanner')
+AStarPlanner = ImportNavigationModule('core.path_planner', 'AStarPlanner')
 if AStarPlanner is None:
     from ..core.path_planner import AStarPlanner
 
@@ -58,8 +43,8 @@ class NavigationRuntime:
     """导航运行时：端到端的导航处理"""
     
     def __init__(self, map_id: str, minimap_region: Dict, model_path: str,
-                 grid_size: Tuple[int, int] = (64, 64), maps_dir: str = "data/maps",
-                 inflate_px: int = 4, performance: str = "medium", 
+                 grid_size: Tuple[int, int] = DEFAULT_GRID_SIZE, maps_dir: str = DEFAULT_MAPS_DIR,
+                 inflate_px: int = DEFAULT_INFLATE_PX, performance: str = "medium", 
                  base_dir: Optional[Path] = None):
         """
         初始化导航运行时
@@ -87,20 +72,29 @@ class NavigationRuntime:
             maps_dir=maps_dir,
             inflate_px=inflate_px
         )
-        if not self.detector_.load_model():
-            raise RuntimeError("YOLO 模型加载失败")
+        try:
+            if not self.detector_.LoadModel():
+                raise ModelLoadError("YOLO 模型加载失败")
+        except ModelLoadError:
+            raise
+        except Exception as e:
+            raise InitializationError(f"初始化检测器失败: {e}") from e
         
         # 初始化地图建模器
         self.modeler_ = MapModeler(grid_size, scale_factor=1.0)
         
         # 初始化路径规划器
-        smooth_weight = {"low": 0.2, "medium": 0.3, "high": 0.35}.get(performance, 0.3)
+        smooth_weight = {
+            "low": SMOOTH_WEIGHT_LOW,
+            "medium": SMOOTH_WEIGHT_MEDIUM,
+            "high": SMOOTH_WEIGHT_HIGH
+        }.get(performance, SMOOTH_WEIGHT_MEDIUM)
         self.planner_ = AStarPlanner(enable_smoothing=True, smooth_weight=smooth_weight)
         
         if logger:
             logger.info(f"导航运行时已初始化: map_id={map_id}, grid={grid_size}, perf={performance}")
     
-    def step(self, frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], List[Tuple[int, int]]]:
+    def Step(self, frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], List[Tuple[int, int]]]:
         """
         处理一帧画面，返回栅格地图和路径
         
@@ -117,7 +111,7 @@ class NavigationRuntime:
             detections = self.detector_.Detect(frame_bgr, confidence_threshold=self.detector_.conf_threshold_)
             
             # 2. 提取小地图用于获取尺寸
-            minimap = self.detector_.extract_minimap(frame_bgr)
+            minimap = self.detector_.ExtractMinimap(frame_bgr)
             if minimap is None:
                 return None, []
             

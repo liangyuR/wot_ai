@@ -2,87 +2,83 @@
 # -*- coding: utf-8 -*-
 """
 路径规划主控制器：整合所有子模块，提供统一的运行接口
+
+职责：完整的路径规划+控制执行系统，包含游戏操作
+使用场景：实际游戏导航，需要执行控制操作的场景
+与NavigationMonitor的区别：
+- PathPlanningController：完整的路径规划+控制执行，包含游戏操作，适合实际导航
+- NavigationMonitor：仅监控和显示，不执行控制操作，适合调试和可视化
 """
 
+# 标准库导入
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional
 import threading
 import time
-import yaml
+
+# 第三方库导入
 import numpy as np
 
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path, resolve_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
+# 本地模块导入
+from wot_ai.utils.paths import resolve_path
+from ..common.imports import GetLogger, ImportNavigationModule
+from ..common.constants import (
+    DEFAULT_CONFIDENCE_THRESHOLD,
+    DEFAULT_MINIMAP_WIDTH,
+    DEFAULT_MINIMAP_HEIGHT,
+    THREAD_JOIN_TIMEOUT
+)
+from ..core.interfaces import StatusCallback, StatsCallback
+from .config_manager import ConfigManager
+from .stats_collector import StatsCollector
 
-# 导入依赖模块（使用新的模块路径）
-MinimapDetector, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.minimap_detector',
-    'game_modules.navigation.core.minimap_detector',
-    'navigation.core.minimap_detector'
-])
+# 导入依赖模块
+MinimapDetector = ImportNavigationModule('core.minimap_detector', 'MinimapDetector')
 if MinimapDetector is None:
     from .core.minimap_detector import MinimapDetector
 
-MapModeler, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.map_modeler',
-    'game_modules.navigation.core.map_modeler',
-    'navigation.core.map_modeler'
-])
+MapModeler = ImportNavigationModule('core.map_modeler', 'MapModeler')
 if MapModeler is None:
     from .core.map_modeler import MapModeler
 
-AStarPlanner, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.path_planner',
-    'game_modules.navigation.core.path_planner',
-    'navigation.core.path_planner'
-])
+AStarPlanner = ImportNavigationModule('core.path_planner', 'AStarPlanner')
 if AStarPlanner is None:
     from .core.path_planner import AStarPlanner
 
-NavigationExecutor, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.navigation_executor',
-    'game_modules.navigation.core.navigation_executor',
-    'navigation.core.navigation_executor'
-])
+NavigationExecutor = ImportNavigationModule('core.navigation_executor', 'NavigationExecutor')
 if NavigationExecutor is None:
     from .core.navigation_executor import NavigationExecutor
 
-CaptureService, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.service.capture_service',
-    'game_modules.navigation.service.capture_service',
-    'navigation.service.capture_service'
-])
+CaptureService = ImportNavigationModule('service.capture_service', 'CaptureService')
 if CaptureService is None:
     from .service.capture_service import CaptureService
 
-ControlService, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.service.control_service',
-    'game_modules.navigation.service.control_service',
-    'navigation.service.control_service'
-])
+ControlService = ImportNavigationModule('service.control_service', 'ControlService')
 if ControlService is None:
     from .service.control_service import ControlService
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from ..common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
+logger = GetLogger()(__name__)
 
 
 class PathPlanningController:
-    """路径规划控制器"""
+    """
+    路径规划控制器
+    
+    职责：完整的路径规划+控制执行系统，包含游戏操作
+    
+    与NavigationMonitor的区别：
+    - PathPlanningController：完整的路径规划+控制执行，包含游戏操作，适合实际导航
+    - NavigationMonitor：仅监控和显示，不执行控制操作，适合调试和可视化
+    
+    示例:
+        ```python
+        controller = PathPlanningController(config_path=Path("config.yaml"))
+        controller.SetStatusCallback(lambda status: print(f"Status: {status}"))
+        controller.Start()  # 启动路径规划和控制
+        # ... 运行中 ...
+        controller.Stop()   # 停止
+        ```
+    """
     
     def __init__(self, config_path: Path):
         """
@@ -92,9 +88,16 @@ class PathPlanningController:
             config_path: 配置文件路径
         """
         self.config_path_ = config_path
-        self.config_ = {}
         self.running_ = False
         self.thread_ = None
+        
+        # 配置管理器
+        self.config_manager_ = ConfigManager(config_path)
+        self.config_manager_.LoadConfig()
+        self.config_ = self.config_manager_.GetConfig()
+        
+        # 统计收集器
+        self.stats_collector_ = StatsCollector()
         
         # 子模块
         self.capture_service_ = None
@@ -105,93 +108,9 @@ class PathPlanningController:
         self.navigation_executor_ = None
         
         # 回调函数
-        self.status_callback_ = None
-        self.stats_callback_ = None
-        
-        # 统计信息
-        self.stats_ = {
-            'frame_count': 0,
-            'detection_count': 0,
-            'path_planning_count': 0,
-            'navigation_count': 0,
-            'fps': 0.0
-        }
-        
-        # 加载配置
-        self.LoadConfig()
+        self.status_callback_: Optional[StatusCallback] = None
+        self.stats_callback_: Optional[StatsCallback] = None
     
-    def LoadConfig(self) -> bool:
-        """
-        加载配置文件
-        
-        Returns:
-            是否加载成功
-        """
-        try:
-            if not self.config_path_.exists():
-                logger.warning(f"配置文件不存在: {self.config_path_}，使用默认配置")
-                self.config_ = self.GetDefaultConfig()
-                return True
-            
-            with open(self.config_path_, 'r', encoding='utf-8') as f:
-                self.config_ = yaml.safe_load(f) or {}
-            
-            # 合并默认配置
-            default_config = self.GetDefaultConfig()
-            self.config_ = self._MergeConfig(default_config, self.config_)
-            
-            logger.info(f"配置加载成功: {self.config_path_}")
-            return True
-        except Exception as e:
-            logger.error(f"加载配置失败: {e}，使用默认配置")
-            self.config_ = self.GetDefaultConfig()
-            return False
-    
-    def GetDefaultConfig(self) -> dict:
-        """获取默认配置"""
-        return {
-            'minimap': {
-                'region': {
-                    'x': 1600,
-                    'y': 800,
-                    'width': 320,
-                    'height': 320
-                },
-                'grid_size': [256, 256],
-                'scale_factor': 1.0
-            },
-            'model': {
-                'path': 'train/model/minimap_yolo.pt',
-                'classes': 6,
-                'conf_threshold': 0.25
-            },
-            'navigation': {
-                'mouse_sensitivity': 1.0,
-                'calibration_factor': 150.0,
-                'move_speed': 1.0,
-                'rotation_smooth': 0.3
-            },
-            'planner': {
-                'enable_smoothing': True,
-                'smooth_weight': 0.3
-            },
-            'logging': {
-                'level': 'INFO',
-                'save_video': False
-            }
-        }
-    
-    def _MergeConfig(self, default: dict, override: dict) -> dict:
-        """深度合并配置字典"""
-        result = default.copy()
-        
-        for key, value in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = self._MergeConfig(result[key], value)
-            else:
-                result[key] = value
-        
-        return result
     
     def Initialize(self) -> bool:
         """
@@ -285,7 +204,7 @@ class PathPlanningController:
         self.running_ = False
         
         if self.thread_ and self.thread_.is_alive():
-            self.thread_.join(timeout=2.0)
+            self.thread_.join(timeout=THREAD_JOIN_TIMEOUT)
         
         # 停止移动
         if self.navigation_executor_:
@@ -303,7 +222,7 @@ class PathPlanningController:
         """
         return self.running_
     
-    def SetStatusCallback(self, callback: Optional[Callable[[str], None]]):
+    def SetStatusCallback(self, callback: Optional[StatusCallback]) -> None:
         """
         设置状态更新回调
         
@@ -312,7 +231,7 @@ class PathPlanningController:
         """
         self.status_callback_ = callback
     
-    def SetStatsCallback(self, callback: Optional[Callable[[dict], None]]):
+    def SetStatsCallback(self, callback: Optional[StatsCallback]) -> None:
         """
         设置统计信息更新回调
         
@@ -321,7 +240,7 @@ class PathPlanningController:
         """
         self.stats_callback_ = callback
     
-    def OnStatusUpdate(self, status: str):
+    def OnStatusUpdate(self, status: str) -> None:
         """触发状态更新回调"""
         if self.status_callback_:
             try:
@@ -329,11 +248,11 @@ class PathPlanningController:
             except Exception as e:
                 logger.error(f"状态回调失败: {e}")
     
-    def OnStatsUpdate(self):
+    def OnStatsUpdate(self) -> None:
         """触发统计信息更新回调"""
         if self.stats_callback_:
             try:
-                self.stats_callback_(self.stats_)
+                self.stats_callback_(self.stats_collector_.GetStats())
             except Exception as e:
                 logger.error(f"统计回调失败: {e}")
     
@@ -341,23 +260,10 @@ class PathPlanningController:
         """主循环"""
         logger.info("路径规划主循环开始")
         
-        last_time = time.time()
-        fps_interval = 1.0
-        fps_count = 0
-        fps_start_time = time.time()
-        
         while self.running_:
             try:
-                current_time = time.time()
-                delta_time = current_time - last_time
-                last_time = current_time
-                
-                # 计算FPS
-                fps_count += 1
-                if current_time - fps_start_time >= fps_interval:
-                    self.stats_['fps'] = fps_count / (current_time - fps_start_time)
-                    fps_count = 0
-                    fps_start_time = current_time
+                # 更新FPS（如果达到更新间隔）
+                if self.stats_collector_.UpdateFps():
                     self.OnStatsUpdate()
                 
                 # 1. 截取屏幕
@@ -366,12 +272,12 @@ class PathPlanningController:
                     time.sleep(0.1)
                     continue
                 
-                self.stats_['frame_count'] += 1
+                self.stats_collector_.UpdateFrameCount()
                 
                 # 2. 检测小地图
                 detections = self.minimap_detector_.Detect(
                     frame,
-                    confidence_threshold=self.config_.get('model', {}).get('conf_threshold', 0.25)
+                    confidence_threshold=self.config_.get('model', {}).get('conf_threshold', DEFAULT_CONFIDENCE_THRESHOLD)
                 )
                 
                 if detections.get('self_pos') is None or detections.get('flag_pos') is None:
@@ -379,12 +285,12 @@ class PathPlanningController:
                     time.sleep(0.1)
                     continue
                 
-                self.stats_['detection_count'] += 1
+                self.stats_collector_.UpdateDetectionCount()
                 
                 # 3. 构建地图模型
                 minimap_size = (
-                    self.config_.get('minimap', {}).get('region', {}).get('width', 320),
-                    self.config_.get('minimap', {}).get('region', {}).get('height', 320)
+                    self.config_.get('minimap', {}).get('region', {}).get('width', DEFAULT_MINIMAP_WIDTH),
+                    self.config_.get('minimap', {}).get('region', {}).get('height', DEFAULT_MINIMAP_HEIGHT)
                 )
                 grid = self.map_modeler_.BuildGrid(detections, minimap_size)
                 
@@ -404,7 +310,7 @@ class PathPlanningController:
                     time.sleep(0.1)
                     continue
                 
-                self.stats_['path_planning_count'] += 1
+                self.stats_collector_.UpdatePathPlanningCount()
                 logger.info(f"路径规划成功，路径长度: {len(path)}")
                 
                 # 5. 执行导航（反馈式导航，执行第一个路径点）
@@ -426,7 +332,7 @@ class PathPlanningController:
                         duration = min(distance / 100.0 * self.config_.get('navigation', {}).get('move_speed', 1.0), 0.5)
                         self.navigation_executor_.MoveForward(duration)
                         
-                        self.stats_['navigation_count'] += 1
+                        self.stats_collector_.UpdateNavigationCount()
                 
                 # 控制循环频率
                 time.sleep(0.1)

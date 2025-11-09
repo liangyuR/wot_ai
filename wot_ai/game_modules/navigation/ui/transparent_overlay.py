@@ -4,32 +4,21 @@
 透明浮窗模块：使用 DearPyGui + Win32 在游戏画面上创建透明窗口显示路径
 """
 
-import threading
+# 标准库导入
 from typing import Tuple, List
+import threading
+
+# 第三方库导入
 import numpy as np
 
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
+# 本地模块导入
+from ..common.imports import GetLogger
+from ..common.overlay_config import OverlayConfig
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
+logger = GetLogger()(__name__)
 
 # 导入 DPG Overlay 管理器
-from .overlay_dpg import DPGOverlayManager, OverlayConfig
+from .overlay_dpg import DPGOverlayManager
 
 
 class TransparentOverlay:
@@ -71,9 +60,9 @@ class TransparentOverlay:
         self.running_ = False
         
         # 启动 Overlay
-        self._StartOverlay()
+        self.StartOverlay_()
     
-    def _StartOverlay(self):
+    def StartOverlay_(self):
         """在后台线程中启动 Overlay"""
         config = OverlayConfig(
             width=self.width_,
@@ -91,18 +80,18 @@ class TransparentOverlay:
         
         # 在后台线程中运行
         self.overlay_thread_ = threading.Thread(
-            target=self._OverlayThread,
+            target=self.OverlayThread_,
             daemon=True
         )
         self.overlay_thread_.start()
     
-    def _OverlayThread(self):
+    def OverlayThread_(self):
         """Overlay 线程主循环"""
         self.running_ = True
-        self.overlay_manager_.Run(self._DrawCallback)
+        self.overlay_manager_.Run(self.DrawCallback_)
         self.running_ = False
     
-    def _DrawCallback(self, drawlist_id: int, mgr: DPGOverlayManager):
+    def DrawCallback_(self, drawlist_id: int, mgr: DPGOverlayManager):
         """
         DearPyGui 绘制回调
         
@@ -221,3 +210,4 @@ class TransparentOverlay:
             self.overlay_thread_.join(timeout=2.0)
         
         logger.info("透明浮窗已关闭")
+

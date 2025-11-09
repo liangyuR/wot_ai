@@ -4,70 +4,64 @@
 路径规划模块：实现 A* 算法进行路径规划
 """
 
-from abc import ABC, abstractmethod
+# 标准库导入
 from typing import List, Tuple, Optional
 import heapq
+
+# 第三方库导入
 import numpy as np
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
 
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
+# 本地模块导入
+from ..common.imports import GetLogger
+from ..common.constants import (
+    SMOOTH_WEIGHT_DEFAULT,
+    DIRECTIONS_4WAY
+)
+from ..common.exceptions import PathPlanningError
+from .interfaces import IPlanner
 
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
+logger = GetLogger()(__name__)
 
 
-class BasePlanner(ABC):
-    """路径规划器基类（抽象接口）"""
+class AStarPlanner(IPlanner):
+    """
+    A* 算法路径规划器
     
-    @abstractmethod
-    def Plan(self, grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
-        """
-        规划路径
-        
-        Args:
-            grid: 栅格地图（0=可通行，1=不可通行）
-            start: 起点坐标 (x, y)
-            goal: 终点坐标 (x, y)
-        
-        Returns:
-            路径坐标列表，如果无法到达则返回空列表
-        """
-        raise NotImplementedError
-
-
-class AStarPlanner(BasePlanner):
-    """A* 算法路径规划器"""
+    实现IPlanner接口，使用A*算法在栅格地图上进行路径规划。
+    支持路径平滑化，可配置平滑权重。
     
-    def __init__(self, enable_smoothing: bool = True, smooth_weight: float = 0.3):
+    示例:
+        ```python
+        planner = AStarPlanner(enable_smoothing=True, smooth_weight=0.3)
+        path = planner.Plan(grid, start=(10, 10), goal=(50, 50))
+        ```
+    """
+    
+    def __init__(self, enable_smoothing: bool = True, smooth_weight: float = SMOOTH_WEIGHT_DEFAULT):
         """
         初始化 A* 规划器
         
         Args:
             enable_smoothing: 是否启用路径平滑
             smooth_weight: 平滑权重（0.0-1.0）
+        
+        Raises:
+            ValueError: 输入参数无效
         """
+        if not isinstance(enable_smoothing, bool):
+            raise ValueError("enable_smoothing必须是布尔值")
+        if not isinstance(smooth_weight, (int, float)) or smooth_weight < 0 or smooth_weight > 1:
+            raise ValueError("smooth_weight必须在0-1之间")
+        
         self.enable_smoothing_ = enable_smoothing
         self.smooth_weight_ = smooth_weight
         
         # 四方向移动
-        self.directions_ = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        self.directions_ = DIRECTIONS_4WAY
     
     def Plan(self, grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
-        规划路径（实现基类接口）
+        规划路径（实现IPlanner接口）
         
         Args:
             grid: 栅格地图
@@ -76,13 +70,31 @@ class AStarPlanner(BasePlanner):
         
         Returns:
             路径坐标列表
+        
+        Raises:
+            ValueError: 输入参数无效
+            PathPlanningError: 路径规划失败
         """
-        path = self.AStar(grid, start, goal)
+        if grid is None or grid.size == 0:
+            raise ValueError("grid不能为空")
+        if not isinstance(start, tuple) or len(start) != 2:
+            raise ValueError("start必须是包含两个整数的元组")
+        if not isinstance(goal, tuple) or len(goal) != 2:
+            raise ValueError("goal必须是包含两个整数的元组")
         
-        if self.enable_smoothing_ and len(path) > 2:
-            path = self.SmoothPath(path, self.smooth_weight_)
-        
-        return path
+        try:
+            path = self.AStar(grid, start, goal)
+            
+            if self.enable_smoothing_ and len(path) > 2:
+                path = self.SmoothPath(path, self.smooth_weight_)
+            
+            return path
+        except PathPlanningError:
+            raise
+        except Exception as e:
+            error_msg = f"路径规划异常: {e}"
+            logger.error(error_msg)
+            raise PathPlanningError(error_msg) from e
     
     def AStar(self, grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
@@ -101,17 +113,20 @@ class AStarPlanner(BasePlanner):
         # 检查边界
         if (start[0] < 0 or start[0] >= width or start[1] < 0 or start[1] >= height or
             goal[0] < 0 or goal[0] >= width or goal[1] < 0 or goal[1] >= height):
-            logger.warning("起点或终点超出地图范围")
-            return []
+            error_msg = f"起点或终点超出地图范围: start={start}, goal={goal}, grid_size=({width}, {height})"
+            logger.warning(error_msg)
+            raise PathPlanningError(error_msg)
         
         # 检查起点和终点是否为障碍物
         if grid[start[1], start[0]] == 1:
-            logger.warning("起点位于障碍物上")
-            return []
+            error_msg = f"起点位于障碍物上: {start}"
+            logger.warning(error_msg)
+            raise PathPlanningError(error_msg)
         
         if grid[goal[1], goal[0]] == 1:
-            logger.warning("终点位于障碍物上")
-            return []
+            error_msg = f"终点位于障碍物上: {goal}"
+            logger.warning(error_msg)
+            raise PathPlanningError(error_msg)
         
         # 如果起点就是终点
         if start == goal:
@@ -162,8 +177,9 @@ class AStarPlanner(BasePlanner):
                     came_from[neighbor] = current
         
         # 无法到达终点
-        logger.warning("无法找到从起点到终点的路径")
-        return []
+        error_msg = f"无法找到从起点到终点的路径: start={start}, goal={goal}"
+        logger.warning(error_msg)
+        raise PathPlanningError(error_msg)
     
     def Heuristic(self, a: Tuple[int, int], b: Tuple[int, int]) -> float:
         """

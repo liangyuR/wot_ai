@@ -10,9 +10,9 @@ DearPyGui + Win32 透明 Overlay
 - 每帧回调绘制（画路径、点、文字等）
 """
 
-import time
-from dataclasses import dataclass
+# 标准库导入
 from typing import Callable, Optional, Tuple
+import time
 
 # 统一导入机制
 from wot_ai.utils.paths import setup_python_path
@@ -34,19 +34,8 @@ if SetupLogger is None:
 
 logger = SetupLogger(__name__)
 
-
-@dataclass
-class OverlayConfig:
-    """Overlay 配置"""
-    width: int = 1920
-    height: int = 1080
-    pos_x: int = 0                 # 窗口X坐标
-    pos_y: int = 0                 # 窗口Y坐标
-    fps: int = 30                  # 帧率：用来做高/中/低性能
-    alpha: int = 180               # 0-255 全局透明度（180 差不多够用）
-    title: str = "WOT AI Overlay"  # Overlay 窗口标题
-    target_window_title: Optional[str] = None  # 绑定的游戏窗口标题，如 "World of Tanks"
-    click_through: bool = True     # 鼠标穿透
+# 本地模块导入
+from ..common.overlay_config import OverlayConfig
 
 
 class DPGOverlayManager:
