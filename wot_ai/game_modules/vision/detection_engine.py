@@ -123,4 +123,3 @@ class DetectionEngine:
         center_y = int((bbox[1] + bbox[3]) / 2)
         
         return center_x, center_y
-

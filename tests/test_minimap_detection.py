@@ -5,72 +5,35 @@
 测试新的 MinimapDetector（YOLO）
 """
 
-import cv2  # pyright: ignore[reportMissingImports]
-import numpy as np  # pyright: ignore[reportMissingImports]
+import cv2  
+import numpy as np 
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from loguru import logger
-from wot_ai.game_modules.detection.minimap_anchor_detector import MinimapAnchorDetector
 
-
-# 设置 Python 路径，确保可以正确导入项目模块
 try:
     from wot_ai.utils.paths import setup_python_path
     setup_python_path()
 except ImportError:
-    # 如果 wot_ai 包不可用，手动设置路径
     import sys
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-# 统一导入机制
 from wot_ai.utils.paths import setup_python_path
 from wot_ai.utils.imports import try_import_multiple
 setup_python_path()
 
-# 导入新的检测器
-YOLODetector, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.minimap_detector',
-    'game_modules.navigation.core.minimap_detector',
-    'navigation.core.minimap_detector'
-])
-if YOLODetector is None:
-    from navigation.core.minimap_detector import YOLODetector
-
-TraditionalDetector, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.minimap_detector',
-    'game_modules.navigation.core.minimap_detector',
-    'navigation.core.minimap_detector'
-])
-if TraditionalDetector is None:
-    from navigation.core.minimap_detector import TraditionalDetector
-
-MinimapDetector, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.minimap_detector',
-    'game_modules.navigation.core.minimap_detector',
-    'navigation.core.minimap_detector'
-])
-if MinimapDetector is None:
-    from navigation.core.minimap_detector import MinimapDetector
+from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetector
+from wot_ai.game_modules.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
 
 
 def FindModelPath(script_dir: Path) -> Optional[Path]:
-    """查找 YOLO 模型路径"""
-    from wot_ai.utils.paths import get_models_dir
-    models_dir = get_models_dir()
-    possible_paths = [
-        models_dir / "yolo" / "minimap" / "best.pt",
-        models_dir / "yolo" / "minimap" / "minimap_yolo.pt",
-        script_dir.parent / "navigation" / "train" / "model" / "minimap_yolo.pt",
-        script_dir.parent.parent / "train" / "model" / "minimap_yolo.pt",
-    ]
-    
-    for path in possible_paths:
-        if path.exists():
-            return path
-    
+    """查找 YOLO 模型路径（固定在 ../wot_ai/model/）"""
+    model_path = script_dir.parent / "wot_ai" / "model" / "minimap_yolo.pt"
+    if model_path.exists():
+        return model_path
     return None
 
 """可视化检测结果"""
