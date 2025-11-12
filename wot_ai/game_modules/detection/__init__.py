@@ -6,11 +6,9 @@
 
 from .minimap_anchor_detector import MinimapAnchorDetector
 from .detection_engine import DetectionEngine
-from .cv_minimap_detector import CvMinimapDetector
 
 __all__ = [
     'MinimapAnchorDetector',
     'DetectionEngine',
-    'CvMinimapDetector',
 ]
 

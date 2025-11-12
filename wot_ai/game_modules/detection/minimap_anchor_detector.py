@@ -1,193 +1,117 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小地图锚点检测器
-用于检测小地图左上角在屏幕中的位置，支持可配置的裁剪与调试显示
+小地图锚点检测器（模板匹配版 + 掩膜支持 + 对比度增强 + 二阶段精修）
+增加 ROI 区域，从右下角开始起步，默认取 640x640 像素范围进行匹配。
 """
 
-from typing import Optional, Tuple
-import numpy as np
 import cv2
+import numpy as np
+from typing import Optional, Tuple
 from loguru import logger
 
 
 class MinimapAnchorDetector:
-    """
-    小地图锚点检测器
-    
-    通过检测小地图的上边条和左边条颜色来定位小地图左上角位置。
-    支持ROI裁剪以提高检测效率，支持调试模式实时显示检测结果。
-    
-    示例:
-        ```python
-        detector = MinimapAnchorDetector(
-            color_top=(0, 0, 255),  # 上边条颜色 (B, G, R)
-            color_left=(0, 0, 255),  # 左边条颜色 (B, G, R)
-            tol=20,
-            debug=True
-        )
-        topleft = detector.detect(frame, crop=True)
-        ```
-    """
-    
-    def __init__(self, color_top: tuple, color_left: tuple, tol: int = 20, debug: bool = False):
-        """
-        初始化小地图锚点检测器
-        
-        Args:
-            color_top: 上边条颜色 (B, G, R)
-            color_left: 左边条颜色 (B, G, R)
-            tol: 颜色容差
-            debug: 是否启用调试显示
-        """
-        self.color_top_bgr_ = np.array(color_top, dtype=np.uint8)
-        self.color_left_bgr_ = np.array(color_left, dtype=np.uint8)
-        self.tol_ = tol
+    def __init__(self, template_path: str, debug: bool = False, multi_scale: bool = False):
+        self.template_path_ = template_path
         self.debug_ = debug
-        
-        # 将BGR颜色转换为HSV
-        color_top_bgr_3d = np.uint8([[[color_top[0], color_top[1], color_top[2]]]])
-        color_left_bgr_3d = np.uint8([[[color_left[0], color_left[1], color_left[2]]]])
-        
-        self.color_top_hsv_ = cv2.cvtColor(color_top_bgr_3d, cv2.COLOR_BGR2HSV)[0][0]
-        self.color_left_hsv_ = cv2.cvtColor(color_left_bgr_3d, cv2.COLOR_BGR2HSV)[0][0]
-        
-        logger.info(f"MinimapAnchorDetector 初始化: color_top={color_top}, color_left={color_left}, tol={tol}, debug={debug}")
-    
-    def detect(self, frame: np.ndarray, crop: bool = True, region: Optional[tuple] = None, 
-               size: Optional[tuple] = (640, 640)) -> Optional[tuple]:
-        """
-        检测小地图左上角坐标
-        
-        Args:
-            frame: 输入的屏幕帧（BGR格式）
-            crop: 是否裁剪右下角区域
-            region: 指定裁剪区域 (x, y, w, h)，若为 None 则自动使用屏幕右下角
-            size: 小地图的固定尺寸 (w, h)，用于绘制与验证
-        
-        Returns:
-            (x, y): 小地图左上角在屏幕中的坐标，若检测失败返回 None
-        """
+        self.multi_scale_ = multi_scale
+
+        tpl_rgba = cv2.imread(template_path, cv2.IMREAD_UNCHANGED)
+        if tpl_rgba is None:
+            raise FileNotFoundError(f"无法加载模板图像: {template_path}")
+
+        if tpl_rgba.shape[2] == 4:
+            self.template_bgr_ = tpl_rgba[..., :3]
+            alpha = tpl_rgba[..., 3]
+            self.mask_ = cv2.threshold(alpha, 1, 255, cv2.THRESH_BINARY)[1]
+            logger.info(f"模板包含透明通道，已生成mask（有效像素: {np.sum(self.mask_>0)}）")
+        else:
+            self.template_bgr_ = tpl_rgba
+            self.mask_ = None
+            logger.warning("模板不包含Alpha通道，未启用mask")
+
+        self.template_gray_ = cv2.cvtColor(self.template_bgr_, cv2.COLOR_BGR2GRAY)
+        self.tpl_h_, self.tpl_w_ = self.template_gray_.shape[:2]
+        self.clahe_ = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+        logger.info(f"模板加载成功: {template_path}, 尺寸=({self.tpl_w_}x{self.tpl_h_})")
+
+    def detect(self, frame: np.ndarray, size: Tuple[int, int] = (640, 640)) -> Optional[Tuple[int, int]]:
         if frame is None or frame.size == 0:
             logger.error("输入帧为空")
             return None
-        
-        H, W = frame.shape[:2]
-        
-        # ROI提取
-        if crop:
-            if region is not None:
-                # 使用指定的裁剪区域
-                x, y, w, h = region
-                roi = frame[y:y+h, x:x+w]
-                offset = (x, y)
-            else:
-                # 默认提取屏幕右下角一半区域
-                roi = frame[int(H*0.5):, int(W*0.5):]
-                offset = (int(W*0.5), int(H*0.5))
-        else:
-            # 不裁剪，使用整个屏幕
-            roi = frame
-            offset = (0, 0)
-        
-        if roi.size == 0:
-            logger.error("ROI区域为空")
-            return None
-        
-        # 转换至HSV空间
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        
-        # 检测上边条和左边条
-        top_y = self._find_color_band(hsv, self.color_top_hsv_, self.tol_, 'horizontal')
-        left_x = self._find_color_band(hsv, self.color_left_hsv_, self.tol_, 'vertical')
-        
-        if top_y is None or left_x is None:
-            if self.debug_:
-                logger.debug(f"检测失败: top_y={top_y}, left_x={left_x}")
-            return None
-        
-        # 计算左上角在原始屏幕中的坐标
-        top_left = (offset[0] + left_x, offset[1] + top_y)
-        
-        # 调试绘制
-        if self.debug_:
-            self._draw_debug(frame, top_left, size)
-        
-        logger.debug(f"检测到小地图左上角: {top_left}")
-        return top_left
-    
-    def _find_color_band(self, hsv: np.ndarray, color: tuple, tol: int, axis: str) -> Optional[int]:
-        """
-        内部函数：在HSV图像中查找指定颜色的带状区域
-        
-        Args:
-            hsv: 输入HSV图像
-            color: 目标颜色HSV (H, S, V)
-            tol: 容差
-            axis: 'horizontal' 或 'vertical'
-        
-        Returns:
-            匹配到的行或列索引，若未找到返回 None
-        """
-        # 创建颜色范围
-        lower = np.array([
-            max(0, color[0] - tol),
-            max(0, color[1] - tol),
-            max(0, color[2] - tol)
-        ], dtype=np.uint8)
-        
-        upper = np.array([
-            min(180, color[0] + tol),
-            min(255, color[1] + tol),
-            min(255, color[2] + tol)
-        ], dtype=np.uint8)
-        
-        # 创建掩膜
-        mask = cv2.inRange(hsv, lower, upper)
-        
-        # 根据方向求和
-        if axis == 'horizontal':
-            # 水平方向：沿列求和，找到首次出现像素密度超过阈值的行
-            sums = np.sum(mask, axis=1)
-        elif axis == 'vertical':
-            # 垂直方向：沿行求和，找到首次出现像素密度超过阈值的列
-            sums = np.sum(mask, axis=0)
-        else:
-            logger.error(f"无效的axis参数: {axis}")
-            return None
-        
-        # 计算阈值：至少需要一定比例的像素匹配
-        threshold = sums.shape[0] * 0.3  # 至少30%的像素匹配
-        
-        # 查找首次超过阈值的索引
-        indices = np.where(sums > threshold)[0]
-        if len(indices) > 0:
-            return int(indices[0])
-        
-        return None
-    
-    def _draw_debug(self, frame: np.ndarray, topleft: tuple, size: tuple) -> None:
-        """
-        调试模式下绘制边框
-        
-        Args:
-            frame: 原始屏幕帧
-            topleft: 左上角坐标 (x, y)
-            size: 小地图宽高 (w, h)
-        """
-        if frame is None or topleft is None or size is None:
-            return
-        
-        x, y = topleft
-        w, h = size
-        
-        # 绘制矩形框
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        
-        # 绘制左上角标记
-        cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)
-        
-        # 显示调试窗口
-        cv2.imshow("Minimap Anchor Debug", frame)
-        cv2.waitKey(1)
 
+        h, w = frame.shape[:2]
+        roi_w, roi_h = 640, 640
+        start_x = max(0, w - roi_w)
+        start_y = max(0, h - roi_h)
+        roi = frame[start_y:h, start_x:w]
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray_eq = self.clahe_.apply(gray)
+
+        best_val, best_loc, best_scale = -1.0, None, 1.0
+        method = cv2.TM_CCORR_NORMED
+        scales = [0.9, 1.0, 1.1] if self.multi_scale_ else [1.0]
+
+        for scale in scales:
+            tpl_scaled = cv2.resize(self.template_gray_, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+            tpl_scaled_eq = self.clahe_.apply(tpl_scaled)
+            mask_scaled = cv2.resize(self.mask_, (tpl_scaled.shape[1], tpl_scaled.shape[0]), interpolation=cv2.INTER_NEAREST) if self.mask_ is not None else None
+
+            res = cv2.matchTemplate(gray_eq, tpl_scaled_eq, method, mask=mask_scaled)
+            _, max_val, _, max_loc = cv2.minMaxLoc(res)
+            logger.info(f"scale={scale}, max_val={max_val}")
+
+            if max_val > best_val:
+                best_val, best_loc, best_scale = max_val, max_loc, scale
+
+        if best_loc is None:
+            logger.warning("模板匹配失败：未找到最大响应")
+            return None
+
+        # 二阶段精修（±8像素）
+        tpl_w, tpl_h = int(self.tpl_w_ * best_scale), int(self.tpl_h_ * best_scale)
+        x0, y0 = best_loc
+        delta = 8
+
+        rx0, ry0 = max(0, x0 - delta), max(0, y0 - delta)
+        rx1, ry1 = min(roi.shape[1], x0 + tpl_w + delta), min(roi.shape[0], y0 + tpl_h + delta)
+        roi_small = gray_eq[ry0:ry1, rx0:rx1]
+
+        tpl_small = cv2.resize(self.template_gray_, (tpl_w, tpl_h), interpolation=cv2.INTER_LINEAR)
+        tpl_small = self.clahe_.apply(tpl_small)
+        mask_small = cv2.resize(self.mask_, (tpl_w, tpl_h), interpolation=cv2.INTER_NEAREST) if self.mask_ is not None else None
+
+        res2 = cv2.matchTemplate(roi_small, tpl_small, method, mask=mask_small)
+        _, max_val2, _, max_loc2 = cv2.minMaxLoc(res2)
+        best_val = max_val2
+        best_loc = (rx0 + max_loc2[0], ry0 + max_loc2[1])
+
+        # 计算全局坐标
+        top_left = (start_x + best_loc[0], start_y + best_loc[1])
+
+        if self.debug_:
+            self._draw_debug(frame, top_left, (tpl_w, tpl_h), size, best_val)
+
+        logger.info(f"检测成功: 坐标={top_left}, 置信度={best_val:.3f}, 尺度={best_scale:.2f}")
+        return top_left
+
+    def _draw_debug(self, frame: np.ndarray, top_left: Tuple[int, int], tpl_size: Tuple[int, int], minimap_size: Tuple[int, int], confidence: float):
+        x, y = top_left
+        tpl_w, tpl_h = tpl_size
+        w, h = minimap_size
+
+        debug_img = frame.copy()
+        cv2.rectangle(debug_img, (x, y), (x + tpl_w, y + tpl_h), (0, 255, 0), 2)
+        cv2.rectangle(debug_img, (x, y), (x + w, y + h), (255, 255, 0), 1)
+        cv2.putText(debug_img, f"Conf: {confidence:.3f}", (x + 10, y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        # 缩放百分之30图片大小后显示，保持宽高比
+        scale_percent = 30  # 30%
+        width = int(debug_img.shape[1] * scale_percent / 100)
+        height = int(debug_img.shape[0] * scale_percent / 100)
+        dim = (width, height)
+        resized_debug_img = cv2.resize(debug_img, dim, interpolation=cv2.INTER_AREA)
+        cv2.imshow("Minimap Template Match Debug", resized_debug_img)
+        cv2.waitKey(1)

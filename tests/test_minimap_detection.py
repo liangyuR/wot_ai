@@ -2,13 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 小地图检测功能测试
-测试新的 MinimapDetector（YOLO/传统方案）
+测试新的 MinimapDetector（YOLO）
 """
 
 import cv2  # pyright: ignore[reportMissingImports]
 import numpy as np  # pyright: ignore[reportMissingImports]
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+from loguru import logger
+from wot_ai.game_modules.detection.minimap_anchor_detector import MinimapAnchorDetector
+
 
 # 设置 Python 路径，确保可以正确导入项目模块
 try:
@@ -70,9 +73,8 @@ def FindModelPath(script_dir: Path) -> Optional[Path]:
     
     return None
 
-
+"""可视化检测结果"""
 def VisualizeResults(minimap: np.ndarray, results: Dict, detector_name: str) -> np.ndarray:
-    """可视化检测结果"""
     display = minimap.copy()
     
     # 绘制己方位置
@@ -107,38 +109,6 @@ def VisualizeResults(minimap: np.ndarray, results: Dict, detector_name: str) -> 
                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
     return display
-
-
-def TestTraditionalDetector(minimap: np.ndarray) -> Tuple[bool, Dict, np.ndarray]:
-    """测试传统检测器"""
-    print("\n" + "=" * 60)
-    print("测试传统检测器 (TraditionalDetector)")
-    print("=" * 60)
-    
-    try:
-        detector = TraditionalDetector()
-        print("✓ 传统检测器创建成功")
-        
-        results = detector.Detect(minimap)
-        print("✓ 检测完成")
-        
-        # 显示结果
-        print(f"  己方位置: {results.get('self_pos')}")
-        print(f"  基地位置: {results.get('flag_pos')}")
-        print(f"  障碍物数量: {len(results.get('obstacles', []))}")
-        print(f"  道路数量: {len(results.get('roads', []))}")
-        
-        display = VisualizeResults(minimap, results, "Traditional Detector")
-        
-        success = results.get('self_pos') is not None or results.get('flag_pos') is not None
-        return success, results, display
-        
-    except Exception as e:
-        print(f"✗ 传统检测器测试失败: {e}")
-        import traceback
-        traceback.print_exc()
-        return False, {}, minimap.copy()
-
 
 def TestYOLODetector(minimap: np.ndarray, model_path: Path) -> Tuple[bool, Dict, np.ndarray]:
     """测试 YOLO 检测器"""
@@ -234,128 +204,84 @@ def TestMinimapDetector(minimap: np.ndarray, model_path: Optional[Path],
 
 def TestMinimapDetection():
     """测试小地图检测功能"""
-    print("=" * 60)
-    print("开始测试小地图检测功能（新版本）")
-    print("=" * 60)
-    
+    logger.info("=" * 60)
+    logger.info("开始测试小地图检测功能（YOLO）")
+    logger.info("=" * 60)
+
     # 1. 加载测试图片
     script_dir = Path(__file__).resolve().parent
-    minimap_path = script_dir.parent / "path_planning" / "maps" / "01.png"
-    
+    minimap_path = script_dir / "minimap.png"
     if not minimap_path.exists():
-        print(f"错误：测试图片不存在: {minimap_path}")
+        logger.error(f"错误：测试图片不存在: {minimap_path}")
         return False
     
     minimap = cv2.imread(str(minimap_path))
     if minimap is None:
-        print(f"错误：无法读取测试图片: {minimap_path}")
+        logger.error(f"错误：无法读取测试图片: {minimap_path}")
         return False
     
     h, w = minimap.shape[:2]
-    print(f"\n✓ 测试图片加载成功: {w}x{h}")
+    logger.info(f"测试图片加载成功: {w}x{h}")
     
     # 2. 配置小地图区域
+    minimap_template_path = script_dir / "minimap_border.png"
+    if not minimap_template_path.exists():
+        logger.error(f"错误：小地图模板不存在: {minimap_template_path}")
+        return False
+
+    anchor_detector = MinimapAnchorDetector(template_path=str(minimap_template_path), debug=True)
+    anchor_pos = anchor_detector.detect(minimap)
+    if anchor_pos is None:
+        logger.error("错误：无法检测到小地图锚点")
+        return False
+    x, y = anchor_pos
     minimap_region = {
-        'x': 0,
-        'y': 0,
+        'x': x,
+        'y': y,
         'width': w,
         'height': h
     }
+    logger.info(f"小地图锚点: {x}, {y}, 小地图区域: {minimap_region}")
+    logger.info("按任意键继续...")
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    return True
+
+    # 3. 查找模型路径. wot_ai/models/minimap_dectect.pt
+    model_path = Path("wot_ai/models/minimap_dectect_yolo11m.pt")
+    logger.info(f"模型路径: {model_path}")
+    if not model_path.exists():
+        logger.error(f"错误：模型文件不存在: {model_path}")
+        return False
     
-    # 3. 查找模型路径
-    model_path = FindModelPath(script_dir)
-    if model_path:
-        print(f"\n✓ 找到模型文件: {model_path}")
-    else:
-        print("\n⚠ 未找到模型文件，将跳过 YOLO 相关测试")
-    
-    # 4. 测试传统检测器
-    trad_success, trad_results, trad_display = TestTraditionalDetector(minimap)
-    
-    # 5. 测试 YOLO 检测器（如果模型存在）
-    yolo_success = False
-    yolo_results = {}
-    yolo_display = None
-    if model_path:
-        yolo_success, yolo_results, yolo_display = TestYOLODetector(minimap, model_path)
-    
-    # 6. 测试兼容层检测器（如果模型存在）
-    compat_success = False
-    compat_results = {}
-    compat_display = None
-    if model_path:
-        compat_success, compat_results, compat_display = TestMinimapDetector(
-            minimap, model_path, minimap_region
-        )
-    
-    # 7. 保存和显示结果
-    print("\n" + "=" * 60)
-    print("保存可视化结果")
-    print("=" * 60)
+    # 5. 保存和显示结果
+    logger.info("保存可视化结果")
     
     output_dir = script_dir
     try:
-        # 保存传统检测器结果
-        trad_output = output_dir / "test_traditional_result.jpg"
-        cv2.imwrite(str(trad_output), trad_display)
-        print(f"✓ 传统检测器结果已保存: {trad_output}")
+        # 保存 YOLO 检测器结果
+        yolo_output = output_dir / "test_yolo_result.jpg"
+        cv2.imwrite(str(yolo_output), yolo_display)
+        logger.info(f"✓ YOLO检测器结果已保存: {yolo_output}")
         
-        # 保存 YOLO 检测器结果（如果有）
-        if yolo_display is not None:
-            yolo_output = output_dir / "test_yolo_result.jpg"
-            cv2.imwrite(str(yolo_output), yolo_display)
-            print(f"✓ YOLO检测器结果已保存: {yolo_output}")
-        
-        # 保存兼容层检测器结果（如果有）
-        if compat_display is not None:
-            compat_output = output_dir / "test_compat_result.jpg"
-            cv2.imwrite(str(compat_output), compat_display)
-            print(f"✓ 兼容层检测器结果已保存: {compat_output}")
-        
-        # 显示结果（显示传统检测器的结果）
-        cv2.imshow("Traditional Detector Result", trad_display)
-        if yolo_display is not None:
-            cv2.imshow("YOLO Detector Result", yolo_display)
-        if compat_display is not None:
-            cv2.imshow("Compatible Detector Result", compat_display)
-        
-        print("\n按任意键关闭窗口...")
+        # 显示结果
+        cv2.imshow("YOLO Detector Result", yolo_display)
+        logger.info("按任意键关闭窗口...")
         cv2.waitKey(0)
         cv2.destroyAllWindows()
         
     except Exception as e:
-        print(f"⚠ 保存/显示结果出错: {e}")
+        logger.error(f"⚠ 保存/显示结果出错: {e}")
         import traceback
         traceback.print_exc()
     
     # 8. 测试结果评估
-    print("\n" + "=" * 60)
-    print("测试结果评估")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("测试结果评估")
+    logger.info("=" * 60)
     
     all_success = True
-    
-    if trad_success:
-        print("✓ 传统检测器测试: 通过")
-    else:
-        print("✗ 传统检测器测试: 失败（未检测到关键元素）")
-        all_success = False
-    
-    if model_path:
-        if yolo_success:
-            print("✓ YOLO检测器测试: 通过")
-        else:
-            print("✗ YOLO检测器测试: 失败（未检测到关键元素）")
-            all_success = False
-        
-        if compat_success:
-            print("✓ 兼容层检测器测试: 通过")
-        else:
-            print("✗ 兼容层检测器测试: 失败（未检测到关键元素）")
-            all_success = False
-    else:
-        print("⚠ YOLO相关测试: 跳过（未找到模型文件）")
-    
+
     if all_success:
         print("\n✓✓✓ 所有测试通过！")
     else:
