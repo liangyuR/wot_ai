@@ -28,17 +28,13 @@ def SetupDirectories() -> bool:
         # 数据集目录
         datasets_dir = get_datasets_dir()
         ensure_dir(datasets_dir / 'raw' / 'minimap')
-        ensure_dir(datasets_dir / 'raw' / 'aim')
         ensure_dir(datasets_dir / 'processed' / 'minimap')
-        ensure_dir(datasets_dir / 'processed' / 'aim')
         ensure_dir(datasets_dir / 'annotations')
         
         # 模型目录
         models_dir = get_models_dir()
         ensure_dir(models_dir / 'yolo' / 'minimap')
-        ensure_dir(models_dir / 'yolo' / 'aim')
         ensure_dir(get_training_dir() / 'minimap')
-        ensure_dir(get_training_dir() / 'aim')
         
         # 配置目录
         configs_dir = get_configs_dir()

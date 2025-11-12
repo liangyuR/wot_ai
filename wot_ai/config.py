@@ -73,7 +73,6 @@ def GetModelPaths() -> Dict[str, Path]:
     models_dir = get_models_dir()
     return {
         'yolo_minimap': models_dir / 'yolo' / 'minimap',
-        'yolo_aim': models_dir / 'yolo' / 'aim',
         'training': get_training_dir(),
     }
 

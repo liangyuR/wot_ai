@@ -68,12 +68,6 @@ pip install -e .
 python -m wot_ai.data_collection.main
 ```
 
-### 瞄准辅助
-
-```bash
-python -m wot_ai.game_modules.aim_assist.main
-```
-
 ### 路径规划
 
 ```bash
