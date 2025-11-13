@@ -16,6 +16,7 @@ from typing import Optional, Dict, Tuple, List
 
 import numpy as np
 from loguru import logger
+import cv2
 
 from ..detection_engine import DetectionEngine, Detection
 
@@ -82,6 +83,47 @@ class MinimapDetector:
         enemy_flag_pos = self._extract_center(detections, CLS_ENEMY_FLAG)
 
         return MinimapDetectionResult(self_pos, enemy_flag_pos, detections)
+
+    def DebugDraw(self, frame_minimap: np.ndarray, confidence_threshold: Optional[float] = None) -> np.ndarray:
+        """
+        绘制检测结果到 frame_minimap 中，并返回结果图像
+        """
+        if frame_minimap is None or frame_minimap.size == 0:
+            logger.error("MinimapDetector: frame_minimap为空或无效")
+            return None
+
+        conf = confidence_threshold or self.conf_threshold_
+        # 获取检测结果
+        detections = self.engine_.DetectStructured(frame_minimap, confidence_threshold=conf)
+        # 绘制检测结果
+        vis_img = frame_minimap.copy()
+        # for det in detections:
+        #     x1, y1, x2, y2 = map(int, det.bbox)
+        #     color = (0,255,0) if det.cls == CLS_SELF else (0,0,255) if det.cls == CLS_ENEMY_FLAG else (255,0,0)
+        #     cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 2)
+        #     label = f"{det.cls}:{det.confidence:.2f}"
+        #     cv2.putText(vis_img, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        # 绘制中心点
+        self_pos = self._extract_center(detections, CLS_SELF)
+        if self_pos:
+            cx, cy = map(int, self_pos)
+            cv2.circle(vis_img, (cx, cy), 8, (0,255,255), -1)
+            cv2.putText(vis_img, "Self", (cx+10, cy-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2)
+
+        enemy_flag_pos = self._extract_center(detections, CLS_ENEMY_FLAG)
+        if enemy_flag_pos:
+            ex, ey = map(int, enemy_flag_pos)
+            cv2.rectangle(vis_img, (ex-10, ey-10), (ex+10, ey+10), (0,0,255), 2)
+            cv2.putText(vis_img, "Enemy", (ex+12, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 2)
+
+        ally_flag_pos = self._extract_center(detections, CLS_ALLY_FLAG)
+        if ally_flag_pos:
+            ax, ay = map(int, ally_flag_pos)
+            cv2.rectangle(vis_img, (ax-10, ay-10), (ax+10, ay+10), (0,255,0), 2)
+            cv2.putText(vis_img, "Ally", (ax+12, ay), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+
+        return vis_img
 
     # -----------------------------------------------------------
     @staticmethod

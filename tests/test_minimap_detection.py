@@ -26,6 +26,8 @@ from wot_ai.utils.imports import try_import_multiple
 setup_python_path()
 
 from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetector
+from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetectionResult
+
 from wot_ai.game_modules.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
 
 
@@ -37,40 +39,55 @@ def FindModelPath(script_dir: Path) -> Optional[Path]:
     return None
 
 """可视化检测结果"""
-def VisualizeResults(minimap: np.ndarray, results: Dict, detector_name: str) -> np.ndarray:
+def VisualizeResults(minimap: np.ndarray, results: MinimapDetectionResult, detector_name: str) -> np.ndarray:
     display = minimap.copy()
-    
-    # 绘制己方位置
-    if results.get('self_pos'):
-        cx, cy = results['self_pos']
+
+    # 绘制己方位置（self_pos）
+    if results.self_pos:
+        cx, cy = results.self_pos
         cx, cy = int(cx), int(cy)
         cv2.circle(display, (cx, cy), 8, (0, 255, 255), -1)  # 黄色实心圆
         cv2.circle(display, (cx, cy), 12, (0, 255, 255), 2)  # 黄色外圈
         cv2.putText(display, "Self", (cx + 15, cy - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-    
-    # 绘制基地位置
-    if results.get('flag_pos'):
-        cx, cy = results['flag_pos']
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+    # 绘制敌军基地位置（enemy_flag_pos）
+    if results.enemy_flag_pos:
+        cx, cy = results.enemy_flag_pos
         cx, cy = int(cx), int(cy)
         cv2.rectangle(display, (cx - 10, cy - 10), (cx + 10, cy + 10), (0, 0, 255), 2)
-        cv2.putText(display, "Flag", (cx + 15, cy),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    
-    # 绘制障碍物
-    for obstacle in results.get('obstacles', []):
-        x1, y1, x2, y2 = map(int, obstacle)
-        cv2.rectangle(display, (x1, y1), (x2, y2), (128, 128, 128), 1)
-    
-    # 绘制道路
-    for road in results.get('roads', []):
-        x1, y1, x2, y2 = map(int, road)
-        cv2.rectangle(display, (x1, y1), (x2, y2), (0, 255, 0), 1)
-    
+        cv2.putText(display, "EnemyBase", (cx + 15, cy),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+    # 可选：绘制原始检测框(raw_detections)，假设结构类似 [{bbox, conf, class_id}]
+    if results.raw_detections:
+        for det in results.raw_detections:
+            # 支持命名元组/对象或dict结构
+            if hasattr(det, 'bbox'):
+                bbox = det.bbox  # e.g. (x1,y1,x2,y2)
+                class_id = getattr(det, 'class_id', None)
+                conf = getattr(det, 'confidence', None)
+            else:
+                bbox = det.get('bbox') or det.get('box')
+                class_id = det.get('class_id')
+                conf = det.get('confidence') or det.get('conf')
+            if bbox is not None:
+                x1, y1, x2, y2 = map(int, bbox)
+                color = (0,255,0) if class_id == 0 else (255,0,0)
+                cv2.rectangle(display, (x1, y1), (x2, y2), color, 1)
+                label_parts = []
+                if class_id is not None:
+                    label_parts.append(str(class_id))
+                if conf is not None:
+                    label_parts.append(f"{conf:.2f}")
+                if label_parts:
+                    cv2.putText(display, ",".join(label_parts), (x1, y1-5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
     # 添加检测器名称
     cv2.putText(display, detector_name, (10, 30),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
     return display
 
 def TestYOLODetector(minimap: np.ndarray, model_path: Path) -> Tuple[bool, Dict, np.ndarray]:
@@ -173,17 +190,17 @@ def TestMinimapDetection():
 
     # 1. 加载测试图片
     script_dir = Path(__file__).resolve().parent
-    minimap_path = script_dir / "minimap.png"
+    minimap_path = script_dir / "db160f4e-20251108_205751_minimap.png"
     if not minimap_path.exists():
         logger.error(f"错误：测试图片不存在: {minimap_path}")
         return False
     
-    minimap = cv2.imread(str(minimap_path))
-    if minimap is None:
+    origin_frame = cv2.imread(str(minimap_path))
+    if origin_frame is None:
         logger.error(f"错误：无法读取测试图片: {minimap_path}")
         return False
     
-    h, w = minimap.shape[:2]
+    h, w = origin_frame.shape[:2]
     logger.info(f"测试图片加载成功: {w}x{h}")
     
     # 2. 配置小地图区域
@@ -193,7 +210,7 @@ def TestMinimapDetection():
         return False
 
     anchor_detector = MinimapAnchorDetector(template_path=str(minimap_template_path), debug=True)
-    anchor_pos = anchor_detector.detect(minimap)
+    anchor_pos = anchor_detector.detect(origin_frame)
     if anchor_pos is None:
         logger.error("错误：无法检测到小地图锚点")
         return False
@@ -208,52 +225,36 @@ def TestMinimapDetection():
     logger.info("按任意键继续...")
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    return True
 
     # 3. 查找模型路径. wot_ai/models/minimap_dectect.pt
-    model_path = Path("wot_ai/models/minimap_dectect_yolo11m.pt")
+    model_path = Path(script_dir / "../wot_ai/model/map_detect_yolo11m.pt")
     logger.info(f"模型路径: {model_path}")
     if not model_path.exists():
         logger.error(f"错误：模型文件不存在: {model_path}")
         return False
     
-    # 5. 保存和显示结果
-    logger.info("保存可视化结果")
-    
-    output_dir = script_dir
-    try:
-        # 保存 YOLO 检测器结果
-        yolo_output = output_dir / "test_yolo_result.jpg"
-        cv2.imwrite(str(yolo_output), yolo_display)
-        logger.info(f"✓ YOLO检测器结果已保存: {yolo_output}")
-        
-        # 显示结果
-        cv2.imshow("YOLO Detector Result", yolo_display)
-        logger.info("按任意键关闭窗口...")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        
-    except Exception as e:
-        logger.error(f"⚠ 保存/显示结果出错: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # 8. 测试结果评估
-    logger.info("=" * 60)
-    logger.info("测试结果评估")
-    logger.info("=" * 60)
-    
-    all_success = True
+    minimap_detector = MinimapDetector(model_path=str(model_path))
+    if not minimap_detector.LoadModel():
+        logger.error("错误：无法加载模型")
+        return False
 
-    if all_success:
-        print("\n✓✓✓ 所有测试通过！")
-    else:
-        print("\n⚠ 部分测试未通过（可能是图片中确实没有目标元素）")
-    
-    print("=" * 60)
-    
-    return all_success
+    # 根据 minimap_region 裁剪小地图并更新 minimap 变量
+    x, y = minimap_region['x'], minimap_region['y']
+    width, height = minimap_region['width'], minimap_region['height']
+    # 防止越界（假设x/y非负）
+    x = max(0, int(x))
+    y = max(0, int(y))
+    width = int(width)
+    height = int(height)
+    # 防止宽高超过原图
+    x2 = min(x + width, origin_frame.shape[1])
+    y2 = min(y + height, origin_frame.shape[0])
+    minimap_frame = origin_frame[y:y2, x:x2]
 
+    results_frame = minimap_detector.DebugDraw(minimap_frame, confidence_threshold=0.25)
+    cv2.imshow("MinimapDetector Result", results_frame)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 def main():
     """主函数"""
