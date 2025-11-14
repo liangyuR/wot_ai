@@ -18,24 +18,16 @@ import numpy as np
 from loguru import logger
 import cv2
 
-from ..detection_engine import DetectionEngine, Detection
-
-
-# ---------------------------------------------------------------
-# 小地图类别定义（避免 magic number）
-# ---------------------------------------------------------------
-CLS_SELF = 0            # 自己的位置图标（小白箭头中心）
-CLS_ALLY_FLAG = 1       # 友方基地
-CLS_MINI_MAP = 2        # 小地图(弃用)
-CLS_ENEMY_FLAG = 3      # 敌方基地
+from ..detection_engine import DetectionEngine
 
 
 @dataclass
 class MinimapDetectionResult:
     """MinimapDetector 的统一输出结构"""
-    self_pos: Optional[Tuple[float, float]]
-    enemy_flag_pos: Optional[Tuple[float, float]]
-    raw_detections: List[Detection]
+    self_pos: Optional[Tuple[float, float]] # center
+    self_angle: Optional[float] # angle
+    enemy_flag_pos: Optional[Tuple[float, float]] # center
+    raw_detections: List[Dict] # [{"cls": int, "confidence": float, "bbox": Tuple[float, float, float, float]}]
 
 
 class MinimapDetector:
@@ -46,95 +38,204 @@ class MinimapDetector:
     输出：self_pos, enemy_flag_pos 以及原始 YOLO detection 列表
     """
 
-    def __init__(self, model_path: str, conf_threshold: float = 0.25):
+    def __init__(self, model_path: str, conf_threshold: float = 0.75, iou_threshold: float = 0.75):
         if not model_path:
             raise ValueError("model_path 不能为空")
 
         self.engine_ = DetectionEngine(model_path)
         self.conf_threshold_ = conf_threshold
+        self.iou_threshold_ = iou_threshold
+        self.class_name_to_id_: Dict[str, int] = {}
 
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
-        return self.engine_.LoadModel()
+        """加载模型并初始化类别名称映射"""
+        if not self.engine_.LoadModel():
+            return False
+
+        return True
+    
+    def _update_class_mapping(self, results) -> None:
+        """从 Results 对象更新类别名称映射"""
+        if not results:
+            return
+        
+        # results 是列表，取第一个
+        result = results[0] if isinstance(results, list) else results
+        if hasattr(result, "names") and isinstance(result.names, dict):
+            # names 是 {id: name} 的字典，反转成 {name: id}
+            self.class_name_to_id_.clear()
+            for class_id, class_name in result.names.items():
+                self.class_name_to_id_[str(class_name)] = int(class_id)
+            logger.debug(f"类别映射已更新: {self.class_name_to_id_}")
+    
+    def _get_class_id_by_name(self, class_name: str) -> Optional[int]:
+        """通过类别名称获取类别 ID
+        
+        Args:
+            class_name: 类别名称（如 "self_arrow", "enemy_flag"）
+        
+        Returns:
+            类别 ID，如果未找到则返回 None
+        """
+        return self.class_name_to_id_.get(class_name)
 
     # -----------------------------------------------------------
-    def Detect(self, frame_minimap: np.ndarray, confidence_threshold: Optional[float] = None) -> MinimapDetectionResult:
+    def Detect(self, frame: np.ndarray, debug: bool = False) -> MinimapDetectionResult:
         """
         检测小地图中的关键元素
 
         Args:
-            frame_minimap: 小地图 BGR 图像
-            confidence_threshold: 置信度阈值（可覆盖默认）
+            frame: 小地图 BGR 图像
+            debug: 是否显示调试可视化
 
         Returns:
             MinimapDetectionResult
         """
-        if frame_minimap is None or frame_minimap.size == 0:
-            logger.error("MinimapDetector: frame_minimap为空或无效")
-            return MinimapDetectionResult(None, None, [])
+        if frame is None or frame.size == 0:
+            logger.error("MinimapDetector: frame 为空或无效")
+            return MinimapDetectionResult(None, None, None, [])
 
-        conf = confidence_threshold or self.conf_threshold_
+        # 调用检测引擎，返回 YOLO Results 对象（列表）
+        yolo_results = self.engine_.Detect(
+            frame, 
+            confidence_threshold=self.conf_threshold_, 
+            iou_threshold=self.iou_threshold_
+        )
+        
+        if not yolo_results:
+            return MinimapDetectionResult(None, None, None, [])
 
-        # 使用结构化检测
-        detections = self.engine_.DetectStructured(frame_minimap, confidence_threshold=conf)
+        # 更新类别名称映射（从第一个结果获取）
+        self._update_class_mapping(yolo_results)
 
-        # 位置提取
-        self_pos = self._extract_center(detections, CLS_SELF)
-        enemy_flag_pos = self._extract_center(detections, CLS_ENEMY_FLAG)
+        # 解析 Results 对象为字典列表
+        raw_detections = self._parse_results(yolo_results)
 
-        return MinimapDetectionResult(self_pos, enemy_flag_pos, detections)
+        # 位置提取（使用类别名称）
+        self_pos = self._extract_center(raw_detections, "self_arrow")
+        enemy_flag_pos = self._extract_center(raw_detections, "enemy_flag")
 
-    def DebugDraw(self, frame_minimap: np.ndarray, confidence_threshold: Optional[float] = None) -> np.ndarray:
+        result = MinimapDetectionResult(self_pos, None, enemy_flag_pos, raw_detections)
+        
+        if debug:
+            vis_img = self._visualize_results(frame, result)
+            if vis_img is not None:
+                cv2.imshow("MinimapDetector Debug", vis_img)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
+        return result
+
+    def _parse_results(self, yolo_results) -> List[Dict]:
+        """解析 YOLO Results 对象为字典列表
+        
+        Args:
+            yolo_results: YOLO Results 对象（列表）
+        
+        Returns:
+            检测结果字典列表
         """
-        绘制检测结果到 frame_minimap 中，并返回结果图像
-        """
-        if frame_minimap is None or frame_minimap.size == 0:
-            logger.error("MinimapDetector: frame_minimap为空或无效")
-            return None
+        detections: List[Dict] = []
+        
+        # yolo_results 是列表，每个元素是一个 Results 对象
+        for result in yolo_results:
+            boxes = result.boxes
+            if boxes is None or len(boxes) == 0:
+                continue
+            
+            for i, box in enumerate(boxes):
+                cls_id = int(box.cls.item())
+                conf = float(box.conf.item())
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                
+                det_dict = {
+                    "cls": cls_id,
+                    "confidence": conf,
+                    "bbox": (x1, y1, x2, y2),
+                }
+                
+                # 如果有 mask，也添加
+                if result.masks is not None and hasattr(result.masks, "data") and i < result.masks.data.shape[0]:
+                    try:
+                        mask_tensor = result.masks.data[i]
+                        mask_np = mask_tensor.cpu().numpy().astype(np.float32)
+                        # 调整到原始尺寸
+                        orig_h, orig_w = result.orig_shape
+                        if mask_np.shape != (orig_h, orig_w):
+                            mask_np = cv2.resize(
+                                mask_np,
+                                (orig_w, orig_h),
+                                interpolation=cv2.INTER_NEAREST
+                            )
+                        mask_np = (mask_np > 0.5).astype(np.uint8)
+                        det_dict["mask"] = mask_np
+                    except Exception as e:
+                        logger.warning(f"提取 mask 失败（索引 {i}）: {e}")
+                
+                detections.append(det_dict)
+        
+        return detections
 
-        conf = confidence_threshold or self.conf_threshold_
-        # 获取检测结果
-        detections = self.engine_.DetectStructured(frame_minimap, confidence_threshold=conf)
-        # 绘制检测结果
+    def _visualize_results(self, frame_minimap: np.ndarray, results: MinimapDetectionResult) -> np.ndarray:
+        """可视化检测结果
+        
+        Args:
+            frame_minimap: 小地图 BGR 图像
+            results: MinimapDetectionResult 对象
+        
+        Returns:
+            绘制了检测结果的可视化图像
+        """
         vis_img = frame_minimap.copy()
-        # for det in detections:
-        #     x1, y1, x2, y2 = map(int, det.bbox)
-        #     color = (0,255,0) if det.cls == CLS_SELF else (0,0,255) if det.cls == CLS_ENEMY_FLAG else (255,0,0)
-        #     cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 2)
-        #     label = f"{det.cls}:{det.confidence:.2f}"
-        #     cv2.putText(vis_img, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        # 绘制所有检测框
+        for det in results.raw_detections:
+            x1, y1, x2, y2 = map(int, det["bbox"])
+            # 根据类别选择颜色
+            cls_id = det["cls"]
+            color = (0, 255, 0) if cls_id == self._get_class_id_by_name("self_arrow") else (0, 0, 255)
+            cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 2)
+            label = f"{cls_id}:{det['confidence']:.2f}"
+            cv2.putText(vis_img, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        # 绘制中心点
-        self_pos = self._extract_center(detections, CLS_SELF)
-        if self_pos:
-            cx, cy = map(int, self_pos)
-            cv2.circle(vis_img, (cx, cy), 8, (0,255,255), -1)
-            cv2.putText(vis_img, "Self", (cx+10, cy-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,255), 2)
+        # 绘制中心点（只绘制 self_arrow 和 enemy_flag）
+        if results.self_pos:
+            cx, cy = map(int, results.self_pos)
+            cv2.circle(vis_img, (cx, cy), 8, (0, 255, 255), -1)
+            cv2.putText(vis_img, "Self", (cx+10, cy-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-        enemy_flag_pos = self._extract_center(detections, CLS_ENEMY_FLAG)
-        if enemy_flag_pos:
-            ex, ey = map(int, enemy_flag_pos)
-            cv2.rectangle(vis_img, (ex-10, ey-10), (ex+10, ey+10), (0,0,255), 2)
-            cv2.putText(vis_img, "Enemy", (ex+12, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 2)
-
-        ally_flag_pos = self._extract_center(detections, CLS_ALLY_FLAG)
-        if ally_flag_pos:
-            ax, ay = map(int, ally_flag_pos)
-            cv2.rectangle(vis_img, (ax-10, ay-10), (ax+10, ay+10), (0,255,0), 2)
-            cv2.putText(vis_img, "Ally", (ax+12, ay), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+        if results.enemy_flag_pos:
+            ex, ey = map(int, results.enemy_flag_pos)
+            cv2.rectangle(vis_img, (ex-10, ey-10), (ex+10, ey+10), (0, 0, 255), 2)
+            cv2.putText(vis_img, "Enemy", (ex+12, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
         return vis_img
 
     # -----------------------------------------------------------
-    @staticmethod
-    def _extract_center(detections: List[Detection], cls_id: int) -> Optional[Tuple[float, float]]:
-        """从检测列表中筛选某个类别，并取最高置信度的中心点"""
-        filtered = [d for d in detections if d.cls == cls_id]
+    def _extract_center(self, detections: List[Dict], class_name: str) -> Optional[Tuple[float, float]]:
+        """从检测列表中筛选某个类别，并取最高置信度的中心点
+        
+        Args:
+            detections: 检测结果字典列表
+            class_name: 类别名称（如 "self_arrow", "enemy_flag"）
+        
+        Returns:
+            中心点坐标 (x, y) 或 None
+        """
+        class_id = self._get_class_id_by_name(class_name)
+        if class_id is None:
+            return None
+        
+        filtered = [d for d in detections if d["cls"] == class_id]
         if not filtered:
             return None
 
-        best = max(filtered, key=lambda d: d.confidence)
-        return best.center
+        best = max(filtered, key=lambda d: d["confidence"])
+        x1, y1, x2, y2 = best["bbox"]
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+        return (center_x, center_y)
 
     # -----------------------------------------------------------
     def Reset(self):

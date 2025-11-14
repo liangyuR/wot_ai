@@ -14,32 +14,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Tuple
-
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import torch
 from loguru import logger
 from ultralytics import YOLO
-
-try:
-    import torch
-except Exception:  # pragma: no cover - 运行环境可能没有显式 torch
-    torch = None  # type: ignore
-
-
-@dataclass
-class Detection:
-    """结构化检测结果（内部使用，可选对外暴露）"""
-    cls: int
-    confidence: float
-    bbox: Tuple[float, float, float, float]  # x1, y1, x2, y2
-
-    @property
-    def center(self) -> Tuple[float, float]:
-        x1, y1, x2, y2 = self.bbox
-        return (x1 + x2) / 2.0, (y1 + y2) / 2.0
-
 
 class DetectionEngine:
     """YOLO 检测引擎"""
@@ -162,144 +143,23 @@ class DetectionEngine:
             - confidence: 置信度
             - bbox: [x1, y1, x2, y2]
         """
-        detections_struct = self.DetectStructured(
-            frame,
-            confidence_threshold=confidence_threshold,
-            iou_threshold=iou_threshold,
-        )
-
-        # 转成旧格式 dict
-        results: List[Dict] = []
-        for d in detections_struct:
-            results.append(
-                {
-                    "class": int(d.cls),
-                    "confidence": float(d.confidence),
-                    "bbox": [float(v) for v in d.bbox],
-                }
-            )
-        return results
-
-    def DetectStructured(
-        self,
-        frame: np.ndarray,
-        confidence_threshold: float = 0.25,
-        iou_threshold: float = 0.45,
-    ) -> List[Detection]:
-        """检测帧中的目标（结构化返回）
-
-        Args:
-            frame: BGR 格式图像 (H, W, 3)
-            confidence_threshold: 置信度阈值
-            iou_threshold: NMS 的 IoU 阈值
-
-        Returns:
-            List[Detection]
-        """
         if frame is None or frame.size == 0:
-            logger.error("DetectStructured: 输入帧为空或无效")
+            logger.error("输入帧为空或无效")
             return []
 
         if not self.LoadModel():
             return []
 
         try:
-            results = self.model_(
+            return self.model_(
                 frame,
                 conf=confidence_threshold,
                 iou=iou_threshold,
                 verbose=False,
             )
-
-            detections: List[Detection] = []
-
-            # YOLO 对单张图像通常返回一个 result
-            for result in results:
-                boxes = getattr(result, "boxes", None)
-                if boxes is None or len(boxes) == 0:
-                    continue
-
-                for box in boxes:
-                    cls_id = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
-
-                    det = Detection(
-                        cls=cls_id,
-                        confidence=conf,
-                        bbox=(x1, y1, x2, y2),
-                    )
-                    detections.append(det)
-
-                    if self.log_detections_:
-                        name = None
-                        try:
-                            if hasattr(self.model_, "names"):
-                                names = self.model_.names
-                                if isinstance(names, dict):
-                                    name = names.get(cls_id)
-                        except Exception:  # pragma: no cover
-                            name = None
-
-                        if name is not None:
-                            logger.debug(
-                                f"det cls={cls_id}({name}), conf={conf:.3f}, bbox=({x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f})"
-                            )
-                        else:
-                            logger.debug(
-                                f"det cls={cls_id}, conf={conf:.3f}, bbox=({x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f})"
-                            )
-
-            return detections
-        except Exception as e:  # pragma: no cover - 防御性
+        except Exception as e:
             logger.error(f"检测失败: {e}")
             return []
-
-    # ------------------------------------------------------------------
-    # 目标选择工具方法
-    # ------------------------------------------------------------------
-    def GetBestTarget(
-        self,
-        detections: List[Dict] | List[Detection],
-        target_class: Optional[int] = None,
-    ) -> Optional[Tuple[int, int]]:
-        """从检测结果中选择最佳目标（返回 bbox 中心点像素坐标）
-
-        Args:
-            detections: Detect / DetectStructured 的返回结果
-            target_class: 目标类别 ID（若为 None，则从所有检测中选置信度最高者）
-
-        Returns:
-            (center_x, center_y) 或 None
-        """
-        if not detections:
-            return None
-
-        # 统一转成 Detection 列表
-        if isinstance(detections[0], Detection):
-            det_list: List[Detection] = detections  # type: ignore[assignment]
-        else:
-            det_list = [
-                Detection(
-                    cls=int(d["class"]),
-                    confidence=float(d["confidence"]),
-                    bbox=tuple(d["bbox"])  # type: ignore[arg-type]
-                )
-                for d in detections  # type: ignore[assignment]
-            ]
-
-        # 如果指定了类别，先过滤
-        if target_class is not None:
-            filtered = [d for d in det_list if d.cls == target_class]
-            if filtered:
-                det_list = filtered
-
-        if not det_list:
-            return None
-
-        best = max(det_list, key=lambda d: d.confidence)
-        cx, cy = best.center
-        return int(cx), int(cy)
 
     # ------------------------------------------------------------------
     # 内部工具方法

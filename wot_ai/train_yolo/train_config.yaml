@@ -21,7 +21,7 @@ test:
 # 训练参数
 training:
   # 训练轮数
-  epochs: 800
+  epochs: 200
   # 批次大小（减小批次提高梯度稳定性）
   batch: 8
   # 工作线程数
@@ -80,10 +80,10 @@ dataset:
   # 直接指定源数据路径（配置文件掌控路径）
   # 如果指定了 source_images 和 source_labels，则优先使用这些路径
   # 否则使用 source_dir/images 和 source_dir/labels
-  source_images: "C:/data/minimap_masks/images"
-  source_labels: "C:/data/minimap_masks/labels"
+  source_images: "C:/Users/11601/project/wot_ai/data/images"
+  source_labels: "C:/Users/11601/project/wot_ai/data/labels"
   # 数据集根目录（当 source_images 和 source_labels 未指定时使用）
-  source_dir: "C:/data/minimap_masks"
+  # source_dir: "C:/data/minimap_masks"
   # 输出数据集目录（使用统一路径，相对于 data/datasets/processed/minimap）
   output_dir: "data/datasets/processed/minimap"
   # 训练集比例
@@ -93,8 +93,8 @@ dataset:
 
 # 类别定义（与 minimap_detector.py 保持一致）
 classes:
-  - self_arrow        # 0: 自己箭头
-  - enemy_flag        # 2: 敌军基地
+  - enemy_flag        # 0: 敌军基地
+  - self_arrow        # 1: 自己箭头
 
 # 输出配置
 output:
