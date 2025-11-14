@@ -14,35 +14,13 @@ from typing import List, Optional
 from ultralytics import YOLO
 
 # 统一导入机制
+from loguru import logger
 from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
 setup_python_path()
 
 # 从配置文件加载类别定义（需要在 setup_python_path 之后导入）
-from .config_loader import LoadClassesFromConfig  # noqa: E402
-
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from wot_ai.game_modules.common.utils.logger import SetupLogger
-
-CLASS_MAPPING, _ = try_import_multiple([
-    'wot_ai.game_modules.navigation.core.minimap_detector',
-    'game_modules.navigation.core.minimap_detector',
-    'navigation.core.minimap_detector'
-])
-if CLASS_MAPPING is None:
-    from wot_ai.game_modules.navigation.core.minimap_detector import CLASS_MAPPING
-
-logger = SetupLogger(__name__)
+from wot_ai.train_yolo.config_loader import LoadClassesFromConfig  # noqa: E402
+from wot_ai.game_modules.navigation.core.minimap_detector import CLASS_MAPPING  # noqa: E402
 
 # 颜色映射（BGR格式）- 根据类别数量自动生成
 def GetColors(num_classes: int) -> dict:

@@ -11,24 +11,8 @@ from ultralytics import YOLO
 
 # 统一导入机制
 from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
+from loguru import logger
 setup_python_path()
-
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from wot_ai.game_modules.common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
-
 
 def TrainMinimapModel(data_yaml: str, epochs: int = 100, imgsz: int = 640, 
                      model: str = "yolo11n.pt", batch: int = 16, device: str = "cpu") -> bool:
@@ -92,7 +76,7 @@ def main():
     parser.add_argument("--data", type=str, required=True, help="数据集配置文件路径（data.yaml）")
     parser.add_argument("--epochs", type=int, default=100, help="训练轮数")
     parser.add_argument("--imgsz", type=int, default=640, help="图像尺寸")
-    parser.add_argument("--model", type=str, default="yolo11n.pt", help="基础模型")
+    parser.add_argument("--model", type=str, default="yolo11m-seg.pt", help="基础模型")
     parser.add_argument("--batch", type=int, default=16, help="批次大小")
     parser.add_argument("--device", type=str, default="cpu", help="设备（cpu, 0, 1等）")
     

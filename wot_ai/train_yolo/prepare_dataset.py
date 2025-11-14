@@ -8,24 +8,9 @@ from pathlib import Path
 import shutil
 import yaml
 # 统一导入机制
+from loguru import logger
 from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
 setup_python_path()
-
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from wot_ai.game_modules.common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
 
 
 def PrepareDataset(image_dir: str, output_dir: str, classes: list = None) -> bool:

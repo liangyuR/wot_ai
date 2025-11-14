@@ -13,30 +13,45 @@ from ultralytics import YOLO
 
 # 统一导入机制
 from wot_ai.utils.paths import setup_python_path, resolve_path, get_datasets_dir, get_models_dir, get_training_dir, ensure_dir
-from wot_ai.utils.imports import import_function
+from loguru import logger
+from wot_ai.train_yolo.prepare_minimap_dataset import PrepareMinimapDataset
+from wot_ai.train_yolo.config_loader import LoadClassesFromConfig
 setup_python_path()
 
-# 导入依赖（使用便捷方法）
-SetupLogger = import_function([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-], 'SetupLogger')
-if SetupLogger is None:
-    from wot_ai.game_modules.common.utils.logger import SetupLogger
 
-PrepareMinimapDataset = import_function([
-    'wot_ai.train_yolo.prepare_minimap_dataset',
-    'train_yolo.prepare_minimap_dataset'
-], 'PrepareMinimapDataset')
-if PrepareMinimapDataset is None:
-    from .prepare_minimap_dataset import PrepareMinimapDataset
-
-# 从配置文件加载类别定义
-from .config_loader import LoadClassesFromConfig
-
-logger = SetupLogger(__name__)
+def LoadClassesFromTxt(classes_txt_path: Path) -> list:
+    """
+    从 classes.txt 文件加载类别定义
+    
+    Args:
+        classes_txt_path: classes.txt 文件路径
+    
+    Returns:
+        类别名称列表
+    """
+    if not classes_txt_path.exists():
+        raise FileNotFoundError(f"classes.txt 文件不存在: {classes_txt_path}")
+    
+    classes = []
+    try:
+        with open(classes_txt_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                # 忽略空行和注释（以 # 开头）
+                if not line or line.startswith('#'):
+                    continue
+                # 移除行内注释
+                line = line.split('#')[0].strip()
+                if line:
+                    classes.append(line)
+        
+        if not classes:
+            raise ValueError(f"classes.txt 文件中没有有效的类别定义: {classes_txt_path}")
+        
+        logger.info(f"从 {classes_txt_path} 加载了 {len(classes)} 个类别")
+        return classes
+    except Exception as e:
+        raise RuntimeError(f"加载类别定义失败: {e}")
 
 
 def LoadConfig(config_path: Path) -> dict:
@@ -271,7 +286,6 @@ def TrainYOLO(config: dict, prepare_dataset: bool = True) -> bool:
             output_dir=output_dir,
             train_ratio=config['dataset'].get('train_ratio', 0.8),
             random_seed=config['dataset'].get('random_seed', None),
-            validate_labels=True,
             config_path=config_path
         ):
             logger.error("数据集准备失败")
@@ -286,13 +300,30 @@ def TrainYOLO(config: dict, prepare_dataset: bool = True) -> bool:
     
     # 生成或检查 dataset.yaml
     yaml_path = dataset_dir / "dataset.yaml"
+    classes_txt_path = dataset_dir / "classes.txt"
+    
     if not yaml_path.exists():
         logger.info("dataset.yaml 不存在，正在生成...")
-        # 确保类别从配置文件加载
-        if 'classes' not in config or not config['classes']:
-            config_path = Path(config.get('_config_path', None)) if config.get('_config_path') else None
-            config['classes'] = LoadClassesFromConfig(config_path)
-        GenerateDatasetYaml(dataset_dir, config['classes'])
+        # 优先从 classes.txt 读取类别
+        if classes_txt_path.exists():
+            logger.info(f"从 {classes_txt_path} 读取类别定义")
+            try:
+                classes = LoadClassesFromTxt(classes_txt_path)
+            except Exception as e:
+                logger.warning(f"从 classes.txt 读取类别失败: {e}，回退到配置文件")
+                if 'classes' not in config or not config['classes']:
+                    config_path = Path(config.get('_config_path', None)) if config.get('_config_path') else None
+                    classes = LoadClassesFromConfig(config_path)
+                else:
+                    classes = config['classes']
+        else:
+            logger.warning(f"{classes_txt_path} 不存在，从配置文件读取类别")
+            if 'classes' not in config or not config['classes']:
+                config_path = Path(config.get('_config_path', None)) if config.get('_config_path') else None
+                classes = LoadClassesFromConfig(config_path)
+            else:
+                classes = config['classes']
+        GenerateDatasetYaml(dataset_dir, classes)
     else:
         logger.info(f"使用现有的 dataset.yaml: {yaml_path}")
     
@@ -414,7 +445,7 @@ def main():
         "--model",
         type=str,
         default=None,
-        help="覆盖模型名称（如 yolo11n.pt）"
+        help="覆盖模型名称（如 yolo11m-seg.pt）"
     )
     parser.add_argument(
         "--epochs",

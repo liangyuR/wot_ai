@@ -3,7 +3,7 @@
 # 模型配置
 model:
   # 基础模型名称（yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt）
-  name: "yolo11m.pt"
+  name: "yolo11m-seg.pt"
   # 图像尺寸（640 比 512 保留更多像素细节，适合小目标检测）
   imgsz: 640
   # 设备（cpu, 0, 1等）
@@ -11,9 +11,9 @@ model:
 
 # 模型名称，图像路径（文件夹下的所有图片），输出路径示例
 test:
-  model: "data/models/training/minimap/exp_minimap/weights/best.pt"
+  model: "data/models/training/minimap/exp_minimap4/weights/best.pt"
   image_dir: "data/minimap_images/"
-  output_dir: "data/models/training/minimap/exp_minimap/val_result"
+  output_dir: "data/models/training/minimap/exp_minimap4/val_result"
   conf_threshold: 0.75   # 置信度阈值（放宽以观察更多检测结果）
   iou_threshold: 0.5     # IoU 阈值（用于 NMS）
   show_result: false     # 是否显示结果窗口（批量处理时建议设为 false）
@@ -80,10 +80,10 @@ dataset:
   # 直接指定源数据路径（配置文件掌控路径）
   # 如果指定了 source_images 和 source_labels，则优先使用这些路径
   # 否则使用 source_dir/images 和 source_dir/labels
-  source_images: "data/datasets/images"
-  source_labels: "data/datasets/labels"
+  source_images: "C:/data/minimap_masks/images"
+  source_labels: "C:/data/minimap_masks/labels"
   # 数据集根目录（当 source_images 和 source_labels 未指定时使用）
-  source_dir: "data/datasets"
+  source_dir: "C:/data/minimap_masks"
   # 输出数据集目录（使用统一路径，相对于 data/datasets/processed/minimap）
   output_dir: "data/datasets/processed/minimap"
   # 训练集比例
@@ -94,9 +94,7 @@ dataset:
 # 类别定义（与 minimap_detector.py 保持一致）
 classes:
   - self_arrow        # 0: 自己箭头
-  - friendly_base     # 1: 友军基地
-  - enemy_base        # 2: 敌军基地
-  - minimap_region    # 3: 小地图区域
+  - enemy_flag        # 2: 敌军基地
 
 # 输出配置
 output:

@@ -12,26 +12,10 @@ from typing import List, Tuple, Optional
 import yaml
 
 # 统一导入机制
+from loguru import logger
 from wot_ai.utils.paths import setup_python_path, resolve_path, ensure_dir
-from wot_ai.utils.imports import import_function
+from wot_ai.train_yolo.config_loader import LoadClassesFromConfig
 setup_python_path()
-
-# 导入日志（使用便捷方法）
-SetupLogger = import_function([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-], 'SetupLogger')
-if SetupLogger is None:
-    from wot_ai.game_modules.common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
-
-
-# 类别定义从配置文件加载
-from .config_loader import LoadClassesFromConfig, GetNumClasses
-
 
 def MatchImageLabelPairs(image_dir: Path, label_dir: Path) -> List[Tuple[Path, Path]]:
     """
@@ -68,56 +52,6 @@ def MatchImageLabelPairs(image_dir: Path, label_dir: Path) -> List[Tuple[Path, P
     return pairs
 
 
-def ValidateLabelFile(label_path: Path, num_classes: Optional[int] = None, config_path: Optional[Path] = None) -> bool:
-    """
-    验证标签文件格式
-    
-    Args:
-        label_path: 标签文件路径
-        num_classes: 类别数量，如果为 None 则从配置文件加载
-        config_path: 配置文件路径，如果为 None 则使用默认路径
-    
-    Returns:
-        是否有效
-    """
-    if num_classes is None:
-        num_classes = GetNumClasses(config_path)
-    try:
-        with open(label_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        for line_num, line in enumerate(lines, 1):
-            line = line.strip()
-            if not line:
-                continue
-            
-            parts = line.split()
-            if len(parts) != 5:
-                logger.warning(f"{label_path.name} 第 {line_num} 行格式错误: {line}")
-                return False
-            
-            try:
-                cls_id = int(parts[0])
-                if cls_id < 0 or cls_id >= num_classes:
-                    logger.warning(f"{label_path.name} 第 {line_num} 行类别ID超出范围: {cls_id}")
-                    return False
-                
-                # 验证坐标（归一化，应在 0-1 之间）
-                coords = [float(x) for x in parts[1:]]
-                for coord in coords:
-                    if coord < 0 or coord > 1:
-                        logger.warning(f"{label_path.name} 第 {line_num} 行坐标超出范围: {coords}")
-                        return False
-            except ValueError:
-                logger.warning(f"{label_path.name} 第 {line_num} 行包含无效数字: {line}")
-                return False
-        
-        return True
-    except Exception as e:
-        logger.error(f"验证标签文件 {label_path} 时出错: {e}")
-        return False
-
-
 def PrepareMinimapDataset(
     source_dir: Optional[Path] = None,
     output_dir: Path = None,
@@ -125,7 +59,6 @@ def PrepareMinimapDataset(
     source_labels: Optional[Path] = None,
     train_ratio: float = 0.8,
     random_seed: Optional[int] = None,
-    validate_labels: bool = True,
     config_path: Optional[Path] = None
 ) -> bool:
     """
@@ -138,7 +71,7 @@ def PrepareMinimapDataset(
         source_labels: 源标签目录（如果指定则优先使用）
         train_ratio: 训练集比例（默认 0.8）
         random_seed: 随机种子（用于可重复分割）
-        validate_labels: 是否验证标签文件
+        config_path: 配置文件路径
     
     Returns:
         是否成功
@@ -171,23 +104,6 @@ def PrepareMinimapDataset(
         return False
     
     logger.info(f"找到 {len(pairs)} 对匹配的图像-标签文件")
-    
-    # 验证标签文件（可选）
-    if validate_labels:
-        num_classes = GetNumClasses(config_path)
-        logger.info("正在验证标签文件格式...")
-        valid_pairs = []
-        for img_path, label_path in pairs:
-            if ValidateLabelFile(label_path, num_classes, config_path):
-                valid_pairs.append((img_path, label_path))
-            else:
-                logger.warning(f"跳过无效的标签文件: {label_path.name}")
-        pairs = valid_pairs
-        logger.info(f"验证后剩余 {len(pairs)} 对有效文件")
-    
-    if len(pairs) == 0:
-        logger.error("没有有效的图像-标签对")
-        return False
     
     # 随机分割数据集
     if random_seed is not None:
@@ -281,11 +197,6 @@ def main():
         default=None,
         help="随机种子（用于可重复分割）"
     )
-    parser.add_argument(
-        "--no_validate",
-        action="store_true",
-        help="跳过标签文件验证"
-    )
     
     args = parser.parse_args()
     
@@ -310,8 +221,7 @@ def main():
         source_labels=source_labels,
         output_dir=output_dir,
         train_ratio=args.train_ratio,
-        random_seed=args.seed,
-        validate_labels=not args.no_validate
+        random_seed=args.seed
     )
     
     exit(0 if success else 1)
