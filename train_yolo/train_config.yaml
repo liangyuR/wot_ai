@@ -2,14 +2,14 @@
 
 # 模型配置
 model:
-  path: "yolo11.pt"
+  path: "yolo11m.pt"
   imgsz: 640
   device: "0"
 
 # 数据集配置
 dataset:
   # or "detect"
-  task_type: "seg"  
+  task_type: "detect"  
 
   source_dir: "C:/Users/11601/project/wot_ai/data/origin_data"
   output_dir: "C:/Users/11601/project/wot_ai/data/datasets/processed/minimap"

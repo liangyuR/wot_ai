@@ -137,13 +137,19 @@ class NavigationMain:
                 else:
                     logger.warning("input_size配置格式错误，应为(width, height)，忽略")
             
+            # 确保角度检测启用（默认True）
+            enable_angle_extraction = self.config_.get('enable_angle_extraction', True)
+            if not enable_angle_extraction:
+                logger.warning("角度检测被禁用，将使用检测到的角度")
+                enable_angle_extraction = True  # 强制启用
+            
             self.minimap_detector_ = MinimapDetector(
                 model_path=model_path,
                 conf_threshold=self.config_.get('conf_threshold', 0.25),
                 iou_threshold=self.config_.get('iou_threshold', 0.75),
-                enable_angle_extraction=self.config_.get('enable_angle_extraction', True),
+                enable_angle_extraction=enable_angle_extraction,
                 input_size=input_size,
-                preprocess_input=self.config_.get('preprocess_input', False)
+                preprocess_input=self.config_.get('preprocess_input', False),
             )
             if not self.minimap_detector_.LoadModel():
                 logger.error("YOLO模型加载失败")
@@ -251,7 +257,17 @@ class NavigationMain:
                 pos_y=0,  # 左上角
                 fps=self.config_.get('overlay_fps', 30),
                 alpha=self.config_.get('overlay_alpha', 180)
-            )
+            )            
+
+            # self.overlay_ = TransparentOverlay(
+            #     width=overlay_width,
+            #     height=overlay_height,
+            #     window_name="WOT_AI Navigation Overlay",
+            #     pos_x=minimap_region['x'],  # 与小地图区域左上角对齐
+            #     pos_y=minimap_region['y'],  # 与小地图区域左上角对齐
+            #     fps=self.config_.get('overlay_fps', 30),
+            #     alpha=self.config_.get('overlay_alpha', 180)
+            # )
             
             logger.info("透明覆盖层初始化成功（位于左上角）")
             return True
@@ -425,7 +441,7 @@ class NavigationMain:
                     [0, minimap_h]
                 ])
                 
-                inflation_size = self.config_.get('inflation_radius_px', 10)
+                inflation_size = self.config_.get('inflation_radius_px', 20)
                 aligned_mask = self._LoadMaskAndAlign(Path(mask_path), temp_minimap, corners_xy, inflation_size)
                 
                 # 转换为栅格尺寸
@@ -433,10 +449,10 @@ class NavigationMain:
                 logger.info(f"从掩码构建栅格地图，尺寸: {grid.shape}")
                 
                 # 构建膨胀障碍图和代价图
-                cost_alpha = self.config_.get('cost_alpha', 10.0)
+                cost_alpha = self.config_.get('cost_alpha', 20.0)
                 inflated_obstacle, cost_map = build_inflated_and_cost_map(
                     grid,
-                    inflate_radius_px=self.config_.get('inflation_radius_px', 10),
+                    inflate_radius_px=self.config_.get('inflation_radius_px', 20),
                     alpha=cost_alpha
                 )
                 
@@ -589,7 +605,7 @@ class NavigationMain:
                 minimap = self.capture_service_.Capture(self.minimap_region_)
                 capture_elapsed = time.time() - capture_start
                 if minimap is None:
-                    # time.sleep(detection_interval)
+                    time.sleep(detection_interval)
                     continue
                 
                 # 2. YOLO检测
@@ -605,11 +621,8 @@ class NavigationMain:
                 # logger.info(f"检测结果: {detections}")
                 # 放宽条件：允许只有self_pos的结果进入队列（UI只需要显示自己位置）
                 if detections.self_pos is None:
-                    # time.sleep(detection_interval)
+                    time.sleep(detection_interval)
                     continue
-                
-                # 在锁外执行copy操作
-                # minimap_copy = minimap.copy()
                 
                 # 非阻塞放入队列（队列满时丢弃旧数据）
                 try:
@@ -659,31 +672,14 @@ class NavigationMain:
         stuck_threshold = self.config_.get('stuck_threshold', 5.0)
         stuck_frames_threshold = self.config_.get('stuck_frames_threshold', 10)
         target_point_offset = self.config_.get('target_point_offset', 5)
-        max_history_size = 5  # 位置历史最大长度
         control_fps = 30  # 30FPS
         control_interval = 1.0 / control_fps  # 约33ms
         
         # 本地状态维护（完全无锁）
-        local_position_history_ = []
-        local_current_heading_ = None
-        local_last_heading_ = None
         local_last_pos_ = None
         local_stuck_frames_ = 0
         local_current_path_ = []
         local_current_target_idx_ = 0
-        
-        # 计算朝向的局部函数
-        def CalculateHeadingLocal(position_history):
-            """根据位置历史计算当前朝向角度"""
-            if len(position_history) < 2:
-                return None
-            pos1 = position_history[-2]
-            pos2 = position_history[-1]
-            dx = pos2[0] - pos1[0]
-            dy = pos2[1] - pos1[1]
-            if dx == 0 and dy == 0:
-                return None
-            return math.atan2(dy, dx)
         
         while self.running_:
             try:
@@ -706,20 +702,19 @@ class NavigationMain:
                     time.sleep(control_interval)
                     continue
                 
-                # 更新位置历史
-                local_position_history_.append(current_pos)
-                if len(local_position_history_) > max_history_size:
-                    local_position_history_.pop(0)
+                # 从检测结果获取角度（度）并转换为弧度
+                # extract_arrow_orientation 返回的角度：0° 表示向右，逆时针为正
+                current_heading_rad = None
+                if detections.self_angle is not None:
+                    # 将角度从度转换为弧度
+                    # 注意：extract_arrow_orientation 返回的是 0-360 度的角度
+                    # 需要转换为标准数学角度（0°向右，逆时针为正，范围 -180 到 180）
+                    angle_deg = detections.self_angle
+                    # 转换为弧度：0° = 0 rad, 90° = π/2 rad, 180° = π rad, 270° = -π/2 rad
+                    current_heading_rad = math.radians(angle_deg)
                 
-                # 计算当前朝向
-                heading = CalculateHeadingLocal(local_position_history_)
-                if heading is not None:
-                    local_last_heading_ = local_current_heading_
-                    local_current_heading_ = heading
-                
-                # 检测卡顿（考虑朝向变化）
+                # 检测卡顿（基于位移）
                 is_stuck = False
-                heading_change_threshold = self.config_.get('heading_change_threshold', 0.1)  # 约5.7度
                 if local_last_pos_ is not None:
                     # 只检测当前位置周围小范围的位移
                     distance = math.sqrt(
@@ -727,27 +722,11 @@ class NavigationMain:
                         (current_pos[1] - local_last_pos_[1]) ** 2
                     )
                     
-                    # 计算朝向变化
-                    heading_change = 0.0
-                    if local_last_heading_ is not None and local_current_heading_ is not None:
-                        diff = local_current_heading_ - local_last_heading_
-                        # 处理跨越0度的情况
-                        if diff > math.pi:
-                            diff -= 2 * math.pi
-                        elif diff < -math.pi:
-                            diff += 2 * math.pi
-                        heading_change = abs(diff)
-                    
                     if distance < stuck_threshold:
-                        # 如果位移小但朝向在变化，说明可能在转向，不算卡顿
-                        if heading_change < heading_change_threshold:
-                            local_stuck_frames_ += 1
-                            if local_stuck_frames_ >= stuck_frames_threshold:
-                                is_stuck = True
-                                logger.warning(f"检测到卡顿，连续{local_stuck_frames_}帧位移小于{stuck_threshold}像素且朝向未变化")
-                        else:
-                            # 朝向在变化，重置卡顿计数
-                            local_stuck_frames_ = 0
+                        local_stuck_frames_ += 1
+                        if local_stuck_frames_ >= stuck_frames_threshold:
+                            is_stuck = True
+                            logger.warning(f"检测到卡顿，连续{local_stuck_frames_}帧位移小于{stuck_threshold}像素")
                     else:
                         local_stuck_frames_ = 0
                 
@@ -824,7 +803,8 @@ class NavigationMain:
                             local_current_target_idx_ = min(target_idx + 1, len(local_current_path_) - 1)
                         else:
                             # 持续转向目标点（使用A/D键）
-                            heading = local_current_heading_ if local_current_heading_ is not None else 0.0
+                            # 使用检测到的角度，如果为None则使用默认值0.0
+                            heading = current_heading_rad if current_heading_rad is not None else 0.0
                             self.nav_executor_.RotateToward(target_world, current_pos, heading)
                             # 确保正在持续前进
                             self.nav_executor_.EnsureMovingForward()
@@ -874,15 +854,44 @@ class NavigationMain:
                         break
                 
                 # 从路径队列获取最新路径（非阻塞，队列为空时使用缓存）
-                cached_path = []
+                if not hasattr(self, "_ui_cached_path_"):
+                    self._ui_cached_path_ = None
                 try:
                     current_path = self.path_queue_.get_nowait()
-                    cached_path = current_path
+                    self._ui_cached_path_ = current_path
                 except queue.Empty:
-                    logger.info(f"路径队列长度: {self.path_queue_.qsize()}")
-                    current_path = cached_path
+                    current_path = self._ui_cached_path_
+                
+                # 准备参数（无论是否有检测结果，都需要更新路径）
+                minimap_size = None
+                if self.minimap_region_:
+                    minimap_size = (self.minimap_region_['width'], self.minimap_region_['height'])
+                
+                grid_size = None
+                if self.current_grid_ is not None:
+                    grid_size = (self.current_grid_.shape[1], self.current_grid_.shape[0])  # (width, height)
+                
+                # 将检测结果转换为字典格式
+                detections_dict = {}
                 if detections is not None:
-                    self.UpdateOverlay(current_path, detections)
+                    if hasattr(detections, 'self_pos') and detections.self_pos is not None:
+                        detections_dict['self_pos'] = detections.self_pos
+                    if hasattr(detections, 'self_angle') and detections.self_angle is not None:
+                        detections_dict['self_angle'] = detections.self_angle
+                    if hasattr(detections, 'enemy_flag_pos') and detections.enemy_flag_pos is not None:
+                        detections_dict['flag_pos'] = detections.enemy_flag_pos
+                
+                # 更新UI显示（路径、检测结果、掩码背景）
+                # 即使没有检测结果，也要更新路径（使用空的detections_dict）
+                if self.overlay_:
+                    self.overlay_.DrawPath(
+                        minimap=None,  # 不需要图像，只需要尺寸
+                        path=current_path,
+                        detections=detections_dict,
+                        minimap_size=minimap_size,
+                        grid_size=grid_size,
+                        mask=self.current_aligned_mask_
+                    )
                 
                 # 计算FPS
                 elapsed = time.time() - start_time

@@ -93,7 +93,7 @@ class MinimapAnchorDetector:
         top_left = (start_x + best_loc[0], start_y + best_loc[1])
         
         # 向右下角偏移约15个像素
-        offset_x, offset_y = 15, 15
+        offset_x, offset_y = 4, 4
         top_left = (top_left[0] + offset_x, top_left[1] + offset_y)
 
         if self.debug_:
