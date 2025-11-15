@@ -1,7 +1,0 @@
-model_path: "map_detect_yolo11m.pt"
-score_threshold: 0.3
-
-from_name: "label"
-to_name: "image"
-labels: ["enemy_base", "friendly_base", "minimap_region", self_arrow]
-debug: true

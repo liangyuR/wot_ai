@@ -10,7 +10,6 @@ import math
 import time
 
 # 本地模块导入
-from ..common.imports import GetLogger, ImportNavigationModule
 from ..common.constants import (
     DEFAULT_MOVE_SPEED,
     DEFAULT_ROTATION_SMOOTH,
@@ -18,13 +17,8 @@ from ..common.constants import (
     DEFAULT_MOVE_DURATION,
     MAX_MOVE_DURATION
 )
-
-ControlService = ImportNavigationModule('service.control_service', 'ControlService')
-if ControlService is None:
-    from ..service.control_service import ControlService
-
-logger = GetLogger()(__name__)
-
+from loguru import logger
+from ..service.control_service import ControlService
 
 class NavigationExecutor:
     """导航执行器：将路径转换为游戏操作"""
@@ -52,6 +46,9 @@ class NavigationExecutor:
         self.move_speed_ = move_speed
         self.rotation_smooth_ = rotation_smooth
         self.current_smoothed_angle_ = 0.0
+        # 路径消费状态
+        self.target_point_offset_ = 5  # 目标点偏移量（选择路径上第几个点作为目标）
+        self.current_target_idx_ = 0  # 当前目标点在路径中的索引
     
     def ExecutePath(self, path: List[Tuple[int, int]], current_pos: Optional[Tuple[float, float]], 
                     update_interval: float = DEFAULT_UPDATE_INTERVAL) -> None:
@@ -110,15 +107,16 @@ class NavigationExecutor:
                 current_pos = waypoint
                 time.sleep(update_interval)
     
-    def RotateToward(self, target_pos: Tuple[float, float], current_pos: Tuple[float, float]) -> None:
+    def RotateToward(self, target_pos: Tuple[float, float], current_pos: Tuple[float, float], current_heading: float) -> None:
         """
         转向目标位置
         
         Args:
             target_pos: 目标位置 (x, y)
             current_pos: 当前位置 (x, y)
+            current_heading: 当前朝向角度（弧度）
         """
-        self.control_service_.RotateToward(target_pos, current_pos)
+        self.control_service_.RotateToward(target_pos, current_pos, current_heading)
     
     def MoveForward(self, duration: float) -> None:
         """
@@ -129,7 +127,22 @@ class NavigationExecutor:
         """
         self.control_service_.MoveForward(duration)
     
+    def EnsureMovingForward(self) -> None:
+        """
+        确保正在持续前进（按下W键）
+        如果已按下则不做任何操作，避免重复按压
+        """
+        self.control_service_.StartForward()
+    
+    def StopMoving(self) -> None:
+        """
+        停止移动（释放W键）
+        """
+        self.control_service_.StopForward()
+        logger.debug("停止移动")
+    
     def Stop(self) -> None:
-        """停止移动"""
+        """停止移动（释放所有按键）"""
+        self.StopMoving()
         self.control_service_.Stop()
 

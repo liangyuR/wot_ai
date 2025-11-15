@@ -13,30 +13,12 @@ DearPyGui + Win32 透明 Overlay
 # 标准库导入
 from typing import Callable, Optional, Tuple
 import time
-
-# 统一导入机制
-from wot_ai.utils.paths import setup_python_path
-from wot_ai.utils.imports import try_import_multiple
-setup_python_path()
-
-SetupLogger = None
-logger_module, _ = try_import_multiple([
-    'wot_ai.game_modules.common.utils.logger',
-    'game_modules.common.utils.logger',
-    'common.utils.logger',
-    'yolo.utils.logger'
-])
-if logger_module is not None:
-    SetupLogger = getattr(logger_module, 'SetupLogger', None)
-
-if SetupLogger is None:
-    from ...common.utils.logger import SetupLogger
-
-logger = SetupLogger(__name__)
-
 # 本地模块导入
 from ..common.overlay_config import OverlayConfig
-
+from loguru import logger
+import dearpygui.dearpygui as dpg
+import win32gui
+import win32con
 
 class DPGOverlayManager:
     """
@@ -59,19 +41,6 @@ class DPGOverlayManager:
     
     def _InitDpg(self):
         """初始化 DPG + 窗口"""
-        try:
-            import dearpygui.dearpygui as dpg
-        except ImportError:
-            logger.error("dearpygui 未安装，请运行: pip install dearpygui")
-            raise
-        
-        try:
-            import win32gui
-            import win32con
-        except ImportError:
-            logger.error("pywin32 未安装，请运行: pip install pywin32")
-            raise
-        
         dpg.create_context()
         
         # 创建无边框、置顶 viewport
@@ -179,6 +148,52 @@ class DPGOverlayManager:
             alpha,
             win32con.LWA_ALPHA      # 用全局 Alpha
         )
+    
+    def HideWindow(self):
+        """隐藏窗口"""
+        if not self.hwnd_:
+            return
+        
+        try:
+            import win32gui
+            import win32con
+            win32gui.ShowWindow(self.hwnd_, win32con.SW_HIDE)
+            logger.debug("Overlay 窗口已隐藏")
+        except Exception as e:
+            logger.error(f"隐藏窗口失败: {e}")
+    
+    def ShowWindow(self):
+        """显示窗口"""
+        if not self.hwnd_:
+            return
+        
+        try:
+            import win32gui
+            import win32con
+            win32gui.ShowWindow(self.hwnd_, win32con.SW_SHOW)
+            logger.debug("Overlay 窗口已显示")
+        except Exception as e:
+            logger.error(f"显示窗口失败: {e}")
+    
+    def IsVisible(self) -> bool:
+        """
+        检查窗口是否可见
+        
+        Returns:
+            窗口是否可见
+        """
+        if not self.hwnd_:
+            return False
+        
+        try:
+            import win32gui
+            import win32con
+            # 检查窗口是否可见（SW_SHOW 或 SW_SHOWNOACTIVATE 等）
+            is_visible = win32gui.IsWindowVisible(self.hwnd_)
+            return is_visible
+        except Exception as e:
+            logger.error(f"检查窗口可见性失败: {e}")
+            return False
     
     def AttachToWindow(self, title: str):
         """让 Overlay 贴在某个窗口上，比如 World of Tanks"""

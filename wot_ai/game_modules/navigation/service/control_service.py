@@ -5,39 +5,28 @@
 """
 
 # 标准库导入
-from typing import Optional, Tuple
+from typing import Tuple
 import math
 import time
 
 # 本地模块导入
-from ..common.imports import GetLogger
-from ..common.constants import (
-    DEFAULT_MOUSE_SENSITIVITY,
-    DEFAULT_CALIBRATION_FACTOR
-)
 from ..common.exceptions import ControlError, InitializationError
-
-logger = GetLogger()(__name__)
+from loguru import logger
 
 
 class ControlService:
-    """鼠标键盘控制服务"""
+    """键盘控制服务（使用WASD控制移动和转向）"""
     
-    def __init__(self, mouse_sensitivity: float = DEFAULT_MOUSE_SENSITIVITY, calibration_factor: float = DEFAULT_CALIBRATION_FACTOR):
+    def __init__(self):
         """
         初始化控制服务
-        
-        Args:
-            mouse_sensitivity: 鼠标灵敏度
-            calibration_factor: 标定系数
         """
         try:
-            from pynput import mouse, keyboard
-            self.mouse_controller_ = mouse.Controller()
+            from pynput import keyboard
             self.keyboard_controller_ = keyboard.Controller()
-            self.mouse_sensitivity_ = mouse_sensitivity
-            self.calibration_factor_ = calibration_factor
-            logger.info(f"控制服务初始化: 灵敏度={mouse_sensitivity}, 标定系数={calibration_factor}")
+            # 按键状态跟踪
+            self.pressed_keys_ = set()
+            logger.info("控制服务初始化完成（仅键盘控制）")
         except ImportError as e:
             error_msg = "pynput 未安装，请运行: pip install pynput"
             logger.error(error_msg)
@@ -47,13 +36,68 @@ class ControlService:
             logger.error(error_msg)
             raise InitializationError(error_msg) from e
     
-    def RotateToward(self, target_pos: Tuple[float, float], current_pos: Tuple[float, float]) -> None:
+    def CalculateAngleDifference(self, current_heading: float, target_heading: float) -> Tuple[float, int]:
         """
-        转向目标位置
+        计算两个角度之间的最小差值（考虑360度循环）
+        
+        Args:
+            current_heading: 当前朝向角度（弧度）
+            target_heading: 目标朝向角度（弧度）
+        
+        Returns:
+            (角度差（弧度）, 转向方向：-1左转，1右转，0不需要转向)
+        """
+        # 归一化角度到 [0, 2π)
+        current_heading = current_heading % (2 * math.pi)
+        target_heading = target_heading % (2 * math.pi)
+        
+        # 计算角度差
+        diff = target_heading - current_heading
+        
+        # 处理跨越0度的情况
+        if diff > math.pi:
+            diff -= 2 * math.pi
+        elif diff < -math.pi:
+            diff += 2 * math.pi
+        
+        # 确定转向方向
+        if abs(diff) < 0.001:  # 几乎不需要转向
+            return (0.0, 0)
+        elif diff > 0:
+            return (diff, 1)  # 右转
+        else:
+            return (abs(diff), -1)  # 左转
+    
+    def AdjustDirectionWithAD(self, current_heading: float, target_heading: float, angle_threshold: float = math.radians(5.0)) -> None:
+        """
+        根据角度差使用A/D键调整方向
+        
+        Args:
+            current_heading: 当前朝向角度（弧度）
+            target_heading: 目标朝向角度（弧度）
+            angle_threshold: 角度阈值（弧度），小于此值时不转向
+        """
+        angle_diff, turn_direction = self.CalculateAngleDifference(current_heading, target_heading)
+        
+        # 先释放所有转向键
+        self.StopLeft()
+        self.StopRight()
+        
+        # 如果角度差大于阈值，按下相应的转向键
+        if angle_diff > angle_threshold:
+            if turn_direction == -1:  # 左转
+                self.StartLeft()
+            elif turn_direction == 1:  # 右转
+                self.StartRight()
+    
+    def RotateToward(self, target_pos: Tuple[float, float], current_pos: Tuple[float, float], current_heading: float) -> None:
+        """
+        转向目标位置（使用A/D键）
         
         Args:
             target_pos: 目标位置 (x, y)（小地图坐标）
             current_pos: 当前位置 (x, y)（小地图坐标）
+            current_heading: 当前朝向角度（弧度）
         """
         # 计算方向向量
         dx = target_pos[0] - current_pos[0]
@@ -62,16 +106,11 @@ class ControlService:
         if dx == 0 and dy == 0:
             return
         
-        # 计算角度（弧度）
-        angle = math.atan2(dy, dx)
+        # 计算目标方向角度（弧度）
+        target_heading = math.atan2(dy, dx)
         
-        # 转换为鼠标移动（需要根据实际游戏调整）
-        # 这里使用简化的转换：角度直接转换为鼠标移动
-        mouse_dx = math.cos(angle) * self.calibration_factor_ * self.mouse_sensitivity_
-        mouse_dy = math.sin(angle) * self.calibration_factor_ * self.mouse_sensitivity_
-        
-        # 移动鼠标
-        self.mouse_controller_.move(int(mouse_dx), int(mouse_dy))
+        # 使用A/D键调整方向
+        self.AdjustDirectionWithAD(current_heading, target_heading)
     
     def MoveForward(self, duration: float = 1.0) -> None:
         """
@@ -81,7 +120,6 @@ class ControlService:
             duration: 持续时间（秒）
         """
         try:
-            from pynput.keyboard import Key
             # 按下W键
             self.keyboard_controller_.press('w')
             time.sleep(duration)
@@ -110,16 +148,98 @@ class ControlService:
             logger.error(error_msg)
             raise ControlError(error_msg) from e
     
+    def PressKey(self, key: str) -> None:
+        """
+        按下按键（如果未按下）
+        
+        Args:
+            key: 按键字符（如 'w', 's', 'a', 'd'）
+        """
+        if key not in self.pressed_keys_:
+            try:
+                logger.debug(f"准备按下按键: {key}")
+                self.keyboard_controller_.press(key)
+                self.pressed_keys_.add(key)
+                logger.debug(f"成功按下按键: {key}")
+            except Exception as e:
+                logger.error(f"按下按键失败 {key}: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    def ReleaseKey(self, key: str) -> None:
+        """
+        释放按键（如果已按下）
+        
+        Args:
+            key: 按键字符（如 'w', 's', 'a', 'd'）
+        """
+        if key in self.pressed_keys_:
+            try:
+                self.keyboard_controller_.release(key)
+                self.pressed_keys_.discard(key)
+                logger.debug(f"释放按键: {key}")
+            except Exception as e:
+                logger.warning(f"释放按键失败 {key}: {e}")
+    
+    def IsKeyPressed(self, key: str) -> bool:
+        """
+        检查按键是否已按下
+        
+        Args:
+            key: 按键字符
+        
+        Returns:
+            是否已按下
+        """
+        return key in self.pressed_keys_
+    
+    def StartForward(self) -> None:
+        """开始持续前进（按下W键）"""
+        self.PressKey('w')
+    
+    def StopForward(self) -> None:
+        """停止前进（释放W键）"""
+        self.ReleaseKey('w')
+        logger.debug("停止前进")
+    
+    def StartLeft(self) -> None:
+        """开始持续左转（按下A键）"""
+        self.PressKey('a')
+        logger.debug("开始持续左转")
+    
+    def StopLeft(self) -> None:
+        """停止左转（释放A键）"""
+        self.ReleaseKey('a')
+        logger.debug("停止左转")
+    
+    def StartRight(self) -> None:
+        """开始持续右转（按下D键）"""
+        self.PressKey('d')
+        logger.debug("开始持续右转")
+    
+    def StopRight(self) -> None:
+        """停止右转（释放D键）"""
+        self.ReleaseKey('d')
+        logger.debug("停止右转")
+    
+    def StartBackward(self) -> None:
+        """开始持续后退（按下S键）"""
+        self.PressKey('s')
+        logger.debug("开始持续后退")
+    
+    def StopBackward(self) -> None:
+        """停止后退（释放S键）"""
+        self.ReleaseKey('s')
+        logger.debug("停止后退")
+    
     def Stop(self) -> None:
         """停止移动（释放所有按键）"""
         try:
-            from pynput.keyboard import Key
-            # 释放常用移动键
-            for key in ['w', 's', 'a', 'd']:
-                try:
-                    self.keyboard_controller_.release(key)
-                except:
-                    pass
+            # 释放所有已按下的移动键
+            keys_to_release = list(self.pressed_keys_)
+            for key in keys_to_release:
+                self.ReleaseKey(key)
+            logger.debug("已释放所有移动按键")
         except Exception as e:
             error_msg = f"停止操作失败: {e}"
             logger.error(error_msg)

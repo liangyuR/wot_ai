@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -93,7 +92,15 @@ class DetectionEngine:
                     logger.warning(f"设置 FP16 失败，使用 FP32 继续运行: {e}")
 
             self.model_ = model
-            logger.info(f"模型加载成功，device={self.actual_device_}")
+            # 检查实际设备并记录
+            if hasattr(model, 'device'):
+                actual_device_str = str(model.device) if hasattr(model.device, '__str__') else str(model.device)
+            else:
+                actual_device_str = self.actual_device_
+            
+            logger.info(f"模型加载成功，device={actual_device_str}")
+            if "cpu" in actual_device_str.lower():
+                logger.warning("⚠️ YOLO模型运行在CPU上，性能会显著下降（预期80-200ms vs GPU的3-6ms）")
             return True
         except Exception as e:  # pragma: no cover - 防御性
             logger.error(f"加载模型失败: {e}")
@@ -129,6 +136,7 @@ class DetectionEngine:
         frame: np.ndarray,
         confidence_threshold: float = 0.25,
         iou_threshold: float = 0.45,
+        max_det: int = 4,  # 添加此参数，限制最大检测数量
     ) -> List[Dict]:
         """检测帧中的目标（向后兼容版）
 
@@ -136,6 +144,7 @@ class DetectionEngine:
             frame: BGR 格式图像 (H, W, 3)
             confidence_threshold: 置信度阈值
             iou_threshold: NMS 的 IoU 阈值
+            max_det: 最大检测数量，限制NMS处理时间
 
         Returns:
             检测结果列表，每个元素为 dict：
@@ -150,11 +159,20 @@ class DetectionEngine:
         if not self.LoadModel():
             return []
 
+        # 诊断：记录输入图像尺寸（首次或异常时）
+        if not hasattr(self, '_last_input_shape') or self._last_input_shape != frame.shape:
+            h, w = frame.shape[:2]
+            logger.debug(f"YOLO输入尺寸: {w}x{h}")
+            if w > 800 or h > 800:
+                logger.warning(f"输入图像尺寸较大 ({w}x{h})，可能导致YOLO内部resize耗时增加")
+            self._last_input_shape = frame.shape
+
         try:
             return self.model_(
                 frame,
                 conf=confidence_threshold,
                 iou=iou_threshold,
+                max_det=max_det,  # 添加此参数
                 verbose=False,
             )
         except Exception as e:

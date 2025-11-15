@@ -12,7 +12,6 @@ import heapq
 import numpy as np
 
 # 本地模块导入
-from ..common.imports import GetLogger
 from ..common.constants import (
     SMOOTH_WEIGHT_DEFAULT,
     DIRECTIONS_4WAY
@@ -20,8 +19,7 @@ from ..common.constants import (
 from ..common.exceptions import PathPlanningError
 from .interfaces import IPlanner
 
-logger = GetLogger()(__name__)
-
+from loguru import logger
 
 class AStarPlanner(IPlanner):
     """
@@ -96,12 +94,68 @@ class AStarPlanner(IPlanner):
             logger.error(error_msg)
             raise PathPlanningError(error_msg) from e
     
+    def _FindNearestWalkable(self, grid: np.ndarray, pos: Tuple[int, int], max_radius: int = 10) -> Optional[Tuple[int, int]]:
+        """
+        使用 BFS 找到最近的可通行区域
+        
+        Args:
+            grid: 栅格地图（0=可通行，1=障碍）
+            pos: 当前位置 (x, y)
+            max_radius: 最大搜索半径
+        
+        Returns:
+            最近的可通行位置，如果找不到则返回 None
+        """
+        height, width = grid.shape
+        x, y = pos
+        
+        # 如果当前位置就是可通行的
+        if 0 <= x < width and 0 <= y < height and grid[y, x] == 0:
+            return pos
+        
+        # BFS 搜索
+        from collections import deque
+        queue = deque([(x, y, 0)])
+        visited = {(x, y)}
+        
+        while queue:
+            cx, cy, dist = queue.popleft()
+            
+            # 超过最大半径
+            if dist > max_radius:
+                continue
+            
+            # 检查四个方向
+            for dx, dy in self.directions_:
+                nx, ny = cx + dx, cy + dy
+                
+                # 检查边界
+                if nx < 0 or nx >= width or ny < 0 or ny >= height:
+                    continue
+                
+                # 如果已经访问过
+                if (nx, ny) in visited:
+                    continue
+                
+                visited.add((nx, ny))
+                
+                # 如果找到可通行区域
+                if grid[ny, nx] == 0:
+                    logger.debug(f"找到最近可通行区域: ({nx}, {ny}), 距离: {dist + 1}")
+                    return (nx, ny)
+                
+                # 继续搜索
+                queue.append((nx, ny, dist + 1))
+        
+        logger.warning(f"在半径 {max_radius} 内未找到可通行区域")
+        return None
+    
     def AStar(self, grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
         A* 算法核心实现
         
         Args:
-            grid: 栅格地图
+            grid: 栅格地图（0=可通行，1=障碍）
             start: 起点
             goal: 终点
         
@@ -110,6 +164,8 @@ class AStarPlanner(IPlanner):
         """
         height, width = grid.shape
         
+        logger.debug(f"[A*] 开始路径规划: grid_size=({width}, {height}), start={start}, goal={goal}")
+        
         # 检查边界
         if (start[0] < 0 or start[0] >= width or start[1] < 0 or start[1] >= height or
             goal[0] < 0 or goal[0] >= width or goal[1] < 0 or goal[1] >= height):
@@ -117,20 +173,57 @@ class AStarPlanner(IPlanner):
             logger.warning(error_msg)
             raise PathPlanningError(error_msg)
         
-        # 检查起点和终点是否为障碍物
+        # 检查起点是否为障碍物，如果是则找到最近的可通行区域
+        original_start = start
         if grid[start[1], start[0]] == 1:
-            error_msg = f"起点位于障碍物上: {start}"
-            logger.warning(error_msg)
-            raise PathPlanningError(error_msg)
+            logger.warning(f"起点位于障碍物上: {start}，尝试找到最近的可通行区域")
+            nearest_walkable = self._FindNearestWalkable(grid, start, max_radius=15)
+            if nearest_walkable is None:
+                error_msg = f"起点位于障碍物上且无法找到可通行区域: {start}"
+                logger.error(error_msg)
+                raise PathPlanningError(error_msg)
+            start = nearest_walkable
+            logger.info(f"起点已调整: {original_start} -> {start}")
         
+        # 检查终点是否为障碍物
         if grid[goal[1], goal[0]] == 1:
-            error_msg = f"终点位于障碍物上: {goal}"
-            logger.warning(error_msg)
-            raise PathPlanningError(error_msg)
+            logger.warning(f"终点位于障碍物上: {goal}，尝试找到最近的可通行区域")
+            nearest_walkable = self._FindNearestWalkable(grid, goal, max_radius=15)
+            if nearest_walkable is None:
+                error_msg = f"终点位于障碍物上且无法找到可通行区域: {goal}"
+                logger.error(error_msg)
+                raise PathPlanningError(error_msg)
+            goal = nearest_walkable
+            logger.info(f"终点已调整: {goal}")
         
         # 如果起点就是终点
         if start == goal:
+            logger.debug(f"[A*] 起点和终点相同，返回单点路径")
             return [start]
+        
+        # 优先队列：(f_score, g_score, current, came_from)
+        open_set = [(0, 0, start, None)]
+        came_from = {}
+        g_score = {start: 0}
+        nodes_explored = 0
+        
+        logger.debug(f"[A*] 开始搜索，起点: {start}, 终点: {goal}")
+        
+        while open_set:
+            _, current_g, current, came_from_pos = heapq.heappop(open_set)
+            nodes_explored += 1
+            
+            # 到达终点
+            if current == goal:
+                # 重建路径
+                path = [goal]
+                pos = current
+                while pos in came_from:
+                    pos = came_from[pos]
+                    path.append(pos)
+                path.reverse()
+                logger.info(f"[A*] 路径规划成功: 路径长度={len(path)}, 探索节点数={nodes_explored}")
+                return path
         
         # 优先队列：(f_score, g_score, current, came_from)
         open_set = [(0, 0, start, None)]
@@ -177,7 +270,7 @@ class AStarPlanner(IPlanner):
                     came_from[neighbor] = current
         
         # 无法到达终点
-        error_msg = f"无法找到从起点到终点的路径: start={start}, goal={goal}"
+        error_msg = f"无法找到从起点到终点的路径: start={start}, goal={goal}, 探索节点数={nodes_explored}"
         logger.warning(error_msg)
         raise PathPlanningError(error_msg)
     

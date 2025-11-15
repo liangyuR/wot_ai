@@ -91,11 +91,15 @@ class MinimapAnchorDetector:
 
         # 计算全局坐标
         top_left = (start_x + best_loc[0], start_y + best_loc[1])
+        
+        # 向右下角偏移约15个像素
+        offset_x, offset_y = 15, 15
+        top_left = (top_left[0] + offset_x, top_left[1] + offset_y)
 
         if self.debug_:
             self._draw_debug(frame, top_left, (tpl_w, tpl_h), size, best_val)
 
-        logger.info(f"检测成功: 坐标={top_left}, 置信度={best_val:.3f}, 尺度={best_scale:.2f}")
+        logger.info(f"检测成功: 坐标={top_left}, 置信度={best_val:.3f}, 尺度={best_scale:.2f} (已偏移+{offset_x},+{offset_y})")
         return top_left
 
     def _draw_debug(self, frame: np.ndarray, top_left: Tuple[int, int], tpl_size: Tuple[int, int], minimap_size: Tuple[int, int], confidence: float):

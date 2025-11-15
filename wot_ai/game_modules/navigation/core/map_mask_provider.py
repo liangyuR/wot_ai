@@ -32,6 +32,7 @@ class MapMaskProvider:
         
         Args:
             map_id: 地图ID（对应子目录名）
+            eg: 胜利之门.png 是原地图，胜利之门_mask.png 是掩码
         
         Returns:
             (mask_1024, meta_dict)

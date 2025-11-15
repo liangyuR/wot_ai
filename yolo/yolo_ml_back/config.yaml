@@ -1,7 +1,0 @@
-model_path: "yolo11m-seg.pt"
-score_threshold: 0.3
-
-from_name: "label"
-to_name: "image"
-labels: ["self_arrow", "ally_flag", "enemy_flag"]
-debug: true
