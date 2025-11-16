@@ -10,7 +10,6 @@ import math
 import time
 
 # 本地模块导入
-from ..common.exceptions import ControlError, InitializationError
 from loguru import logger
 
 
@@ -30,11 +29,9 @@ class ControlService:
         except ImportError as e:
             error_msg = "pynput 未安装，请运行: pip install pynput"
             logger.error(error_msg)
-            raise InitializationError(error_msg) from e
         except Exception as e:
             error_msg = f"控制服务初始化失败: {e}"
             logger.error(error_msg)
-            raise InitializationError(error_msg) from e
     
     def CalculateAngleDifference(self, current_heading: float, target_heading: float) -> Tuple[float, int]:
         """
@@ -128,7 +125,6 @@ class ControlService:
         except Exception as e:
             error_msg = f"前进操作失败: {e}"
             logger.error(error_msg)
-            raise ControlError(error_msg) from e
     
     def MoveBackward(self, duration: float = 1.0) -> None:
         """
@@ -146,7 +142,6 @@ class ControlService:
         except Exception as e:
             error_msg = f"后退操作失败: {e}"
             logger.error(error_msg)
-            raise ControlError(error_msg) from e
     
     def PressKey(self, key: str) -> None:
         """

@@ -16,7 +16,6 @@ import cv2
 import numpy as np
 
 # 本地模块导入
-from ..common.exceptions import InitializationError
 from loguru import logger
 
 
@@ -53,15 +52,12 @@ class CaptureService:
         except ImportError as e:
             error_msg = "mss 未安装，请运行: pip install mss"
             logger.error(error_msg)
-            raise InitializationError(error_msg) from e
         except (IndexError, KeyError) as e:
             error_msg = f"无效的显示器索引: {monitor_index}"
             logger.error(error_msg)
-            raise InitializationError(error_msg) from e
         except Exception as e:
             error_msg = f"屏幕截取服务初始化失败: {e}"
             logger.error(error_msg)
-            raise InitializationError(error_msg) from e
     
     def _GetMssInstance_(self):
         """
