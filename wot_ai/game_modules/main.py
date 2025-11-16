@@ -52,7 +52,6 @@ class NavigationMain:
                 - minimap_size: 小地图尺寸 (width, height)
                 - mask_path: 掩码路径（可选）
                 - grid_size: 栅格尺寸 (width, height)，默认 (256, 256)
-                - erosion_size: 腐蚀操作核大小，默认 3
         """
         self.config_ = config
         self.running_ = False
@@ -128,15 +127,6 @@ class NavigationMain:
                 return False
             
             logger.info(f"初始化YOLO检测器: {model_path}")
-            # 读取输入尺寸配置（如果指定）
-            input_size_config = self.config_.get('input_size', None)
-            input_size = None
-            if input_size_config:
-                if isinstance(input_size_config, (list, tuple)) and len(input_size_config) == 2:
-                    input_size = tuple(input_size_config)
-                else:
-                    logger.warning("input_size配置格式错误，应为(width, height)，忽略")
-            
             self.minimap_detector_ = MinimapDetector(
                 model_path=model_path,
                 conf_threshold=self.config_.get('conf_threshold', 0.25),
@@ -274,33 +264,6 @@ class NavigationMain:
             import traceback
             traceback.print_exc()
             return False
-    
-    def ExtractMinimap(self, frame: np.ndarray) -> Optional[np.ndarray]:
-        """
-        从小地图区域提取小地图图像
-        
-        Args:
-            frame: 屏幕帧
-        
-        Returns:
-            小地图图像，失败返回 None
-        """
-        if self.minimap_region_ is None:
-            return None
-        
-        x = self.minimap_region_['x']
-        y = self.minimap_region_['y']
-        w = self.minimap_region_['width']
-        h = self.minimap_region_['height']
-        
-        # 检查边界
-        frame_h, frame_w = frame.shape[:2]
-        if x < 0 or y < 0 or x + w > frame_w or y + h > frame_h:
-            logger.warning(f"小地图区域超出屏幕范围: ({x}, {y}, {w}, {h}) vs ({frame_w}, {frame_h})")
-            return None
-        
-        minimap = frame[y:y+h, x:x+w]
-        return minimap
     
     def _LoadMaskAndAlign(self, mask_path: Path, minimap_frame: np.ndarray, corners_xy: np.ndarray, 
                           inflation_size: int = 10) -> np.ndarray:
@@ -546,48 +509,6 @@ class NavigationMain:
             import traceback
             traceback.print_exc()
             return None
-    
-    def UpdateOverlay(self, path: list, detections: MinimapDetectionResult):
-        """
-        更新透明覆盖层显示
-        
-        Args:
-            path: 路径坐标列表（栅格坐标）
-            detections: 检测结果
-        """
-        if self.overlay_ is None:
-            return
-        
-        import time
-        start_time = time.time()
-        
-        # 准备检测结果字典
-        detections_dict = {
-            'self_pos': detections.self_pos,
-            'flag_pos': detections.enemy_flag_pos,
-            'angle': detections.self_angle
-        }
-        
-        # 从minimap_region_获取尺寸信息
-        if self.minimap_region_ is None:
-            return
-        
-        minimap_size = (self.minimap_region_['width'], self.minimap_region_['height'])
-        grid_size = self.config_.get('grid_size', (256, 256))
-        
-        # 更新覆盖层（传递掩码用于显示，不需要minimap图像）
-        self.overlay_.DrawPath(
-            minimap=None,
-            path=path,
-            detections=detections_dict,
-            minimap_size=minimap_size,
-            grid_size=grid_size,
-            mask=self.current_aligned_mask_
-        )
-        
-        elapsed = time.time() - start_time
-        if elapsed > 0.01:  # 只记录超过10ms的更新
-            logger.debug(f"UpdateOverlay耗时: {elapsed*1000:.2f}ms")
     
     def _DetectionThread_(self):
         """检测线程：负责屏幕捕获、小地图提取、YOLO检测"""
@@ -968,19 +889,13 @@ class NavigationMain:
             logger.error("透明覆盖层初始化失败，退出")
             return
         
-        # 初始化状态
-        self.current_target_idx_ = 0
-        self.stuck_frames_ = 0
-        
-        disable_control = False
-
         # 启动线程
         logger.info("启动检测线程、控制线程和UI更新线程...")
         self.detection_thread_ = threading.Thread(target=self._DetectionThread_, daemon=True)
         self.ui_thread_ = threading.Thread(target=self._UIThread_, daemon=True)
         
         self.detection_thread_.start()
-        if disable_control:
+        if True:
             self.control_thread_ = None
         else:
             self.control_thread_ = threading.Thread(target=self._ControlThread_, daemon=True)
@@ -1075,13 +990,9 @@ def main():
         # 解卡参数
         'stuck_threshold': 5.0,  # 卡顿检测阈值（像素）
         'stuck_frames_threshold': 10,  # 连续卡顿帧数阈值
-        'stuck_detection_radius': 10.0,  # 卡顿检测范围（像素）
-        'heading_change_threshold': 0.1,  # 朝向变化阈值（弧度，约5.7度）
         # UI参数
         'overlay_fps': 30,
-        'overlay_alpha': 180,
-        # 循环参数
-        'loop_interval': 0.05  # 循环间隔（秒）
+        'overlay_alpha': 180
     }
     
     # 创建主程序实例

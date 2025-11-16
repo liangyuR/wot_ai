@@ -16,11 +16,8 @@ import cv2
 import numpy as np
 
 # 本地模块导入
-from ..common.imports import GetLogger
 from ..common.exceptions import CaptureError
-
-logger = GetLogger()(__name__)
-
+from loguru import logger
 
 class VisionWatcher:
     """
