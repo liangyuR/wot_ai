@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, List
-import time
 
 import numpy as np
 from loguru import logger
@@ -31,6 +30,42 @@ class MinimapDetectionResult:
     raw_detections: List[Dict] # [{"cls": int, "confidence": float, "bbox": Tuple[float, float, float, float]}]
 
 
+class AngleSmoother:
+    """角度平滑器：平滑角度变化，避免抖动"""
+    
+    def __init__(self):
+        self.angle_: Optional[float] = None
+        self.valid_: bool = False
+    
+    def Update(self, raw_angle: Optional[float]) -> Optional[float]:
+        """更新角度，返回平滑后的角度
+        
+        Args:
+            raw_angle: 原始角度（度），如果为None则返回当前角度
+        
+        Returns:
+            平滑后的角度（度）或 None
+        """
+        if raw_angle is None:
+            return self.angle_ if self.valid_ else None
+        
+        if not self.valid_:
+            self.angle_ = raw_angle
+            self.valid_ = True
+            return self.angle_
+        
+        # 计算角度差（处理跨越0°/360°边界的情况）
+        diff = (raw_angle - self.angle_ + 540) % 360 - 180
+        self.angle_ = (self.angle_ + diff) % 360.0
+        
+        return self.angle_
+    
+    def Reset(self):
+        """重置平滑器"""
+        self.angle_ = None
+        self.valid_ = False
+
+
 class MinimapDetector:
     """
     重新设计后的小地图检测器
@@ -42,10 +77,8 @@ class MinimapDetector:
     def __init__(
         self,
         model_path: str,
-        conf_threshold: float = 0.75,
-        iou_threshold: float = 0.75,
-        input_size: Optional[Tuple[int, int]] = None,
-        preprocess_input: bool = False,
+        conf_threshold: float = 0.25,
+        iou_threshold: float = 0.25,
     ):
         if not model_path:
             raise ValueError("model_path 不能为空")
@@ -53,16 +86,17 @@ class MinimapDetector:
         self.engine_ = DetectionEngine(model_path)
         self.conf_threshold_ = conf_threshold
         self.iou_threshold_ = iou_threshold
-        self.input_size_ = input_size  # 如果指定，会将输入resize到此尺寸
-        self.preprocess_input_ = preprocess_input  # 是否启用预处理（resize）
         self.class_name_to_id_: Dict[str, int] = {}
+        self.angle_smoother_ = AngleSmoother()  # 角度平滑器
 
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
         """加载模型并初始化类别名称映射"""
         if not self.engine_.LoadModel():
+            logger.error("MinimapDetector: 模型加载失败")
             return False
 
+        logger.info("MinimapDetector: 模型加载成功")
         return True
     
     def _update_class_mapping(self, results) -> None:
@@ -106,20 +140,6 @@ class MinimapDetector:
             logger.error("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
-        # 诊断：记录输入图像尺寸（首次或异常时）
-        if not hasattr(self, '_last_frame_shape') or self._last_frame_shape != frame.shape:
-            h, w = frame.shape[:2]
-            logger.debug(f"MinimapDetector输入尺寸: {w}x{h}")
-            if w > 800 or h > 800:
-                logger.warning(f"小地图尺寸较大 ({w}x{h})，如果性能慢可考虑resize")
-            self._last_frame_shape = frame.shape
-
-        # 可选预处理：resize到固定尺寸（如果启用）
-        if self.preprocess_input_ and self.input_size_ is not None:
-            target_w, target_h = self.input_size_
-            if frame.shape[1] != target_w or frame.shape[0] != target_h:
-                frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-
         # 调用检测引擎，返回 YOLO Results 对象（列表）
         yolo_results = self.engine_.Detect(
             frame, 
@@ -128,6 +148,11 @@ class MinimapDetector:
         )
         
         if not yolo_results:
+            logger.error("MinimapDetector: 检测结果为空")
+            if debug:
+                cv2.imshow("MinimapDetector Debug", frame)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
             return MinimapDetectionResult(None, None, None, [])
 
         if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
@@ -140,9 +165,7 @@ class MinimapDetector:
         # 位置提取（使用类别名称）
         self_pos = self._extract_center(raw_detections, "self_arrow")
         enemy_flag_pos = self._extract_center(raw_detections, "enemy_flag")
-        
-        # 角度提取已移除，self_angle 始终为 None
-        self_angle = None
+        self_angle = self._extract_angle(frame, raw_detections, "self_arrow", debug=debug)
 
         result = MinimapDetectionResult(self_pos, self_angle, enemy_flag_pos, raw_detections)
         
@@ -263,7 +286,47 @@ class MinimapDetector:
         return vis_img
         
     # -----------------------------------------------------------
-    
+    def _extract_angle_geometric(
+        self,
+        detections: List[Dict],
+        frame_bgr: np.ndarray,
+    ) -> Optional[float]:
+        """使用几何方法提取箭头角度。
+
+        Args:
+            detections: YOLO检测结果字典列表
+            frame_bgr: 完整帧的BGR图像
+
+        Returns:
+            角度（度），失败返回None
+        """
+        if self.orientation_estimator_ is None:
+            return None
+
+        class_id = self._get_class_id_by_name("self_arrow")
+        if class_id is None:
+            return None
+
+        # 找到 self_arrow 的检测结果（取置信度最高的）
+        target_det = None
+        best_conf = -1.0
+        for det in detections:
+            if int(det.get("cls", -1)) == int(class_id):
+                conf = det.get("confidence", 0.0)
+                if conf > best_conf:
+                    best_conf = conf
+                    target_det = det
+
+        if target_det is None:
+            return None
+
+        bbox = target_det.get("bbox")
+        if bbox is None or len(bbox) != 4:
+            return None
+
+        # 调用几何朝向估计器
+        return self.orientation_estimator_.estimate_from_bbox(frame_bgr, bbox)
+
     def _extract_center(self, detections: List[Dict], class_name: str) -> Optional[Tuple[float, float]]:
         """从检测列表中筛选某个类别，并取最高置信度的中心点
         
@@ -288,6 +351,145 @@ class MinimapDetector:
         center_y = (y1 + y2) / 2.0
         return (center_x, center_y)
 
+    def _extract_angle(self, minimap: np.ndarray, detections: List[Dict], class_name: str, debug: bool = False) -> Optional[float]:
+        """从检测结果中提取角度（通过轮廓分析）
+        
+        Args:
+            minimap: 小地图 BGR 图像
+            detections: 检测结果字典列表
+            class_name: 类别名称（如 "self_arrow"）
+            debug: 是否显示调试信息
+        
+        Returns:
+            角度（度）或 None
+        """
+        if minimap is None or minimap.size == 0:
+            return None
+        
+        # 1. 找到 self_arrow 的 bbox
+        class_id = self._get_class_id_by_name(class_name)
+        if class_id is None:
+            return None
+        
+        filtered = [d for d in detections if d["cls"] == class_id]
+        if not filtered:
+            return None
+        
+        best = max(filtered, key=lambda d: d["confidence"])
+        x1, y1, x2, y2 = best["bbox"]
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        
+        
+        # 2. 裁剪获取该区域
+        h, w = minimap.shape[:2]
+        x1_clipped = max(0, min(x1, w - 1))
+        y1_clipped = max(0, min(y1, h - 1))
+        x2_clipped = max(x1_clipped + 1, min(x2, w))
+        y2_clipped = max(y1_clipped + 1, min(y2, h))
+        
+        roi = minimap[y1_clipped:y2_clipped, x1_clipped:x2_clipped]
+        if roi.size == 0:
+            return None
+        
+        # 3. 灰度 + OTSU 二值化
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 4. 找最大轮廓
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
+
+        largest_contour = max(contours, key=cv2.contourArea)
+
+        # 5. approxPolyDP 得到 4 顶点
+        epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+        approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+        
+        if len(approx) != 4:
+            return None
+        
+        # 返回 4 个顶点坐标（用于后续计算角度）
+        vertices = approx.reshape(-1, 2)
+        raw_angle = self.compute_angle_from_vertices(vertices)
+        
+        # 使用角度平滑器平滑角度
+        smoothed_angle = self.angle_smoother_.Update(raw_angle)
+        return smoothed_angle
+
+    def compute_angle_from_vertices(self, vertices):
+        """
+        输入：vertices shape = (4, 2)
+        输出：角度 (0°=向右, 90°=向上) 或 None
+        """
+        if vertices is None or len(vertices) != 4:
+            return None
+
+        pts = np.array(vertices, dtype=np.float32)  # shape (4,2)
+
+        # 工具：三点之间的 pairwise 距离
+        def pairwise_dist(idx_list):
+            dists = []
+            for i in range(len(idx_list)):
+                for j in range(i + 1, len(idx_list)):
+                    p = pts[idx_list[i]]
+                    q = pts[idx_list[j]]
+                    dists.append(float(np.linalg.norm(p - q)))
+            return dists
+
+        best_tip_idx = None
+        best_cluster_spread = None
+        best_tail_center = None
+
+        # 遍历四个点，尝试把每个点视为“远点 tip”
+        for tip_idx in range(4):
+            tail_indices = [i for i in range(4) if i != tip_idx]
+
+            dists = pairwise_dist(tail_indices)
+            if not dists:
+                continue
+
+            cluster_spread = max(dists)  # 三个近点之间最大距离
+            if cluster_spread < 1e-6:
+                continue
+
+            tail_pts = pts[tail_indices]
+            tail_center = tail_pts.mean(axis=0)
+
+            tip_pt = pts[tip_idx]
+            tip_dist = float(np.linalg.norm(tip_pt - tail_center))
+
+            ratio = tip_dist / cluster_spread
+
+            # tip 必须比尾部尺寸明显更远
+            if ratio < 1.2:  # 经验阈值，可调
+                continue
+
+            # 挑尾部最紧凑的（cluster_spread 最小）
+            if best_tip_idx is None or cluster_spread < best_cluster_spread:
+                best_tip_idx = tip_idx
+                best_cluster_spread = cluster_spread
+                best_tail_center = tail_center
+
+        # 如果没有找到合理的 tip，就直接返回 None
+        if best_tip_idx is None:
+            return None
+
+        tip_x, tip_y = pts[best_tip_idx]
+        tail_cx, tail_cy = best_tail_center
+
+        dx = tip_x - tail_cx
+        dy = tail_cy - tip_y     
+        if dx * dx + dy * dy < 1e-6:
+            return None
+
+        # 图像坐标转数学坐标 (y 取反)
+        angle_rad = np.arctan2(-dy, dx)
+        angle_deg = float(np.degrees(angle_rad))
+        return angle_deg
+
     # -----------------------------------------------------------
     def Reset(self):
-        pass
+        """重置检测器状态"""
+        self.angle_smoother_.Reset()

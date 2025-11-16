@@ -321,8 +321,12 @@ class TransparentOverlay:
                 self.cached_path_points_ = []
                 logger.debug("路径为空，清空缓存路径点")
         
-        # 实时更新检测结果（self_pose等）
-        self.current_detections_ = detections
+        # 实时更新检测结果（self_pose等）：合并更新，只更新非None的字段
+        if detections:
+            # 只更新非None的字段，保留已有值
+            for key, value in detections.items():
+                if value is not None:
+                    self.current_detections_[key] = value
         self.current_mask_ = mask
         if minimap_size:
             self.minimap_size_ = minimap_size

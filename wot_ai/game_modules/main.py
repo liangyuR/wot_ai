@@ -137,20 +137,12 @@ class NavigationMain:
                 else:
                     logger.warning("input_size配置格式错误，应为(width, height)，忽略")
             
-            # 确保角度检测启用（默认True）
-            enable_angle_extraction = self.config_.get('enable_angle_extraction', True)
-            if not enable_angle_extraction:
-                logger.warning("角度检测被禁用，将使用检测到的角度")
-                enable_angle_extraction = True  # 强制启用
-            
             self.minimap_detector_ = MinimapDetector(
                 model_path=model_path,
                 conf_threshold=self.config_.get('conf_threshold', 0.25),
                 iou_threshold=self.config_.get('iou_threshold', 0.75),
-                enable_angle_extraction=enable_angle_extraction,
-                input_size=input_size,
-                preprocess_input=self.config_.get('preprocess_input', False),
             )
+            
             if not self.minimap_detector_.LoadModel():
                 logger.error("YOLO模型加载失败")
                 return False
@@ -589,7 +581,7 @@ class NavigationMain:
         """检测线程：负责屏幕捕获、小地图提取、YOLO检测"""
         logger.info("检测线程启动")
         
-        detection_fps = 10  # 10FPS（小地图检测不需要30FPS）
+        detection_fps = 15  # 10FPS（小地图检测不需要30FPS）
         detection_interval = 1.0 / detection_fps  # 100ms
         
         # FPS计算
@@ -712,6 +704,7 @@ class NavigationMain:
                     angle_deg = detections.self_angle
                     # 转换为弧度：0° = 0 rad, 90° = π/2 rad, 180° = π rad, 270° = -π/2 rad
                     current_heading_rad = math.radians(angle_deg)
+                    logger.info(f"当前角度: {angle_deg:.2f}°")
                 
                 # 检测卡顿（基于位移）
                 is_stuck = False
@@ -862,6 +855,10 @@ class NavigationMain:
                 except queue.Empty:
                     current_path = self._ui_cached_path_
                 
+                # 初始化检测结果缓存
+                if not hasattr(self, "_ui_cached_detections_"):
+                    self._ui_cached_detections_ = {}
+                
                 # 准备参数（无论是否有检测结果，都需要更新路径）
                 minimap_size = None
                 if self.minimap_region_:
@@ -871,15 +868,17 @@ class NavigationMain:
                 if self.current_grid_ is not None:
                     grid_size = (self.current_grid_.shape[1], self.current_grid_.shape[0])  # (width, height)
                 
-                # 将检测结果转换为字典格式
-                detections_dict = {}
+                # 更新检测结果缓存：只更新非None的字段
                 if detections is not None:
                     if hasattr(detections, 'self_pos') and detections.self_pos is not None:
-                        detections_dict['self_pos'] = detections.self_pos
+                        self._ui_cached_detections_['self_pos'] = detections.self_pos
                     if hasattr(detections, 'self_angle') and detections.self_angle is not None:
-                        detections_dict['self_angle'] = detections.self_angle
+                        self._ui_cached_detections_['self_angle'] = detections.self_angle
                     if hasattr(detections, 'enemy_flag_pos') and detections.enemy_flag_pos is not None:
-                        detections_dict['flag_pos'] = detections.enemy_flag_pos
+                        self._ui_cached_detections_['flag_pos'] = detections.enemy_flag_pos
+                
+                # 使用缓存值（即使新检测结果为None）
+                detections_dict = self._ui_cached_detections_.copy()
                 
                 # 更新UI显示（路径、检测结果、掩码背景）
                 # 即使没有检测结果，也要更新路径（使用空的detections_dict）
@@ -961,14 +960,20 @@ class NavigationMain:
         self.current_target_idx_ = 0
         self.stuck_frames_ = 0
         
+        disable_control = False
+
         # 启动线程
         logger.info("启动检测线程、控制线程和UI更新线程...")
         self.detection_thread_ = threading.Thread(target=self._DetectionThread_, daemon=True)
-        self.control_thread_ = threading.Thread(target=self._ControlThread_, daemon=True)
         self.ui_thread_ = threading.Thread(target=self._UIThread_, daemon=True)
         
         self.detection_thread_.start()
-        self.control_thread_.start()
+        if disable_control:
+            self.control_thread_ = None
+        else:
+            self.control_thread_ = threading.Thread(target=self._ControlThread_, daemon=True)
+            self.control_thread_.start()
+
         self.ui_thread_.start()
         
         logger.info("所有线程已启动，等待线程运行...")
@@ -980,7 +985,7 @@ class NavigationMain:
                 # 检查线程是否还在运行
                 if not self.detection_thread_.is_alive():
                     logger.warning("检测线程已退出")
-                if not self.control_thread_.is_alive():
+                if self.control_thread_ and not self.control_thread_.is_alive():
                     logger.warning("控制线程已退出")
                 if not self.ui_thread_.is_alive():
                     logger.warning("UI更新线程已退出")
@@ -1030,7 +1035,7 @@ def main():
     script_dir = Path(__file__).resolve().parent.parent.parent
     config = {
         # 模型路径
-        'model_path': str(script_dir / "tests" / "best.pt"),
+        'model_path': str(script_dir / "tests" / "best_s_seg.pt"),
         # 小地图模板路径
         'template_path': str(script_dir / "tests" / "minimap_border.png"),
         # 小地图尺寸（用于初始化TransparentOverlay）

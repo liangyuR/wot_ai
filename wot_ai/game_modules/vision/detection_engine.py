@@ -84,7 +84,7 @@ class DetectionEngine:
             if self.use_half_ and self._can_use_half():
                 try:
                     if hasattr(model, "model") and hasattr(model.model, "half"):
-                        model.model.half()
+                        # model.model.half()
                         logger.info("YOLO 模型已切换为 FP16")
                     else:
                         logger.warning("当前 YOLO 版本不支持 half()，已跳过 FP16 设置")
@@ -135,8 +135,8 @@ class DetectionEngine:
         self,
         frame: np.ndarray,
         confidence_threshold: float = 0.25,
-        iou_threshold: float = 0.45,
-        max_det: int = 4,  # 添加此参数，限制最大检测数量
+        iou_threshold: float = 0.25,
+        max_det: int = 100,  # 添加此参数，限制最大检测数量
     ) -> List[Dict]:
         """检测帧中的目标（向后兼容版）
 
@@ -157,15 +157,8 @@ class DetectionEngine:
             return []
 
         if not self.LoadModel():
+            logger.error("模型加载失败")
             return []
-
-        # 诊断：记录输入图像尺寸（首次或异常时）
-        if not hasattr(self, '_last_input_shape') or self._last_input_shape != frame.shape:
-            h, w = frame.shape[:2]
-            logger.debug(f"YOLO输入尺寸: {w}x{h}")
-            if w > 800 or h > 800:
-                logger.warning(f"输入图像尺寸较大 ({w}x{h})，可能导致YOLO内部resize耗时增加")
-            self._last_input_shape = frame.shape
 
         try:
             return self.model_(
