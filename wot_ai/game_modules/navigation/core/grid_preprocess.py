@@ -13,11 +13,10 @@ import numpy as np
 from typing import Tuple
 from loguru import logger
 
-
 def build_inflated_and_cost_map(
     obstacle_map: np.ndarray,
     inflate_radius_px: int = 10,
-    alpha: float = 10.0,
+    alpha: float = 80.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     构建膨胀障碍图和代价图(cost map)。

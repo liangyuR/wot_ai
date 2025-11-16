@@ -366,6 +366,77 @@ class NavigationMain:
         
         return (gx, gy)
     
+    def _FindNearestPointOnPath(self, current_pos: tuple, path_world: list, start_idx: int = 0) -> tuple:
+        """
+        找到路径上距离当前位置最近的点（路径跟随逻辑）
+        
+        Args:
+            current_pos: 当前位置 (x, y)（世界坐标）
+            path_world: 路径点列表 [(x, y), ...]（世界坐标）
+            start_idx: 搜索起始索引，避免回溯
+        
+        Returns:
+            (nearest_idx, nearest_point, distance): 最近点的索引、坐标和距离
+        """
+        if not path_world or len(path_world) == 0:
+            return (0, current_pos, float('inf'))
+        
+        min_dist = float('inf')
+        nearest_idx = start_idx
+        nearest_point = path_world[start_idx] if start_idx < len(path_world) else path_world[0]
+        
+        # 从start_idx开始搜索，避免回溯
+        for i in range(start_idx, len(path_world)):
+            point = path_world[i]
+            dist = math.sqrt(
+                (point[0] - current_pos[0]) ** 2 + 
+                (point[1] - current_pos[1]) ** 2
+            )
+            
+            if dist < min_dist:
+                min_dist = dist
+                nearest_idx = i
+                nearest_point = point
+        
+        # 也检查线段上的最近点（更精确）
+        for i in range(start_idx, len(path_world) - 1):
+            p1 = path_world[i]
+            p2 = path_world[i + 1]
+            
+            # 计算到线段的最近点
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            line_len_sq = dx * dx + dy * dy
+            
+            if line_len_sq < 1e-6:
+                continue
+            
+            # 计算投影参数t
+            t = ((current_pos[0] - p1[0]) * dx + (current_pos[1] - p1[1]) * dy) / line_len_sq
+            t = max(0.0, min(1.0, t))  # 限制在线段内
+            
+            # 投影点
+            proj_x = p1[0] + t * dx
+            proj_y = p1[1] + t * dy
+            proj_point = (proj_x, proj_y)
+            
+            # 计算距离
+            dist = math.sqrt(
+                (proj_point[0] - current_pos[0]) ** 2 + 
+                (proj_point[1] - current_pos[1]) ** 2
+            )
+            
+            if dist < min_dist:
+                min_dist = dist
+                # 如果投影点更接近p2，使用下一个索引
+                if t > 0.5:
+                    nearest_idx = min(i + 1, len(path_world) - 1)
+                else:
+                    nearest_idx = i
+                nearest_point = proj_point
+        
+        return (nearest_idx, nearest_point, min_dist)
+    
     def LoadMask(self, minimap_size: tuple) -> bool:
         """
         加载掩码（在初始化时调用一次）
@@ -403,19 +474,21 @@ class NavigationMain:
                 logger.info(f"从掩码构建栅格地图，尺寸: {grid.shape}")
                 
                 # 构建膨胀障碍图和代价图
-                cost_alpha = self.config_.get('cost_alpha', 20.0)
+                inflation_radius_px = self.config_.get('inflation_radius_px', 15)
+                cost_alpha = self.config_.get('cost_alpha', 120.0)
                 inflated_obstacle, cost_map = build_inflated_and_cost_map(
                     grid,
-                    inflate_radius_px=self.config_.get('inflation_radius_px', 20),
+                    inflate_radius_px=inflation_radius_px,
                     alpha=cost_alpha
                 )
+                logger.info(f"障碍膨胀和代价图构建完成: 膨胀半径={inflation_radius_px}px, cost_alpha={cost_alpha}")
                 
                 # 保存对齐后的掩码、栅格地图、代价图和膨胀障碍图
                 self.current_aligned_mask_ = aligned_mask
                 self.current_grid_ = grid
                 self.current_cost_map_ = cost_map
                 self.current_inflated_obstacle_ = inflated_obstacle
-                logger.info(f"障碍膨胀和代价图构建完成: 膨胀半径={inflation_size}px, cost_alpha={cost_alpha}")
+                # logger.info(f"障碍膨胀和代价图构建完成: 膨胀半径={inflation_size}px, cost_alpha={cost_alpha}")
                 return True
             else:
                 # 如果没有掩码，创建一个空的栅格地图（全部可通行）
@@ -477,15 +550,15 @@ class NavigationMain:
                     path = self.planner_.Plan(self.current_grid_, start, goal)
                 else:
                     # 路径平滑：可选使用Catmull-Rom平滑或LOS平滑
-                    smoothing_method = self.config_.get('path_smoothing_method', 'los')
+                    smoothing_method = self.config_.get('path_smoothing_method', 'catmull_rom')
                     
                     if smoothing_method == 'catmull_rom':
                         # 使用Catmull-Rom曲线平滑
                         path = smooth_path(
                             path,
-                            simplify_method=self.config_.get('simplify_method', 'direction'),
-                            simplify_threshold=self.config_.get('simplify_threshold', 2.0),
-                            num_points_per_segment=self.config_.get('num_points_per_segment', 15),
+                            simplify_method=self.config_.get('simplify_method', 'rdp'),
+                            simplify_threshold=self.config_.get('simplify_threshold', 8.0),
+                            num_points_per_segment=self.config_.get('num_points_per_segment', 8),
                             curvature_threshold_deg=self.config_.get('curvature_threshold_deg', 40.0),
                             check_curvature=self.config_.get('check_curvature', True)
                         )
@@ -596,7 +669,7 @@ class NavigationMain:
         # 获取配置参数
         stuck_threshold = self.config_.get('stuck_threshold', 5.0)
         stuck_frames_threshold = self.config_.get('stuck_frames_threshold', 10)
-        target_point_offset = self.config_.get('target_point_offset', 5)
+        target_point_offset = self.config_.get('target_point_offset', 12)
         control_fps = 30  # 30FPS
         control_interval = 1.0 / control_fps  # 约33ms
         
@@ -697,7 +770,7 @@ class NavigationMain:
                         except queue.Empty:
                             pass
                 
-                # 执行持续移动控制
+                # 执行持续移动控制（路径跟随逻辑）
                 if len(local_current_path_) > 1:
                     # 将栅格坐标转换回小地图坐标的缩放比例
                     minimap_h, minimap_w = self.minimap_region_['height'], self.minimap_region_['width']
@@ -705,28 +778,47 @@ class NavigationMain:
                     scale_x = minimap_w / grid_size[0]
                     scale_y = minimap_h / grid_size[1]
                     
-                    # 根据target_point_offset选择路径上的远端目标点
-                    target_idx = min(
-                        local_current_target_idx_ + target_point_offset,
-                        len(local_current_path_) - 1
+                    # 将路径转换为世界坐标
+                    path_world = []
+                    for p in local_current_path_:
+                        path_world.append((p[0] * scale_x, p[1] * scale_y))
+                    
+                    # 找到当前位置在路径上的最近点（路径跟随）
+                    path_deviation_tolerance = self.config_.get('path_deviation_tolerance', 60.0)
+                    nearest_idx, nearest_point, distance_to_path = self._FindNearestPointOnPath(
+                        current_pos, path_world, max(0, local_current_target_idx_ - 5)
                     )
                     
-                    if target_idx < len(local_current_path_):
-                        target_point = local_current_path_[target_idx]
-                        target_world_x = target_point[0] * scale_x
-                        target_world_y = target_point[1] * scale_y
-                        target_world = (target_world_x, target_world_y)
+                    # 更新当前索引到最近点（确保不回溯）
+                    if nearest_idx > local_current_target_idx_:
+                        local_current_target_idx_ = nearest_idx
+                    
+                    # 如果偏离路径太远，可能需要重新规划（这里先继续前进）
+                    if distance_to_path > path_deviation_tolerance * 2:
+                        logger.warning(f"路径偏离较大: {distance_to_path:.1f}px，可能需要重新规划")
+                    
+                    # 选择前瞻目标点（基于当前索引，而不是固定偏移）
+                    target_point_offset = self.config_.get('target_point_offset', 20)
+                    target_idx = min(
+                        local_current_target_idx_ + target_point_offset,
+                        len(path_world) - 1
+                    )
+                    
+                    if target_idx < len(path_world):
+                        target_world = path_world[target_idx]
                         
-                        # 计算到目标点的距离
-                        distance_to_target = math.sqrt(
-                            (target_world[0] - current_pos[0]) ** 2 + 
-                            (target_world[1] - current_pos[1]) ** 2
+                        # 计算到终点的距离
+                        goal_world = path_world[-1]
+                        distance_to_goal = math.sqrt(
+                            (goal_world[0] - current_pos[0]) ** 2 + 
+                            (goal_world[1] - current_pos[1]) ** 2
                         )
                         
-                        # 如果接近目标点，更新索引
-                        arrival_threshold = self.config_.get('arrival_threshold', 20.0)
-                        if distance_to_target < arrival_threshold:
-                            local_current_target_idx_ = min(target_idx + 1, len(local_current_path_) - 1)
+                        # 如果已经接近终点，停止移动
+                        goal_arrival_threshold = self.config_.get('goal_arrival_threshold', 30.0)
+                        if distance_to_goal < goal_arrival_threshold:
+                            self.nav_executor_.StopMoving()
+                            logger.info("已到达目标点")
                         else:
                             # 持续转向目标点（使用A/D键）
                             # 使用检测到的角度，如果为None则使用默认值0.0
@@ -895,7 +987,7 @@ class NavigationMain:
         self.ui_thread_ = threading.Thread(target=self._UIThread_, daemon=True)
         
         self.detection_thread_.start()
-        if True:
+        if False:
             self.control_thread_ = None
         else:
             self.control_thread_ = threading.Thread(target=self._ControlThread_, daemon=True)
@@ -972,9 +1064,16 @@ def main():
         # 栅格尺寸
         'grid_size': (256, 256),
         # 障碍膨胀参数
-        'inflation_radius_px': 10,  # 障碍膨胀半径（像素）
-        'cost_alpha': 10.0,  # 代价图权重
-        'enable_los_smoothing': True,  # 启用LOS平滑
+        'inflation_radius_px': 18,  # 障碍膨胀半径（像素），增大以远离障碍
+        'cost_alpha': 120.0,  # 代价图权重，增大以增强对障碍的惩罚
+        'enable_los_smoothing': True,  # 启用LOS平滑（向后兼容）
+        # 路径平滑参数
+        'path_smoothing_method': 'catmull_rom',  # 默认使用Catmull-Rom平滑
+        'simplify_method': 'rdp',  # 路径简化方法，使用RDP算法更彻底
+        'simplify_threshold': 8.0,  # 简化阈值（RDP距离阈值），增大以减少路径点
+        'num_points_per_segment': 8,  # 每段采样点数，减少以避免过度插值
+        'curvature_threshold_deg': 40.0,  # 曲率阈值（度）
+        'check_curvature': True,  # 是否进行曲率检查
         # YOLO检测参数
         'conf_threshold': 0.25,
         'iou_threshold': 0.75,
@@ -984,9 +1083,10 @@ def main():
         # 控制参数
         'move_speed': 1.0,
         'rotation_smooth': 0.3,
-        # 持续移动控制参数
-        'target_point_offset': 5,  # 目标点偏移量（选择路径上第几个点作为目标）
-        'arrival_threshold': 20.0,  # 到达阈值（像素）
+        # 持续移动控制参数（路径跟随模式）
+        'target_point_offset': 20,  # 目标点偏移量（选择路径上第几个点作为目标），增大以减少频繁调整
+        'path_deviation_tolerance': 60.0,  # 路径偏离容忍度（像素），允许一定偏离
+        'goal_arrival_threshold': 30.0,  # 终点到达阈值（像素），接近终点时停止
         # 解卡参数
         'stuck_threshold': 5.0,  # 卡顿检测阈值（像素）
         'stuck_frames_threshold': 10,  # 连续卡顿帧数阈值
