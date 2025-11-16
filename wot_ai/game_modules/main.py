@@ -32,7 +32,7 @@ from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetecto
 from wot_ai.game_modules.navigation.core.path_planner import AStarPlanner
 from wot_ai.game_modules.navigation.core.grid_preprocess import build_inflated_and_cost_map
 from wot_ai.game_modules.navigation.core.planner_astar import astar_with_cost
-from wot_ai.game_modules.navigation.core.path_smoothing import smooth_path_los
+from wot_ai.game_modules.navigation.core.path_smoothing import smooth_path_los, smooth_path
 from wot_ai.game_modules.navigation.ui.transparent_overlay import TransparentOverlay
 from wot_ai.game_modules.navigation.service.control_service import ControlService
 from wot_ai.game_modules.navigation.core.navigation_executor import NavigationExecutor
@@ -146,6 +146,11 @@ class NavigationMain:
             if not self.minimap_detector_.LoadModel():
                 logger.error("YOLO模型加载失败")
                 return False
+            
+            # 模型预热：避免首帧延迟
+            minimap_size = self.config_.get('minimap_size', (640, 640))
+            logger.info(f"模型预热中，使用尺寸: {minimap_size}")
+            self.minimap_detector_.engine_.Warmup(img_size=minimap_size)
             
             # 4. 初始化路径规划器
             logger.info("初始化路径规划器...")
@@ -342,14 +347,8 @@ class NavigationMain:
             borderValue=255  # 边界填充为白色（可通行）
         )
         
-        # 转换为0/1格式（白色=可通行=0，黑色=障碍=1）
         # 注意：掩码中白色是可通行区域，黑色是障碍
-        mask01 = ((warped < 127).astype(np.uint8))  # 黑色(<127) = 障碍(1)，白色(>=127) = 可通行(0)
-        
-        # 对障碍物进行膨胀操作，扩大障碍物，让路径远离障碍
-        # 注意：膨胀在后续的build_inflated_and_cost_map中会再次进行，这里先不做膨胀
-        # 保留原始掩码，让膨胀在代价图构建时统一处理
-        
+        mask01 = ((warped < 127).astype(np.uint8)) 
         return mask01
     
     def _MaskToGrid(self, mask_01: np.ndarray, grid_size: tuple) -> np.ndarray:
@@ -514,8 +513,21 @@ class NavigationMain:
                     logger.warning("cost_map A*规划失败，尝试使用传统A*")
                     path = self.planner_.Plan(self.current_grid_, start, goal)
                 else:
-                    # LOS平滑
-                    if self.config_.get('enable_los_smoothing', True) and self.current_inflated_obstacle_ is not None:
+                    # 路径平滑：可选使用Catmull-Rom平滑或LOS平滑
+                    smoothing_method = self.config_.get('path_smoothing_method', 'los')
+                    
+                    if smoothing_method == 'catmull_rom':
+                        # 使用Catmull-Rom曲线平滑
+                        path = smooth_path(
+                            path,
+                            simplify_method=self.config_.get('simplify_method', 'direction'),
+                            simplify_threshold=self.config_.get('simplify_threshold', 2.0),
+                            num_points_per_segment=self.config_.get('num_points_per_segment', 15),
+                            curvature_threshold_deg=self.config_.get('curvature_threshold_deg', 40.0),
+                            check_curvature=self.config_.get('check_curvature', True)
+                        )
+                    elif smoothing_method == 'los' and self.config_.get('enable_los_smoothing', True) and self.current_inflated_obstacle_ is not None:
+                        # LOS平滑（向后兼容）
                         path = smooth_path_los(path, self.current_inflated_obstacle_)
             else:
                 # 回退到传统A*
@@ -581,8 +593,8 @@ class NavigationMain:
         """检测线程：负责屏幕捕获、小地图提取、YOLO检测"""
         logger.info("检测线程启动")
         
-        detection_fps = 15  # 10FPS（小地图检测不需要30FPS）
-        detection_interval = 1.0 / detection_fps  # 100ms
+        detection_fps = 30  # 30FPS（提高检测频率，快速响应坦克移动）
+        detection_interval = 1.0 / detection_fps  # 约33ms
         
         # FPS计算
         fps_window_size = 10  # 计算FPS的窗口大小（10帧）
@@ -1035,7 +1047,7 @@ def main():
     script_dir = Path(__file__).resolve().parent.parent.parent
     config = {
         # 模型路径
-        'model_path': str(script_dir / "tests" / "best_s_seg.pt"),
+        'model_path': str(script_dir / "tests" / "best_m_detect.pt"),
         # 小地图模板路径
         'template_path': str(script_dir / "tests" / "minimap_border.png"),
         # 小地图尺寸（用于初始化TransparentOverlay）

@@ -36,12 +36,12 @@ def build_inflated_and_cost_map(
     # 统一成 0/1
     obs = (obstacle_map > 0).astype(np.uint8)
 
-    # 1) 障碍膨胀
+    # 1) 障碍膨胀（使用椭圆核，避免路径出现不自然的边角）
     k = 2 * inflate_radius_px + 1
-    kernel = np.ones((k, k), np.uint8)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     inflated = cv2.dilate(obs, kernel, iterations=1)
     
-    logger.debug(f"障碍膨胀完成: 膨胀半径={inflate_radius_px}px, 核大小={k}x{k}")
+    logger.info(f"障碍膨胀完成: 膨胀半径={inflate_radius_px}px, 椭圆核大小={k}x{k}")
 
     # 2) 距离变换（对 free 区域算离障碍的距离）
     free = (inflated == 0).astype(np.uint8)

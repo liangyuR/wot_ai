@@ -136,16 +136,22 @@ class MinimapDetector:
         Returns:
             MinimapDetectionResult
         """
+        import time
+        total_start = time.time()
+        
         if frame is None or frame.size == 0:
             logger.error("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
         # 调用检测引擎，返回 YOLO Results 对象（列表）
+        yolo_start = time.time()
         yolo_results = self.engine_.Detect(
             frame, 
             confidence_threshold=self.conf_threshold_, 
-            iou_threshold=self.iou_threshold_
+            iou_threshold=self.iou_threshold_,
+            max_det=10  # 优化：只需要检测2个目标（self_arrow和enemy_flag）
         )
+        yolo_elapsed = time.time() - yolo_start
         
         if not yolo_results:
             logger.error("MinimapDetector: 检测结果为空")
@@ -160,14 +166,31 @@ class MinimapDetector:
             self._class_mapping_initialized = True
 
         # 解析 Results 对象为字典列表
+        parse_start = time.time()
         raw_detections = self._parse_results(yolo_results)
+        parse_elapsed = time.time() - parse_start
 
         # 位置提取（使用类别名称）
+        pos_start = time.time()
         self_pos = self._extract_center(raw_detections, "self_arrow")
         enemy_flag_pos = self._extract_center(raw_detections, "enemy_flag")
+        pos_elapsed = time.time() - pos_start
+        
+        # 角度提取
+        angle_start = time.time()
         self_angle = self._extract_angle(frame, raw_detections, "self_arrow", debug=debug)
+        angle_elapsed = time.time() - angle_start
 
         result = MinimapDetectionResult(self_pos, self_angle, enemy_flag_pos, raw_detections)
+        
+        # 性能监控：记录各步骤耗时
+        total_elapsed = time.time() - total_start
+        if yolo_elapsed > 0.05:  # YOLO超过50ms
+            logger.warning(f"[性能] YOLO推理耗时: {yolo_elapsed*1000:.1f}ms")
+        if angle_elapsed > 0.01:  # 角度提取超过10ms
+            logger.debug(f"[性能] 角度提取耗时: {angle_elapsed*1000:.1f}ms")
+        if total_elapsed > 0.1:  # 总耗时超过100ms
+            logger.warning(f"[性能] 检测总耗时: {total_elapsed*1000:.1f}ms (YOLO:{yolo_elapsed*1000:.1f}ms, 解析:{parse_elapsed*1000:.1f}ms, 位置:{pos_elapsed*1000:.1f}ms, 角度:{angle_elapsed*1000:.1f}ms)")
         
         if debug:
             vis_img = self._visualize_results(frame, result)
@@ -391,9 +414,8 @@ class MinimapDetector:
         if roi.size == 0:
             return None
         
-        # 3. 灰度 + OTSU 二值化
+        # 3. 灰度 + OTSU 二值化（简化版：箭头是白色，直接使用OTSU）
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         # 4. 找最大轮廓
