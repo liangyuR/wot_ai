@@ -20,6 +20,7 @@ pytesseract = "*"
 pyinstaller = "*"
 pywin32 = "*"
 dearpygui = "*"
+pyautogui = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
