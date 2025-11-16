@@ -5,7 +5,7 @@
 """
 
 # 标准库导入
-from typing import Tuple
+from typing import Optional, Tuple
 import math
 import time
 
@@ -87,27 +87,44 @@ class ControlService:
             elif turn_direction == 1:  # 右转
                 self.StartRight()
     
-    def RotateToward(self, target_pos: Tuple[float, float], current_pos: Tuple[float, float], current_heading: float) -> None:
+    def RotateToward(
+        self,
+        target_pos: Tuple[float, float],
+        current_pos: Tuple[float, float],
+        current_heading: Optional[float] = None,
+    ) -> None:
         """
         转向目标位置（使用A/D键）
-        
+
         Args:
             target_pos: 目标位置 (x, y)（小地图坐标）
             current_pos: 当前位置 (x, y)（小地图坐标）
-            current_heading: 当前朝向角度（弧度）
+            current_heading: 当前朝向角度（弧度），未知时自动估计
         """
         # 计算方向向量
         dx = target_pos[0] - current_pos[0]
         dy = target_pos[1] - current_pos[1]
-        
+
         if dx == 0 and dy == 0:
             return
-        
+
         # 计算目标方向角度（弧度）
         target_heading = math.atan2(dy, dx)
-        
+
+        if current_heading is None:
+            current_heading = target_heading
+
         # 使用A/D键调整方向
         self.AdjustDirectionWithAD(current_heading, target_heading)
+
+    def TapKey(self, key: str, duration: float = 0.05) -> None:
+        """短按按键（用于 PWM 控制）"""
+
+        if duration <= 0:
+            return
+        self.PressKey(key)
+        time.sleep(duration)
+        self.ReleaseKey(key)
     
     def MoveForward(self, duration: float = 1.0) -> None:
         """

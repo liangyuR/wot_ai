@@ -4,6 +4,8 @@
 常量定义：集中管理所有魔法数字和配置常量
 """
 
+import math
+
 # =============================
 # 检测相关常量
 # =============================
@@ -106,4 +108,33 @@ MAX_MOVE_DURATION: float = 2.0
 
 # 默认前进持续时间（秒）
 DEFAULT_MOVE_DURATION: float = 0.5
+
+# 方向控制 PID 参数
+HEADING_KP: float = 1.8
+HEADING_KI: float = 0.0
+HEADING_KD: float = 0.3
+HEADING_MAX_OUTPUT: float = 1.2
+
+# PWM / 转向阈值
+HEADING_SMALL_TURN: float = 0.06  # rad
+HEADING_MEDIUM_TURN: float = 0.25  # rad
+HEADING_LARGE_TURN: float = 0.55  # rad
+HEADING_PWM_PULSE: float = 0.05  # 秒
+HEADING_REVERSE_THRESHOLD: float = 0.85
+HEADING_REVERSE_ERROR: float = math.radians(30)
+HEADING_REVERSE_PULSE: float = 0.12
+
+# 局部避障相关
+LOCAL_AVOID_ATTRACT_WEIGHT: float = 1.0
+LOCAL_AVOID_REPEL_WEIGHT: float = 15000.0
+LOCAL_AVOID_REPEL_RADIUS: float = 90.0
+LOCAL_AVOID_DECAY: float = 0.6
+
+# 轨迹在线修正
+PATH_DEVIATION_THRESHOLD: float = 25.0
+PATH_LOCAL_REPLAN_THRESHOLD: float = 70.0
+PATH_ADJUST_LOOKAHEAD: int = 20
+PATH_REPLAN_WINDOW: int = 6
+PATH_SAMPLES_PER_SEGMENT: int = 12
+NAV_MIN_PROGRESS_DISTANCE: float = 5.0
 
