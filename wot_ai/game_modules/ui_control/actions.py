@@ -62,19 +62,24 @@ class UIActions:
     
     def Click(self, x: int, y: int) -> bool:
         """
-        在指定位置点击鼠标
-        
+        在指定位置执行一次标准左键点击
+
         Args:
             x: 点击 X 坐标
             y: 点击 Y 坐标
-        
+
         Returns:
             是否成功
         """
         try:
-            pyautogui.click(x, y)
+            pyautogui.click(x, y, button='left')
             logger.info(f"点击位置: ({x}, {y})")
             time.sleep(self.click_delay_)
+
+            pyautogui.click(x, y, button='left')
+            logger.info(f"点击位置: ({x}, {y})")
+            time.sleep(self.click_delay_)
+
             return True
         except Exception as e:
             logger.error(f"点击失败 ({x}, {y}): {e}")
@@ -122,7 +127,14 @@ class UIActions:
             
             if center is not None:
                 # 找到模板，点击中心点
-                return self.Click(center[0], center[1])
+                logger.info(f"找到模板: {template_name} 在位置: {center}")
+                success = self.Click(center[0], center[1])
+                if success:
+                    logger.info(f"点击模板: {template_name} 成功")
+                    return True
+                else:
+                    logger.warning(f"点击模板: {template_name} 失败")
+                    return False
             
             # 未找到，等待一小段时间后重试
             time.sleep(0.2)

@@ -45,7 +45,7 @@ class StateMachine:
         self.state_templates_ = {
             GameState.GARAGE: "garage_join_battle.png",
             GameState.BATTLE_LOADING: "battle_loading.png",
-            GameState.IN_BATTLE: "minimap_anchor.png",
+            GameState.IN_BATTLE: "minimap_border.png",
             GameState.DESTROYED: "destroyed_icon.png",
             GameState.BATTLE_RESULT: "battle_result_continue.png",
             GameState.RETURN_TO_GARAGE: "return_garage_loading.png",

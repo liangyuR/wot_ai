@@ -9,6 +9,8 @@
 import time
 from typing import Optional
 from loguru import logger
+import numpy as np
+import pyautogui
 
 from .state_machine import StateMachine, GameState
 from .actions import wait, wait_state, screenshot
@@ -17,6 +19,7 @@ from .ai_controller import AIController
 from .tank_selector import TankSelector, TankTemplate
 from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from wot_ai.data_collection.game_state_detector import GameStateDetector
 
 
 class BattleTask:
@@ -53,6 +56,8 @@ class BattleTask:
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
         self.selected_tank_: Optional[TankTemplate] = None
+        self.game_state_detector_ = GameStateDetector()
+        self.manual_exit_performed_ = False
     
     def run(self) -> bool:
         """
@@ -63,6 +68,7 @@ class BattleTask:
         """
         try:
             logger.info("开始战斗任务")
+            self.manual_exit_performed_ = False
             
             # 1. 选择车辆
             if not self.select_tank():
@@ -88,15 +94,19 @@ class BattleTask:
                 logger.error("战斗循环失败")
                 return False
             
-            # 5. 等待结算界面
-            if not self.wait_battle_result():
-                logger.error("等待结算界面失败")
-                return False
-            
-            # 6. 退出结算界面
-            if not self.exit_result_screen():
-                logger.error("退出结算界面失败")
-                return False
+            if not self.manual_exit_performed_:
+                # 5. 等待结算界面
+                if not self.wait_battle_result():
+                    logger.error("等待结算界面失败")
+                    return False
+                
+                # 6. 退出结算界面
+                if not self.exit_result_screen():
+                    logger.error("退出结算界面失败")
+                    return False
+            else:
+                logger.info("已通过快捷流程退出战斗，跳过结算界面处理")
+                self.manual_exit_performed_ = False
             
             logger.info("战斗任务完成")
             return True
@@ -184,27 +194,147 @@ class BattleTask:
         """
         logger.info("等待战斗加载...")
         
-        # 等待状态切换到 InBattle
-        if not wait_state(self.state_machine_, GameState.IN_BATTLE, timeout=40.0):
+        # 先等待加载状态，若失败则记录告警继续
+        if wait_state(self.state_machine_, GameState.BATTLE_LOADING, timeout=60.0):
+            logger.info("已检测到加载界面，继续等待进入战斗")
+        else:
+            logger.warning("未能确认加载界面，继续等待进入战斗")
+        
+        if not wait_state(self.state_machine_, GameState.IN_BATTLE, timeout=180.0):
             logger.error("等待进入战斗超时")
             return None
         
         logger.info("已进入战斗，开始识别地图名称...")
-        
-        # 截图并识别地图名称
-        frame = screenshot()
-        if frame is None:
-            logger.error("截图失败")
-            return None
-        
-        map_name = self.map_detector_.detect(frame)
+        map_name = self._detect_map_in_battle()
+        if not map_name:
+            logger.info("暂停界面识别失败，尝试使用常规截图识别地图")
+            frame = screenshot()
+            if frame is None:
+                logger.error("截图失败")
+                return None
+            map_name = self.map_detector_.detect(frame)
         if map_name:
             logger.info(f"识别到地图: {map_name}")
         else:
             logger.warning("地图名称识别失败，使用默认配置")
-            map_name = "default"  # 使用默认地图名称
+            map_name = "default"
         
         return map_name
+
+    def _detect_map_in_battle(self) -> Optional[str]:
+        """
+        在进入战斗后通过按住B键截图识别地图
+        """
+        logger.info("等待15秒让战斗界面稳定，然后按住B键截屏识别地图")
+        wait(15.0)
+        
+        frame = self._screenshot_with_key_hold('b', hold_duration=4, warmup=0.4)
+        if frame is None:
+            logger.warning("按住B键后截图失败")
+            return None
+        
+        map_name = self.map_detector_.detect_from_pause(frame)
+        if map_name:
+            logger.info(f"暂停界面识别到地图: {map_name}")
+            return map_name
+        
+        logger.warning("暂停界面仍未识别到地图名称")
+        return None
+
+    def _screenshot_with_key_hold(
+        self,
+        key: str,
+        hold_duration: float = 1.0,
+        warmup: float = 0.3
+    ) -> Optional[np.ndarray]:
+        """
+        按住指定按键截屏
+        """
+        if pyautogui is None:
+            logger.error("pyautogui 未安装，无法执行按键截图")
+            return screenshot()
+        
+        try:
+            logger.info(f"按下按键 {key} 并准备截屏")
+            pyautogui.keyDown(key)
+            wait(warmup)
+            frame = screenshot()
+            elapsed = warmup
+            remaining = max(0.0, hold_duration - elapsed)
+            if remaining > 0:
+                wait(remaining)
+            return frame
+        except Exception as exc:
+            logger.error(f"按住 {key} 截图失败: {exc}")
+            return None
+        finally:
+            try:
+                pyautogui.keyUp(key)
+            except Exception as exc:
+                logger.error(f"释放按键 {key} 失败: {exc}")
+
+    def _press_key(self, key: str, hold: float = 0.1) -> bool:
+        """
+        按下并释放指定按键
+        """
+        if pyautogui is None:
+            logger.error("pyautogui 未安装，无法发送按键")
+            return False
+        
+        try:
+            pyautogui.keyDown(key)
+            if hold > 0:
+                wait(hold)
+            pyautogui.keyUp(key)
+            logger.info(f"已按下按键: {key}")
+            return True
+        except Exception as exc:
+            logger.error(f"发送按键 {key} 失败: {exc}")
+            return False
+
+    def _handle_manual_exit_to_garage(self, reason: str) -> None:
+        """
+        通过按ESC和点击return按钮返回车库
+        """
+        logger.info(f"检测到战斗结束状态({reason})，执行手动退出流程")
+        self.manual_exit_performed_ = True
+        
+        if not self._press_key('esc', hold=1):
+            logger.warning("无法按下 ESC，尝试继续退出流程")
+        else:
+            wait(1.0)
+        
+        clicked = self.ui_actions_.ClickTemplate(
+            "return.png",
+            timeout=15.0,
+            confidence=0.85,
+            max_retries=5
+        )
+        if not clicked:
+            logger.warning("未找到 return 按钮，可能已返回车库或UI变化")
+        
+        if not wait_state(self.state_machine_, GameState.GARAGE, timeout=60.0):
+            logger.warning("手动退出流程等待返回车库超时")
+        else:
+            logger.info("已通过手动流程回到车库")
+
+    def _attempt_detect_battle_end(self) -> bool:
+        """
+        OCR 检测胜利/失败/被击毁等状态
+        """
+        frame = screenshot()
+        if frame is None:
+            logger.debug("无法获取截图，跳过战斗结果检测")
+            return False
+        
+        detected_state = self.game_state_detector_.DetectState(frame)
+        if detected_state in {'战斗胜利', '战斗失败', '坦克被该玩家击毁'}:
+            logger.info(f"OCR 检测到战斗状态: {detected_state}")
+            self.ai_controller_.stop()
+            self._handle_manual_exit_to_garage(detected_state)
+            return True
+        
+        return False
     
     def in_battle_loop(self, map_name: str) -> bool:
         """
@@ -225,6 +355,7 @@ class BattleTask:
         
         # 监控状态，直到战斗结束
         logger.info("监控战斗状态...")
+        last_result_check = time.time()
         while self.ai_controller_.is_running():
             self.state_machine_.update()
             current_state = self.state_machine_.current_state()
@@ -239,6 +370,12 @@ class BattleTask:
                 logger.info("战斗结束")
                 self.ai_controller_.stop()
                 break
+            
+            # 每5秒进行一次OCR判定战斗结果
+            if time.time() - last_result_check >= 5.0:
+                if self._attempt_detect_battle_end():
+                    break
+                last_result_check = time.time()
             
             wait(0.5)  # 检查间隔
         
@@ -283,4 +420,3 @@ class BattleTask:
         
         logger.info("已返回车库")
         return True
-
