@@ -131,6 +131,36 @@ class UIActions:
         logger.warning(f"未找到模板，点击失败: {template_name} (重试 {retries} 次)")
         return False
     
+    def SelectVehicle(
+        self,
+        template_name: str,
+        template_dir: str,
+        confidence: float = 0.75,
+        timeout: float = 5.0,
+        max_retries: int = 3
+    ) -> bool:
+        """
+        根据提供的车辆模板执行点击操作
+        
+        Args:
+            template_name: 车辆模板文件名
+            template_dir: 模板所在目录
+            confidence: 匹配置信度
+            timeout: 查找超时时间
+            max_retries: 最大重试次数
+        
+        Returns:
+            是否成功点击车辆
+        """
+        logger.info(f"尝试选择车辆模板: {template_name}")
+        return self.ClickTemplate(
+            template_name=template_name,
+            timeout=timeout,
+            confidence=confidence,
+            max_retries=max_retries,
+            template_dir=template_dir
+        )
+    
     def WaitAppear(
         self,
         template_name: str,

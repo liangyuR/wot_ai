@@ -9,6 +9,7 @@ UI 流程状态机模块
 - 异常处理和重试机制
 """
 
+from pathlib import Path
 from typing import Optional
 from loguru import logger
 
@@ -25,7 +26,8 @@ class UIFlow:
         click_delay: float = 0.3,
         move_duration: float = 0.2,
         garage_timeout: float = 30.0,
-        countdown_timeout: float = 20.0
+        countdown_timeout: float = 20.0,
+        vehicle_template_dir: Optional[Path] = None
     ):
         """
         初始化 UI 流程
@@ -39,6 +41,7 @@ class UIFlow:
         self.actions_ = UIActions(click_delay=click_delay, move_duration=move_duration)
         self.garage_timeout_ = garage_timeout
         self.countdown_timeout_ = countdown_timeout
+        self.vehicle_template_dir_ = Path(vehicle_template_dir) if vehicle_template_dir else get_program_dir() / "vehicle_screenshots"
     
     def StartBattle(self) -> bool:
         """
@@ -108,12 +111,12 @@ class UIFlow:
         logger.info("选择坦克...")
         
         # 使用较高的置信度检测坦克卡片
-        return self.actions_.ClickTemplate(
+        return self.actions_.SelectVehicle(
             template_name="tank_card.png",
-            timeout=5.0,
+            template_dir=str(self.vehicle_template_dir_),
             confidence=0.85,
-            max_retries=3,
-            template_dir=str(get_program_dir() / "vehicle_screenshots")
+            timeout=5.0,
+            max_retries=3
         )
     
     def _ClickJoinBattle(self) -> bool:

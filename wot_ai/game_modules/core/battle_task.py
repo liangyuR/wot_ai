@@ -7,19 +7,16 @@
 """
 
 import time
-from pathlib import Path
 from typing import Optional
 from loguru import logger
-
-import pyautogui
 
 from .state_machine import StateMachine, GameState
 from .actions import wait, wait_state, screenshot
 from .map_name_detector import MapNameDetector
 from .ai_controller import AIController
-from wot_ai.game_modules.ui_control.matcher_pyautogui import match_template
+from .tank_selector import TankSelector, TankTemplate
+from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
-from wot_ai.config import get_program_dir
 
 
 class BattleTask:
@@ -27,25 +24,35 @@ class BattleTask:
     
     def __init__(
         self,
-        tank_image_path: Path,
+        tank_selector: TankSelector,
         state_machine: StateMachine,
         map_detector: MapNameDetector,
-        ai_config: NavigationConfig
+        ai_config: NavigationConfig,
+        ui_actions: UIActions,
+        selection_retry_interval: float = 10.0,
+        selection_timeout: float = 120.0
     ):
         """
         初始化战斗任务
         
         Args:
-            tank_image_path: 车辆截图路径
+            tank_selector: 坦克选择器
             state_machine: 状态机实例
             map_detector: 地图名称识别器
             ai_config: NavigationConfig配置对象
+            ui_actions: UI 控制对象
+            selection_retry_interval: 选择失败后的重试间隔
+            selection_timeout: 选择超时时间
         """
-        self.tank_image_path_ = tank_image_path
+        self.tank_selector_ = tank_selector
         self.state_machine_ = state_machine
         self.map_detector_ = map_detector
         self.ai_config_ = ai_config
         self.ai_controller_ = AIController()
+        self.ui_actions_ = ui_actions
+        self.selection_retry_interval_ = selection_retry_interval
+        self.selection_timeout_ = selection_timeout
+        self.selected_tank_: Optional[TankTemplate] = None
     
     def run(self) -> bool:
         """
@@ -55,12 +62,15 @@ class BattleTask:
             是否成功完成
         """
         try:
-            logger.info(f"开始战斗任务，车辆: {self.tank_image_path_.name}")
+            logger.info("开始战斗任务")
             
             # 1. 选择车辆
             if not self.select_tank():
                 logger.error("选择车辆失败")
                 return False
+            
+            if self.selected_tank_ is not None:
+                logger.info(f"当前车辆: {self.selected_tank_.name}")
             
             # 2. 进入战斗
             if not self.enter_battle():
@@ -109,18 +119,38 @@ class BattleTask:
         """
         logger.info("选择车辆...")
         
-        # 使用模板匹配找到车辆位置
-        center = match_template(self.tank_image_path_.name, confidence=0.75, template_dir=str(get_program_dir() / "vehicle_screenshots"))
-        if center is None:
-            logger.error(f"未找到车辆: {self.tank_image_path_.name}")
-            return False
+        deadline = time.time() + self.selection_timeout_
         
-        # 直接使用pyautogui点击
-        pyautogui.click(center[0], center[1])
-        wait(0.5)  # 等待选择生效
+        while time.time() < deadline:
+            candidates = self.tank_selector_.pick()
+            if not candidates:
+                logger.error("车辆模板列表为空，无法选择")
+                return False
+            
+            for candidate in candidates:
+                if self._try_select_candidate(candidate):
+                    self.selected_tank_ = candidate
+                    logger.info(f"车辆选择成功: {candidate.name}")
+                    return True
+            
+            logger.info(f"所有车辆暂不可用，等待 {self.selection_retry_interval_} 秒后重试")
+            wait(self.selection_retry_interval_)
         
-        logger.info("车辆选择成功")
-        return True
+        logger.error("选择车辆超时")
+        return False
+    
+    def _try_select_candidate(self, candidate: TankTemplate) -> bool:
+        """尝试点击单个候选车辆"""
+        success = self.ui_actions_.SelectVehicle(
+            template_name=candidate.name,
+            template_dir=str(candidate.directory),
+            confidence=candidate.confidence
+        )
+        if success:
+            wait(0.5)
+        else:
+            logger.debug(f"车辆不可用或未找到: {candidate.name}")
+        return success
     
     def enter_battle(self) -> bool:
         """
@@ -131,16 +161,17 @@ class BattleTask:
         """
         logger.info("点击加入战斗...")
         
-        # 使用模板匹配找到"加入战斗"按钮
-        center = match_template("garage_join_battle.png", confidence=0.85)
-        if center is None:
+        success = self.ui_actions_.ClickTemplate(
+            "garage_join_battle.png",
+            timeout=5.0,
+            confidence=0.85,
+            max_retries=3
+        )
+        if not success:
             logger.error("未找到加入战斗按钮")
             return False
         
-        # 直接使用pyautogui点击
-        pyautogui.click(center[0], center[1])
         wait(1.0)  # 等待进入加载界面
-        
         logger.info("已点击加入战斗")
         return True
     
@@ -233,12 +264,16 @@ class BattleTask:
         logger.info("退出结算界面...")
         
         # 点击"继续"按钮
-        center = match_template("battle_result_continue.png", confidence=0.85)
-        if center is None:
+        success = self.ui_actions_.ClickTemplate(
+            "battle_result_continue.png",
+            timeout=5.0,
+            confidence=0.85,
+            max_retries=3
+        )
+        if not success:
             logger.error("未找到继续按钮")
             return False
         
-        pyautogui.click(center[0], center[1])
         wait(2.0)  # 等待返回车库
         
         # 等待返回车库

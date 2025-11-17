@@ -18,6 +18,7 @@ from .state_machine import StateMachine
 from .map_name_detector import MapNameDetector
 from .tank_selector import TankSelector
 from .battle_task import BattleTask
+from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
 
 
@@ -56,6 +57,7 @@ class TaskManager:
         self.state_machine_ = StateMachine()
         self.map_detector_ = MapNameDetector()
         self.tank_selector_ = TankSelector(vehicle_screenshot_dir, vehicle_priority)
+        self.ui_actions_ = UIActions()
     
     def run_forever(self) -> None:
         """持续执行战斗循环"""
@@ -71,19 +73,13 @@ class TaskManager:
                     logger.info("达到停止条件，退出循环")
                     break
                 
-                # 选择车辆
-                tank_path = self.tank_selector_.pick()
-                if tank_path is None:
-                    logger.warning("未找到可用车辆，等待后重试...")
-                    time.sleep(10)
-                    continue
-                
                 # 创建战斗任务
                 task = BattleTask(
-                    tank_path,
+                    self.tank_selector_,
                     self.state_machine_,
                     self.map_detector_,
-                    self.ai_config_
+                    self.ai_config_,
+                    self.ui_actions_
                 )
                 
                 # 执行战斗任务
