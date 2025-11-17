@@ -5,6 +5,7 @@
 定义项目级别的配置常量和路径配置
 """
 
+import sys
 from pathlib import Path
 from typing import Dict, Any
 from .utils.paths import (
@@ -123,4 +124,18 @@ def GetConfig() -> Dict[str, Any]:
         完整配置字典
     """
     return DEFAULT_CONFIG.copy()
+
+
+def get_program_dir() -> Path:
+    """
+    获取程序运行目录（优先 game_modules，打包后返回 EXE 目录）
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    
+    module_dir = Path(__file__).resolve().parent
+    candidate = module_dir / "game_modules"
+    if candidate.exists():
+        return candidate
+    return module_dir
 

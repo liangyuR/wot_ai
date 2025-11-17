@@ -13,29 +13,34 @@ import os
 from pathlib import Path
 from typing import Optional, Tuple
 from loguru import logger
-
-try:
-    import pyautogui
-except ImportError:
-    logger.error("pyautogui 未安装，请运行: pip install pyautogui")
-    pyautogui = None
+from wot_ai.config import get_program_dir
+import pyautogui
 
 
 # 模板目录路径（相对于模块目录）
-_TEMPLATE_DIR = Path(__file__).parent / "template_repo"
-
-
-def _GetTemplatePath(template_name: str) -> Optional[Path]:
+def _GetTemplatePath(
+    template_name: str,
+    template_dir: Optional[str] = None
+) -> Optional[Path]:
     """
     获取模板文件的完整路径
     
     Args:
         template_name: 模板文件名（如 "join_battle.png"）
     
+        template_dir: 自定义模板目录，默认使用程序目录下 templates
+
     Returns:
         模板文件的 Path 对象，如果不存在则返回 None
     """
-    template_path = _TEMPLATE_DIR / template_name
+    if template_dir is None:
+        base_dir = get_program_dir() / "templates"
+    else:
+        base_dir = Path(template_dir)
+        if not base_dir.is_absolute():
+            base_dir = get_program_dir() / template_dir
+
+    template_path = base_dir / template_name
     if not template_path.exists():
         logger.warning(f"模板文件不存在: {template_path}")
         return None
@@ -45,7 +50,8 @@ def _GetTemplatePath(template_name: str) -> Optional[Path]:
 def match_template(
     template_name: str,
     confidence: float = 0.85,
-    region: Optional[Tuple[int, int, int, int]] = None
+    region: Optional[Tuple[int, int, int, int]] = None,
+    template_dir: Optional[str] = None
 ) -> Optional[Tuple[int, int]]:
     """
     在屏幕上查找模板，返回匹配位置的中心点坐标
@@ -54,16 +60,13 @@ def match_template(
         template_name: 模板文件名（如 "join_battle.png"）
         confidence: 匹配置信度（0.0-1.0），默认 0.85
         region: 可选的搜索区域 (left, top, width, height)，None 表示全屏搜索
+        template_dir: 自定义模板目录，默认使用程序目录下 templates
     
     Returns:
         匹配位置的中心点坐标 (x, y)，如果未找到则返回 None
     """
-    if pyautogui is None:
-        logger.error("pyautogui 未安装，无法进行模板匹配")
-        return None
-    
     # 获取模板路径
-    template_path = _GetTemplatePath(template_name)
+    template_path = _GetTemplatePath(template_name, template_dir=template_dir)
     if template_path is None:
         return None
     

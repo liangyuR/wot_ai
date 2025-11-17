@@ -21,6 +21,7 @@ pyinstaller = "*"
 pywin32 = "*"
 dearpygui = "*"
 pyautogui = "*"
+pydantic = "*"
 torch = {version = "*", source = "pytorch-cu128"}
 torchvision = {version = "*", source = "pytorch-cu128"}
 

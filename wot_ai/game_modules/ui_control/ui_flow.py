@@ -12,6 +12,8 @@ UI 流程状态机模块
 from typing import Optional
 from loguru import logger
 
+from wot_ai.config import get_program_dir
+
 from .actions import UIActions
 
 
@@ -107,10 +109,11 @@ class UIFlow:
         
         # 使用较高的置信度检测坦克卡片
         return self.actions_.ClickTemplate(
-            "tank_card.png",
+            template_name="tank_card.png",
             timeout=5.0,
             confidence=0.85,
-            max_retries=3
+            max_retries=3,
+            template_dir=str(get_program_dir() / "vehicle_screenshots")
         )
     
     def _ClickJoinBattle(self) -> bool:

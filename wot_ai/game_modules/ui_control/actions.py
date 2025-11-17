@@ -86,7 +86,8 @@ class UIActions:
         timeout: float = 5.0,
         confidence: float = 0.85,
         region: Optional[Tuple[int, int, int, int]] = None,
-        max_retries: int = 3
+        max_retries: int = 3,
+        template_dir: Optional[str] = None
     ) -> bool:
         """
         查找模板并点击其中心点
@@ -97,6 +98,7 @@ class UIActions:
             confidence: 匹配置信度
             region: 可选的搜索区域
             max_retries: 最大重试次数
+            template_dir: 模板所在目录，None 则使用默认 templates
         
         Returns:
             是否成功找到并点击
@@ -111,7 +113,12 @@ class UIActions:
                 return False
             
             # 查找模板
-            center = match_template(template_name, confidence=confidence, region=region)
+            center = match_template(
+                template_name,
+                confidence=confidence,
+                region=region,
+                template_dir=template_dir
+            )
             
             if center is not None:
                 # 找到模板，点击中心点

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-路径规划与导航模块
+导航模块
+
+提供导航系统的核心功能。
 """
 
+from wot_ai.game_modules.navigation.navigation_main import NavigationMain
+
+__all__ = ['NavigationMain']
