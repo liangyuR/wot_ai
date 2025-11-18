@@ -48,7 +48,8 @@ class StateMachine:
             GameState.IN_GARAGE: "in_garage.png",
             GameState.IN_LOADING: "in_loading.png",
             GameState.IN_BATTLE: "in_battle.png",
-            GameState.IN_END: ["in_end_destroyed.png", "in_end_victory.png", "in_end_defeat.png", "in_end_dogfall.png"],
+            # TODO(@liangyu) 尝试判定评价系统模板，貌似每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
+            GameState.IN_END: ["in_end_destroyed.png", "in_end_victory.png", "in_end_defeat.png", "in_end_dogfall.png"], 
         }
         
         # 检测屏幕分辨率并确定模板目录

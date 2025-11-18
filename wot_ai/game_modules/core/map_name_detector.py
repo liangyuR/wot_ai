@@ -9,17 +9,15 @@
 from typing import List, Optional
 import argparse
 import sys
-import time
 import re
 from pathlib import Path
 import numpy as np
 import cv2
 from loguru import logger
 from difflib import SequenceMatcher
-import pyautogui
 
 import pytesseract
-from wot_ai.game_modules.core.actions import screenshot
+from wot_ai.game_modules.core.actions import screenshot_with_key_hold
 from wot_ai.utils.paths import get_project_root
 
 class MapNameDetector:
@@ -48,7 +46,7 @@ class MapNameDetector:
 
         # 如果未提供截图，则自动按住B键截图
         if frame is None:
-            frame = self._screenshot_with_key_hold('b', hold_duration=4.0, warmup=2)
+            frame = screenshot_with_key_hold('b', hold_duration=4.0, warmup=2)
             if frame is None:
                 logger.error("按住B键后截图失败")
                 return None
@@ -61,51 +59,6 @@ class MapNameDetector:
         
         logger.warning("地图名称识别失败")
         return None
-    
-    def _screenshot_with_key_hold(
-        self,
-        key: str,
-        hold_duration: float = 4.0,
-        warmup: float = 2
-    ) -> Optional[np.ndarray]:
-        """
-        按住指定按键后截图
-        
-        Args:
-            key: 按键字符（如 'b'）
-            hold_duration: 按键保持时间（秒）
-            warmup: 按键后等待界面稳定的时间（秒）
-        
-        Returns:
-            BGR格式的numpy数组截图，如果失败则返回None
-        """
-        try:
-            logger.info(f"按下按键 {key} 并准备截屏")
-            pyautogui.keyDown(key)
-            time.sleep(warmup)
-            
-            frame = screenshot()
-            if frame is None:
-                logger.error("截图失败")
-                pyautogui.keyUp(key)
-                return None
-            
-            # 保持按键一段时间
-            remaining = max(0.0, hold_duration - warmup)
-            if remaining > 0:
-                time.sleep(remaining)
-            
-            pyautogui.keyUp(key)
-            logger.info("截图完成并释放按键")
-            return frame
-            
-        except Exception as e:
-            logger.error(f"按住 {key} 截图失败: {e}")
-            try:
-                pyautogui.keyUp(key)
-            except:
-                pass
-            return None
     
     def _extract_top_text(self, frame: np.ndarray) -> Optional[str]:
         """

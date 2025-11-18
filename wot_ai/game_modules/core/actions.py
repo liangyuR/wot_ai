@@ -86,3 +86,43 @@ def screenshot(region: Optional[Tuple[int, int, int, int]] = None) -> Optional[n
         logger.error(f"截图失败: {e}")
         return None
 
+
+def screenshot_with_key_hold(
+    key: str,
+    hold_duration: float = 2.0,
+    warmup: float = 1
+) -> Optional[np.ndarray]:
+    """
+    按住指定按键后截图
+
+    Args:
+        key: 按键字符（如 'b'）
+        hold_duration: 按键保持时间（秒）
+        warmup: 按键后等待界面稳定的时间（秒）
+
+    Returns:
+        BGR格式的numpy数组截图，如果失败则返回None
+    """
+    if pyautogui is None:
+        logger.error("pyautogui 未安装，无法执行按键截图")
+        return screenshot()
+
+    try:
+        logger.info(f"按下按键 {key} 并准备截屏")
+        pyautogui.keyDown(key)
+        wait(warmup)
+
+        frame = screenshot()
+        elapsed = warmup
+        remaining = max(0.0, hold_duration - elapsed)
+        if remaining > 0:
+            wait(remaining)
+        return frame
+    except Exception as exc:
+        logger.error(f"按住 {key} 截图失败: {exc}")
+        return None
+    finally:
+        try:
+            pyautogui.keyUp(key)
+        except Exception as exc:
+            logger.error(f"释放按键 {key} 失败: {exc}")

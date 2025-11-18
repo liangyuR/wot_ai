@@ -15,7 +15,7 @@ from wot_ai.game_modules.core.state_machine import StateMachine, GameState
 from wot_ai.game_modules.core.map_name_detector import MapNameDetector
 from wot_ai.game_modules.core.tank_selector import TankSelector
 from wot_ai.game_modules.core.ai_controller import AIController
-from wot_ai.game_modules.core.actions import screenshot
+from wot_ai.game_modules.core.actions import screenshot, screenshot_with_key_hold
 from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.config import get_program_dir
 from wot_ai.game_modules.navigation.config.loader import load_config
@@ -707,25 +707,7 @@ class MainWindow:
         self._debug_log_status("开始测试：识别地图名称...")
         
         try:
-            # frame = screenshot()
-            # if frame is None:
-            #     messagebox.showerror("错误", "无法获取截图")
-            #     self._debug_log_status("✗ 截图失败")
-            #     return
-            
-            # 尝试多种识别方式
-            # map_name = None
-            
-            # 方法1: 从加载界面识别
-            # self._debug_log_status("尝试从加载界面识别...")
-            # map_name = self.debug_map_detector_.detect_from_loading(frame)
-            # if map_name:
-            #     self._debug_log_status(f"✓ 从加载界面识别到地图: {map_name}")
-            #     messagebox.showinfo("成功", f"识别到地图: {map_name}")
-            #     return
-            
-            # 方法2: 从暂停界面识别
-            frame = self._screenshot_with_key_hold('b', hold_duration=4, warmup=0.4)
+            frame = screenshot_with_key_hold('b', hold_duration=4, warmup=0.4)
             if frame is None:
                 logger.warning("按住B键后截图失败")
                 return None
@@ -736,15 +718,7 @@ class MainWindow:
                 self._debug_log_status(f"✓ 从暂停界面识别到地图: {map_name}")
                 messagebox.showinfo("成功", f"识别到地图: {map_name}")
                 return
-            
-            # 方法3: 常规识别
-            # self._debug_log_status("尝试常规识别...")
-            # map_name = self.debug_map_detector_.detect(frame)
-            # if map_name:
-            #     self._debug_log_status(f"✓ 常规识别到地图: {map_name}")
-            #     messagebox.showinfo("成功", f"识别到地图: {map_name}")
-            #     return
-            
+                
             messagebox.showwarning("警告", "未能识别到地图名称")
             self._debug_log_status("✗ 未能识别到地图名称")
         except Exception as e:
