@@ -4,15 +4,15 @@
 
 # YOLO模型配置
 model:
-  path: "resource/model/map_detect_yolo11m.pt"  # YOLO模型文件路径（必需）
+  path: "resource/model/best_m_detect.pt"  # YOLO模型文件路径（必需）
   conf_threshold: 0.65  # 置信度阈值 (0.0-1.0)
   iou_threshold: 0.55  # IoU阈值 (0.0-1.0)
 
 # 小地图配置
 minimap:
-  template_path: "resource/template/2k/minimap_border.png"  # 小地图模板文件路径（必需）
-  size: [640, 640]  # 小地图尺寸 [width, height]
-  max_size: 1000  # 小地图最大尺寸
+  template_path: "resource/template/4k/minimap_border.png"  # 小地图模板文件路径（必需）
+  size: [1200, 1200]  # 小地图尺寸 [width, height]
+  max_size: 1200  # 小地图最大尺寸
 
 # TODO(@ly) 这里的路径后续可以改为从程序目录/masks/ 目录下读取，当加入游戏地图后，自动该地图的掩码文件 {地图名_mask}.png
 # 掩码配置（可选）

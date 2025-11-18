@@ -6,9 +6,9 @@
 封装导航系统的核心逻辑，负责初始化、运行和停止导航功能。
 """
 
-import sys
 import time
 import queue
+import threading
 from pathlib import Path
 from typing import Optional
 import signal
@@ -64,9 +64,16 @@ class NavigationMain:
         self.detection_queue_ = queue.Queue(maxsize=10)  # 支持30FPS
         self.path_queue_ = queue.Queue(maxsize=1)  # 只保留最新路径
         
-        # 注册信号处理
-        signal.signal(signal.SIGINT, self._SignalHandler_)
-        signal.signal(signal.SIGTERM, self._SignalHandler_)
+        # 注册信号处理（仅在主线程中）
+        if threading.current_thread() is threading.main_thread():
+            try:
+                signal.signal(signal.SIGINT, self._SignalHandler_)
+                signal.signal(signal.SIGTERM, self._SignalHandler_)
+            except ValueError:
+                # 如果信号注册失败（例如在非主线程），记录警告但不中断
+                logger.warning("无法注册信号处理器（非主线程），将使用其他方式处理退出")
+        else:
+            logger.debug("非主线程，跳过信号注册")
     
     def set_map_name(self, map_name: Optional[str]) -> None:
         """更新地图名称"""
@@ -76,7 +83,6 @@ class NavigationMain:
         """信号处理器（Ctrl+C）"""
         logger.info("收到退出信号，正在关闭...")
         self.Stop()
-        sys.exit(0)
     
     def Initialize(self) -> bool:
         """

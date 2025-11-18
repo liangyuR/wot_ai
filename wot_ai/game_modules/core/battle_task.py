@@ -18,7 +18,9 @@ from .tank_selector import TankSelector, TankTemplate
 from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
 from wot_ai.game_modules.vision.detection.map_name_detector import MapNameDetector
+from wot_ai.game_modules.core.actions import screenshot_with_key_hold
 
+from pynput import keyboard
 
 class BattleTask:
     """战斗任务"""
@@ -81,8 +83,8 @@ class BattleTask:
             # 3. 等待加载并识别地图
             map_name = self.wait_loading()
             if not map_name:
-                logger.error("等待加载或识别地图失败")
-                return False
+                logger.warning("等待加载或识别地图失败，使用默认地图继续")
+                map_name = "default"
             
             # 4. 战斗循环（启动AI，监控状态）
             if not self.in_battle_loop(map_name):
@@ -181,44 +183,19 @@ class BattleTask:
         logger.info("等待战斗加载...")
         
         # 先等待加载状态，若失败则记录告警继续
-        if wait_state(self.state_machine_, GameState.IN_LOADING, timeout=60.0):
-            logger.info("已检测到加载界面，继续等待进入战斗")
-        else:
-            logger.warning("未能确认加载界面，继续等待进入战斗")
-        
         if not wait_state(self.state_machine_, GameState.IN_BATTLE, timeout=180.0):
             logger.error("等待进入战斗超时")
             return None
         
         logger.info("已进入战斗，开始识别地图名称... 10秒后开始识别")
-        wait(10.0)
         map_name = self.map_detector_.detect()
         if map_name:
             logger.info(f"识别到地图: {map_name}")
         else:
-            logger.warning("地图名称识别失败")
-            return None
+            logger.warning("地图名称识别失败，使用默认地图配置")
+            map_name = "default"
         
         return map_name
-
-    def _press_key(self, key: str, hold: float = 0.1) -> bool:
-        """
-        按下并释放指定按键
-        """
-        if pyautogui is None:
-            logger.error("pyautogui 未安装，无法发送按键")
-            return False
-        
-        try:
-            pyautogui.keyDown(key)
-            if hold > 0:
-                wait(hold)
-            pyautogui.keyUp(key)
-            logger.info(f"已按下按键: {key}")
-            return True
-        except Exception as exc:
-            logger.error(f"发送按键 {key} 失败: {exc}")
-            return False
 
     def in_battle_loop(self, map_name: str) -> bool:
         """
@@ -271,7 +248,23 @@ class BattleTask:
             是否成功
         """
         logger.info("退出结算界面...")
-        
+
+        if GameState.IN_RESULT_PAGE == self.state_machine_.current_state():
+            screenshot_with_key_hold(keyboard.Key.esc, hold_duration=0.5, warmup=0.0)
+
+        # 按下 esc 按键
+        screenshot_with_key_hold(keyboard.Key.esc, hold_duration=0.5, warmup=0.0)
+
+        # success = self.ui_actions_.WaitAppear(
+        #     "return_garage.png",
+        #     timeout=5.0,
+        #     confidence=0.85,
+        #     max_retries=3
+        # )
+        # if not success:
+        #     logger.error("未找到返回车库按钮")
+        #     return False
+
         # 点击"返回车库"按钮
         success = self.ui_actions_.ClickTemplate(
             "return_garage.png",
@@ -283,13 +276,26 @@ class BattleTask:
             logger.error("未找到继续按钮")
             return False
 
-        # TODO(@liangyu) 奖励领取 or 任务结算页面 需要等待页面出现
+        # # 等待出现离开确认按钮
+        # success = self.ui_actions_.WaitAppear(
+        #     "leave_confirmation.png",
+        #     timeout=5.0,
+        #     confidence=0.85,
+        #     max_retries=3
+        # )
+        # if not success:
+        #     logger.error("未找到离开确认按钮")
+        #     return False
         
-        wait(2.0)  # 等待返回车库
-        
-        # 等待返回车库
-        if not wait_state(self.state_machine_, GameState.GARAGE, timeout=30.0):
-            logger.error("等待返回车库超时")
+        # 点击离开确认按钮
+        success = self.ui_actions_.ClickTemplate(
+            "leave_confirmation.png",
+            timeout=5.0,
+            confidence=0.85,
+            max_retries=3
+        )
+        if not success:
+            logger.error("未找到离开确认按钮")
             return False
         
         logger.info("已返回车库")

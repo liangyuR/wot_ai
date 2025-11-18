@@ -53,9 +53,9 @@ class StateMachine:
         self.state_templates_ = {
             GameState.IN_GARAGE: "in_garage.png",
             GameState.IN_LOADING: "in_loading.png",
+            GameState.IN_END: "pingjia.png",
             GameState.IN_BATTLE: "in_battle.png",
             # TODO(@liangyu) 尝试判定评价系统模板，貌似每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
-            GameState.IN_END: "pingjia.png",
             GameState.IN_RESULT_PAGE: "space_jump.png", # 在胜利/失败结算页面（偶尔可能不会直接回到车库）
         }
         
@@ -164,7 +164,7 @@ class StateMachine:
             
             for template_name in template_list:
                 # 构建模板路径
-                template_path = get_program_dir() / "templates" / self.template_resolution_ / template_name
+                template_path = get_program_dir() / "resource" / "template" / self.template_resolution_ / template_name
                 
                 if not template_path.exists():
                     logger.debug(f"模板文件不存在: {template_path}")

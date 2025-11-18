@@ -14,9 +14,10 @@ from pathlib import Path
 import numpy as np
 import cv2
 from loguru import logger
-from difflib import SequenceMatcher
+from rapidfuzz import fuzz, process
 
 import pytesseract
+from pynput import keyboard
 from wot_ai.game_modules.core.actions import screenshot_with_key_hold
 from wot_ai.utils.paths import get_project_root
 
@@ -46,7 +47,7 @@ class MapNameDetector:
 
         # 如果未提供截图，则自动按住B键截图
         if frame is None:
-            frame = screenshot_with_key_hold('b', hold_duration=4.0, warmup=2)
+            frame = screenshot_with_key_hold(keyboard.KeyCode.from_char('b'), hold_duration=4.0, warmup=2)
             if frame is None:
                 logger.error("按住B键后截图失败")
                 return None
@@ -146,57 +147,69 @@ class MapNameDetector:
         """
         将 OCR 文本与已知地图名称做模糊匹配
         
-        支持多种匹配策略：
-        1. 完全包含匹配
-        2. 提取中文字符片段进行匹配
-        3. 字符相似度匹配（降低阈值以提高容错）
+        使用 rapidfuzz/fuzzywuzzy 库进行字符串相似度匹配，阈值50%
         """
         if not text:
             return None
         
-        # 策略1: 完全包含匹配
+        # 策略1: 完全包含匹配（快速路径）
         for name in self.known_map_names_:
             if name in text:
                 logger.info(f"完全匹配地图: {name} (文本: {text})")
                 return name
         
-        # 策略2: 提取文本中的中文字符片段进行匹配
+        # 策略2: 提取中文字符片段
         chinese_chars = re.findall(r'[\u4e00-\u9fa5]+', text)
-        for chinese_segment in chinese_chars:
-            if len(chinese_segment) >= 2:  # 至少2个中文字符
-                for name in self.known_map_names_:
-                    # 检查地图名称是否包含在片段中，或片段是否包含在地图名称中
-                    if name in chinese_segment or chinese_segment in name:
-                        logger.info(f"中文字符片段匹配地图: {name} (片段: {chinese_segment}, 文本: {text})")
-                        return name
-                    # 检查字符重叠度
-                    common_chars = set(name) & set(chinese_segment)
-                    if len(common_chars) >= len(name) * 0.6:  # 至少60%的字符匹配
-                        logger.info(f"字符重叠匹配地图: {name} (片段: {chinese_segment}, 文本: {text})")
-                        return name
+        candidates = [text]
+        if chinese_chars:
+            candidates.extend(chinese_chars)
+            candidates.append(''.join(chinese_chars))
         
-        # 策略3: 字符相似度匹配（降低阈值）
-        best_name = None
+        # 策略3: 使用 rapidfuzz 进行模糊匹配
+        best_match = None
         best_score = 0.0
-        for name in self.known_map_names_:
-            # 对原始文本和清理后的文本都进行匹配
-            score1 = SequenceMatcher(None, name, text).ratio()
-            # 如果文本包含中文字符，提取中文字符后匹配
-            if chinese_chars:
-                chinese_text = ''.join(chinese_chars)
-                score2 = SequenceMatcher(None, name, chinese_text).ratio()
-                score = max(score1, score2)
-            else:
-                score = score1
-            
-            if score > best_score:
-                best_score = score
-                best_name = name
+        best_candidate = ""
         
-        # 降低匹配阈值从0.65到0.5，提高容错性
-        if best_name and best_score >= 0.5:
-            logger.info(f"模糊匹配地图: {best_name} (score={best_score:.2f}, 文本: {text})")
-            return best_name
+        for candidate_text in candidates:
+            if len(candidate_text) < 2:
+                continue
+            
+            # 使用 process.extractOne 自动找最佳匹配
+            result = process.extractOne(
+                candidate_text,
+                self.known_map_names_,
+                scorer=fuzz.partial_ratio,  # 部分匹配，适合子串情况
+                score_cutoff=50  # 50%阈值
+            )
+            if result:
+                matched_name, score, _ = result
+                if score > best_score:
+                    best_score = score
+                    best_match = matched_name
+                    best_candidate = candidate_text
+        
+        # 如果部分匹配没找到，尝试完整匹配
+        if best_score < 50:
+            for candidate_text in candidates:
+                if len(candidate_text) < 2:
+                    continue
+                
+                result = process.extractOne(
+                    candidate_text,
+                    self.known_map_names_,
+                    scorer=fuzz.ratio,  # 完整匹配
+                    score_cutoff=50
+                )
+                if result:
+                    matched_name, score, _ = result
+                    if score > best_score:
+                        best_score = score
+                        best_match = matched_name
+                        best_candidate = candidate_text
+        
+        if best_match and best_score >= 50:
+            logger.info(f"模糊匹配地图: {best_match} (score={best_score:.1f}, 匹配文本: {best_candidate}, 原始文本: {text})")
+            return best_match
         
         logger.debug(f"OCR 文本未匹配到地图: {text}")
         return None
@@ -280,7 +293,7 @@ def main():
     # 使用提供的截图进行检测
     logger.info("开始识别地图名称...")
     map_name = detector.detect(frame)
-    
+    w
     # 输出结果
     if map_name:
         print(f"检测到地图名称: {map_name}")
