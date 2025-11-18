@@ -722,55 +722,13 @@ class MainWindow:
     def _debug_return_garage(self):
         """单步测试：返回车库"""
         self._debug_log_status("开始测试：返回车库...")
-        
         try:
-            # 方法1: 尝试点击结算界面的继续按钮
-            self._debug_log_status("尝试点击结算界面继续按钮...")
-            success = self.debug_battle_task.ClickTemplate(
-                "battle_result_continue.png",
-                timeout=5.0,
-                confidence=0.85,
-                max_retries=3
-            )
+            success = self.debug_battle_task.enter_grage()
             if success:
-                self._debug_log_status("✓ 成功点击继续按钮")
-                import time
-                time.sleep(2.0)
-                return
-            
-            # 方法2: 尝试按ESC然后点击返回按钮
-            self._debug_log_status("尝试按ESC然后点击返回按钮...")
-            try:
-                import pyautogui
-                pyautogui.keyDown('esc')
-                import time
-                time.sleep(1.0)
-                pyautogui.keyUp('esc')
-                time.sleep(1.0)
-                
-                success = self.debug_battle_task.ClickTemplate(
-                    "return.png",
-                    timeout=15.0,
-                    confidence=0.85,
-                    max_retries=5
-                )
-                if success:
-                    self._debug_log_status("✓ 成功点击返回按钮")
-                    time.sleep(2.0)
-                else:
-                    self._debug_log_status("✗ 未找到返回按钮")
-            except Exception as e:
-                self._debug_log_status(f"按键操作失败: {e}")
-            
-            # 检查是否返回车库
-            if self.debug_state_machine_:
-                self.debug_state_machine_.update()
-                current_state = self.debug_state_machine_.current_state()
-                if current_state == GameState.IN_GARAGE:
-                    self._debug_log_status("✓ 已返回车库")
-                    messagebox.showinfo("成功", "已返回车库")
-                else:
-                    self._debug_log_status(f"当前状态: {current_state.value}，等待返回车库...")
+                self._debug_log_status("✓ 成功返回车库")
+            else:
+                messagebox.showwarning("警告", "未找到返回车库按钮")
+                self._debug_log_status("✗ 未找到返回车库按钮")
         except Exception as e:
             logger.error(f"返回车库失败: {e}")
             messagebox.showerror("错误", f"返回车库失败: {e}")
@@ -779,27 +737,34 @@ class MainWindow:
     def _debug_detect_state(self):
         """检测当前游戏状态"""
         self._debug_log_status("开始检测当前游戏状态...")
-        
+
+        if not self.debug_state_machine_:
+            messagebox.showerror("错误", "状态机未初始化")
+            return
+
+        from tkinter import filedialog
+        file_path = filedialog.askopenfilename(
+            title="选择要检测的图片",
+            filetypes=[("PNG 图片", "*.png"), ("所有文件", "*.*")]
+        )
+        if not file_path:
+            self._debug_log_status("✗ 未选择任何图片")
+            messagebox.showwarning("警告", "未选择任何图片")
+            return
+
         try:
-            if not self.debug_state_machine_:
-                messagebox.showerror("错误", "状态机未初始化")
-                return
-            
-            frame = screenshot()
-            if frame is None:
-                messagebox.showerror("错误", "无法获取截图")
-                return
-            
-            self.debug_state_machine_.update(frame)
+            self.debug_state_machine_.update(image_path=file_path)
+            self._debug_log_status(f"✓ 已加载图片: {file_path}")
+            self.debug_state_machine_.update()
             current_state = self.debug_state_machine_.current_state()
-            
             state_text = f"当前游戏状态: {current_state.value}"
             self._debug_log_status(state_text)
             messagebox.showinfo("状态检测", state_text)
         except Exception as e:
-            logger.error(f"检测状态失败: {e}")
-            messagebox.showerror("错误", f"检测状态失败: {e}")
-            self._debug_log_status(f"检测状态失败: {e}")
+            msg = f"检测状态失败: {e}"
+            logger.error(msg)
+            messagebox.showerror("错误", msg)
+            self._debug_log_status(msg)
 
     def _debug_refresh_components(self):
         """刷新调试组件"""

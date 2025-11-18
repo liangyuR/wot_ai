@@ -220,31 +220,6 @@ class BattleTask:
             logger.error(f"发送按键 {key} 失败: {exc}")
             return False
 
-    def _handle_manual_exit_to_garage(self, reason: str) -> None:
-        """
-        通过按ESC和点击return按钮返回车库
-        """
-        logger.info(f"检测到战斗结束状态({reason})，执行手动退出流程")
-        
-        if not self._press_key('esc', hold=1):
-            logger.warning("无法按下 ESC，尝试继续退出流程")
-        else:
-            wait(1.0)
-        
-        clicked = self.ui_actions_.ClickTemplate(
-            "return.png",
-            timeout=15.0,
-            confidence=0.85,
-            max_retries=5
-        )
-        if not clicked:
-            logger.warning("未找到 return 按钮，可能已返回车库或UI变化")
-        
-        if not wait_state(self.state_machine_, GameState.GARAGE, timeout=60.0):
-            logger.warning("手动退出流程等待返回车库超时")
-        else:
-            logger.info("已通过手动流程回到车库")
-    
     def in_battle_loop(self, map_name: str) -> bool:
         """
         战斗循环：启动AI，监控状态
@@ -297,9 +272,9 @@ class BattleTask:
         """
         logger.info("退出结算界面...")
         
-        # 点击"继续"按钮
+        # 点击"返回车库"按钮
         success = self.ui_actions_.ClickTemplate(
-            "battle_result_continue.png",
+            "return_garage.png",
             timeout=5.0,
             confidence=0.85,
             max_retries=3
@@ -307,6 +282,8 @@ class BattleTask:
         if not success:
             logger.error("未找到继续按钮")
             return False
+
+        # TODO(@liangyu) 奖励领取 or 任务结算页面 需要等待页面出现
         
         wait(2.0)  # 等待返回车库
         
