@@ -10,7 +10,7 @@ model:
 
 # 小地图配置
 minimap:
-  template_path: "templates/minimap_border.png"  # 小地图模板文件路径（必需）
+  template_path: "templates/2k/minimap_border.png"  # 小地图模板文件路径（必需）
   size: [640, 640]  # 小地图尺寸 [width, height]
   max_size: 1000  # 小地图最大尺寸
 

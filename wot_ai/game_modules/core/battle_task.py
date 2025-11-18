@@ -172,7 +172,7 @@ class BattleTask:
         logger.info("点击加入战斗...")
         
         success = self.ui_actions_.ClickTemplate(
-            "garage_join_battle.png",
+            "join_battle.png",
             timeout=5.0,
             confidence=0.85,
             max_retries=3
@@ -195,7 +195,7 @@ class BattleTask:
         logger.info("等待战斗加载...")
         
         # 先等待加载状态，若失败则记录告警继续
-        if wait_state(self.state_machine_, GameState.BATTLE_LOADING, timeout=60.0):
+        if wait_state(self.state_machine_, GameState.IN_LOADING, timeout=60.0):
             logger.info("已检测到加载界面，继续等待进入战斗")
         else:
             logger.warning("未能确认加载界面，继续等待进入战斗")

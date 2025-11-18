@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Main window debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "wot_ai/game_modules/main_window.py",
+            "console": "integratedTerminal",
+            "args": "${command:pickArgs}"
+        },
+        // map_name_detector debug
+        {
+            "name": "Map name detector debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "wot_ai/game_modules/core/map_name_detector.py",
+            "console": "integratedTerminal",
+            "args": "C:\\Users\\11601\\Desktop\\微信图片_20251118133709_457_14.jpg"
+        }
+    ]
+}

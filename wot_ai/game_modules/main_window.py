@@ -11,6 +11,12 @@ from loguru import logger
 import cv2
 
 from wot_ai.game_modules.core.task_manager import TaskManager
+from wot_ai.game_modules.core.state_machine import StateMachine, GameState
+from wot_ai.game_modules.core.map_name_detector import MapNameDetector
+from wot_ai.game_modules.core.tank_selector import TankSelector
+from wot_ai.game_modules.core.ai_controller import AIController
+from wot_ai.game_modules.core.actions import screenshot
+from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.config import get_program_dir
 from wot_ai.game_modules.navigation.config.loader import load_config
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
@@ -20,7 +26,7 @@ class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("TANK ROBOT – 坦克 AI 控制器")
-        self.root.geometry("900x900")
+        self.root.geometry("900x1100")
         self.root.configure(bg="#F0F0F0")
 
         # State
@@ -29,8 +35,6 @@ class MainWindow:
         self.auto_stop = tk.BooleanVar(value=False)
         self.auto_shutdown = tk.BooleanVar(value=False)
         self.silver_reserve = tk.BooleanVar(value=False)
-        self.auto_sell_equipment = tk.BooleanVar(value=False)
-        self.auto_boost = tk.BooleanVar(value=False)
         
         self.vehicle_images = []  # List of (path, thumbnail) tuples
         self.vehicle_screenshot_dir = self._init_vehicle_screenshot_dir()
@@ -39,9 +43,19 @@ class MainWindow:
         self.task_manager_ = None
         self.task_thread_ = None
 
+        # Debug components
+        self.debug_state_machine_ = None
+        self.debug_map_detector_ = None
+        self.debug_tank_selector_ = None
+        self.debug_ai_controller_ = None
+        self.debug_ui_actions_ = None
+        self.debug_ai_config_ = None
+        self.debug_ai_running_ = False
+
         # Setup UI
         self._build_ui()
         self._update_status()
+        self._init_debug_components()
 
     def _create_section(self, parent, title=None):
         """Create a section frame with optional title"""
@@ -62,12 +76,11 @@ class MainWindow:
 
     def _build_ui(self):
         # 使用提示区
-        tips_section = self._create_section(self.root, "使用提示区（顶部提示）")
+        tips_section = self._create_section(self.root, "使用提示区")
         tips = [
             "· 请将游戏设置为\"窗口化全屏（Borderless）\"",
             "· 推荐画质：中–低",
             "· 游戏进入车库后按 F9 启动 / F10 停止",
-            "· 小地图请保持在右下角"
         ]
         for tip in tips:
             tk.Label(
@@ -136,30 +149,17 @@ class MainWindow:
         feature_section = self._create_section(self.root, "功能扩展区")
         
         tk.Checkbutton(
-            feature_section, text="启动银币储备（金币不足时自动启用）",
+            feature_section, text="是否启用启动银币储备",
             variable=self.silver_reserve, font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", anchor="w"
-        ).pack(anchor="w", padx=5, pady=2)
-        
-        tk.Checkbutton(
-            feature_section, text="自动出售低级装备（可选）",
-            variable=self.auto_sell_equipment, font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", anchor="w"
-        ).pack(anchor="w", padx=5, pady=2)
-        
-        tk.Checkbutton(
-            feature_section, text="自动加乘加成（预留）",
-            variable=self.auto_boost, font=("Microsoft YaHei", 9),
             bg="#F0F0F0", anchor="w"
         ).pack(anchor="w", padx=5, pady=2)
 
         # 车辆优先级设置区
         vehicle_section = self._create_section(self.root, "车辆优先级设置区")
-        
         desc_text = (
             "描述：按优先级顺序选择可出战车辆\n"
-            "      1.png → 2.png → 3.png …\n"
-            "      （若当前车辆模板检测不到，认为正在战斗中）"
+            " 1.png → 2.png → 3.png …\n"
+            "（若当前车辆模板检测不到，则顺延至下一辆车）"
         )
         tk.Label(
             vehicle_section, text=desc_text, font=("Microsoft YaHei", 9),
@@ -178,7 +178,7 @@ class MainWindow:
         ).pack(side=tk.LEFT, padx=5)
         
         tk.Label(
-            vehicle_section, text="当前车辆优先级（可拖拽排序）",
+            vehicle_section, text="当前车辆优先级",
             font=("Microsoft YaHei", 9), bg="#F0F0F0", anchor="w"
         ).pack(anchor="w", padx=5, pady=5)
         
@@ -217,6 +217,10 @@ class MainWindow:
             footer, text="配置文件目录", command=self._open_config_dir,
             font=("Microsoft YaHei", 9), relief=tk.FLAT
         ).pack(side=tk.LEFT, padx=5)
+
+        # 单步调试区
+        debug_section = self._create_section(self.root, "单步调试区")
+        self._build_debug_ui(debug_section)
 
     def _start(self):
         if self.is_running:
@@ -343,12 +347,12 @@ class MainWindow:
             self.status_label.config(text="状态：● 已停止")
             self.end_time_label.config(text="预计结束时间：--")
         
-        self.root.after(1000, self._update_status)
+        self.root.after(3000, self._update_status)
 
     def _add_vehicle_screenshot(self):
         file_path = filedialog.askopenfilename(
             title="选择车辆截图",
-            filetypes=[("图片文件", "*.png *.jpg *.jpeg"), ("所有文件", "*.*")]
+            filetypes=[("图片文件", "*.png"), ("所有文件", "*.*")]
         )
         if file_path:
             try:
@@ -364,10 +368,6 @@ class MainWindow:
         try:
             if sys.platform == "win32":
                 os.startfile(str(self.vehicle_screenshot_dir))
-            elif sys.platform == "darwin":
-                os.system(f"open {self.vehicle_screenshot_dir}")
-            else:
-                os.system(f"xdg-open {self.vehicle_screenshot_dir}")
         except Exception as e:
             messagebox.showerror("错误", f"打开目录失败: {e}")
             logger.error(f"打开目录失败: {e}")
@@ -382,8 +382,6 @@ class MainWindow:
         self.vehicle_images = []
         if self.vehicle_screenshot_dir.exists():
             image_files = sorted(self.vehicle_screenshot_dir.glob("*.png"))
-            image_files.extend(sorted(self.vehicle_screenshot_dir.glob("*.jpg")))
-            image_files.extend(sorted(self.vehicle_screenshot_dir.glob("*.jpeg")))
             
             for idx, img_path in enumerate(image_files):
                 try:
@@ -451,10 +449,6 @@ class MainWindow:
             try:
                 if sys.platform == "win32":
                     os.startfile(str(log_dir))
-                elif sys.platform == "darwin":
-                    os.system(f"open {log_dir}")
-                else:
-                    os.system(f"xdg-open {log_dir}")
             except Exception as e:
                 messagebox.showerror("错误", f"打开日志目录失败: {e}")
         else:
@@ -466,12 +460,391 @@ class MainWindow:
         try:
             if sys.platform == "win32":
                 os.startfile(str(config_dir))
-            elif sys.platform == "darwin":
-                os.system(f"open {config_dir}")
-            else:
-                os.system(f"xdg-open {config_dir}")
         except Exception as e:
             messagebox.showerror("错误", f"打开配置目录失败: {e}")
+
+    def _init_debug_components(self):
+        """初始化调试组件"""
+        try:
+            self.debug_state_machine_ = StateMachine()
+            self.debug_map_detector_ = MapNameDetector()
+            vehicle_priority = self._get_vehicle_priority()
+            self.debug_tank_selector_ = TankSelector(
+                self.vehicle_screenshot_dir,
+                vehicle_priority
+            )
+            self.debug_ai_controller_ = AIController()
+            self.debug_ui_actions_ = UIActions()
+            self.debug_ai_config_ = self._get_ai_config()
+            logger.info("调试组件初始化完成")
+        except Exception as e:
+            logger.error(f"调试组件初始化失败: {e}")
+            messagebox.showerror("错误", f"调试组件初始化失败: {e}")
+
+    def _build_debug_ui(self, parent):
+        """构建单步调试UI"""
+        # 导航AI控制区
+        ai_ctrl_frame = tk.Frame(parent, bg="#F0F0F0")
+        ai_ctrl_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        tk.Label(
+            ai_ctrl_frame, text="导航AI控制：", font=("Microsoft YaHei", 9),
+            bg="#F0F0F0"
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.debug_ai_status_label = tk.Label(
+            ai_ctrl_frame, text="● 已停止", font=("Microsoft YaHei", 9),
+            bg="#F0F0F0", fg="#666666"
+        )
+        self.debug_ai_status_label.pack(side=tk.LEFT, padx=5)
+        
+        self.debug_ai_start_btn = tk.Button(
+            ai_ctrl_frame, text="启动导航AI", command=self._debug_start_ai,
+            font=("Microsoft YaHei", 9), width=12, bg="#90EE90"
+        )
+        self.debug_ai_start_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.debug_ai_stop_btn = tk.Button(
+            ai_ctrl_frame, text="停止导航AI", command=self._debug_stop_ai,
+            font=("Microsoft YaHei", 9), width=12, bg="#FFB6C1", state=tk.DISABLED
+        )
+        self.debug_ai_stop_btn.pack(side=tk.LEFT, padx=5)
+
+        # 单步测试按钮区
+        test_btn_frame = tk.Frame(parent, bg="#F0F0F0")
+        test_btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        tk.Label(
+            test_btn_frame, text="单步测试：", font=("Microsoft YaHei", 9, "bold"),
+            bg="#F0F0F0"
+        ).pack(anchor="w", padx=5, pady=2)
+        
+        btn_row1 = tk.Frame(test_btn_frame, bg="#F0F0F0")
+        btn_row1.pack(fill=tk.X, padx=5, pady=2)
+        
+        tk.Button(
+            btn_row1, text="1. 选择坦克", command=self._debug_select_tank,
+            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
+        ).pack(side=tk.LEFT, padx=3)
+        
+        tk.Button(
+            btn_row1, text="2. 加入战斗", command=self._debug_join_battle,
+            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
+        ).pack(side=tk.LEFT, padx=3)
+        
+        tk.Button(
+            btn_row1, text="3. 识别地图名称", command=self._debug_detect_map,
+            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
+        ).pack(side=tk.LEFT, padx=3)
+        
+        btn_row2 = tk.Frame(test_btn_frame, bg="#F0F0F0")
+        btn_row2.pack(fill=tk.X, padx=5, pady=2)
+        
+        tk.Button(
+            btn_row2, text="4. 返回车库", command=self._debug_return_garage,
+            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
+        ).pack(side=tk.LEFT, padx=3)
+        
+        tk.Button(
+            btn_row2, text="检测当前状态", command=self._debug_detect_state,
+            font=("Microsoft YaHei", 9), width=15, bg="#FFFACD"
+        ).pack(side=tk.LEFT, padx=3)
+        
+        tk.Button(
+            btn_row2, text="刷新调试组件", command=self._debug_refresh_components,
+            font=("Microsoft YaHei", 9), width=15, bg="#F0F0F0"
+        ).pack(side=tk.LEFT, padx=3)
+
+        # 状态显示区
+        status_frame = tk.Frame(parent, bg="#F0F0F0", relief=tk.SUNKEN, bd=1)
+        status_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        tk.Label(
+            status_frame, text="调试状态信息：", font=("Microsoft YaHei", 9, "bold"),
+            bg="#F0F0F0", anchor="w"
+        ).pack(fill=tk.X, padx=5, pady=2)
+        
+        # 使用Text组件显示状态信息，支持滚动
+        text_frame = tk.Frame(status_frame, bg="white")
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.debug_status_text = tk.Text(
+            text_frame, height=6, font=("Consolas", 9),
+            wrap=tk.WORD, bg="white", fg="black"
+        )
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=self.debug_status_text.yview)
+        self.debug_status_text.configure(yscrollcommand=scrollbar.set)
+        
+        self.debug_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self._debug_log_status("调试组件已就绪")
+
+    def _debug_log_status(self, message: str):
+        """在调试状态区域记录消息"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.debug_status_text.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.debug_status_text.see(tk.END)
+        logger.info(f"[调试] {message}")
+
+    def _debug_start_ai(self):
+        """启动导航AI"""
+        if self.debug_ai_running_:
+            messagebox.showwarning("警告", "导航AI已在运行")
+            return
+        
+        try:
+            # 需要先识别地图名称
+            frame = screenshot()
+            if frame is None:
+                messagebox.showerror("错误", "无法获取截图")
+                return
+            
+            map_name = self.debug_map_detector_.detect(frame)
+            if not map_name:
+                map_name = "default"
+                self._debug_log_status(f"未识别到地图，使用默认配置: {map_name}")
+            else:
+                self._debug_log_status(f"识别到地图: {map_name}")
+            
+            if self.debug_ai_controller_.start(self.debug_ai_config_, map_name):
+                self.debug_ai_running_ = True
+                self.debug_ai_status_label.config(text="○ 运行中", fg="#00AA00")
+                self.debug_ai_start_btn.config(state=tk.DISABLED)
+                self.debug_ai_stop_btn.config(state=tk.NORMAL)
+                self._debug_log_status(f"导航AI已启动 (地图: {map_name})")
+            else:
+                messagebox.showerror("错误", "导航AI启动失败")
+                self._debug_log_status("导航AI启动失败")
+        except Exception as e:
+            logger.error(f"启动导航AI失败: {e}")
+            messagebox.showerror("错误", f"启动导航AI失败: {e}")
+            self._debug_log_status(f"启动导航AI失败: {e}")
+
+    def _debug_stop_ai(self):
+        """停止导航AI"""
+        if not self.debug_ai_running_:
+            return
+        
+        try:
+            self.debug_ai_controller_.stop()
+            self.debug_ai_running_ = False
+            self.debug_ai_status_label.config(text="● 已停止", fg="#666666")
+            self.debug_ai_start_btn.config(state=tk.NORMAL)
+            self.debug_ai_stop_btn.config(state=tk.DISABLED)
+            self._debug_log_status("导航AI已停止")
+        except Exception as e:
+            logger.error(f"停止导航AI失败: {e}")
+            messagebox.showerror("错误", f"停止导航AI失败: {e}")
+            self._debug_log_status(f"停止导航AI失败: {e}")
+
+    def _debug_select_tank(self):
+        """单步测试：选择坦克"""
+        self._debug_log_status("开始测试：选择坦克...")
+        
+        if not self.debug_tank_selector_:
+            messagebox.showerror("错误", "坦克选择器未初始化")
+            return
+        
+        try:
+            candidates = self.debug_tank_selector_.pick()
+            if not candidates:
+                messagebox.showwarning("警告", "没有可用的坦克模板")
+                self._debug_log_status("没有可用的坦克模板")
+                return
+            
+            self._debug_log_status(f"找到 {len(candidates)} 个候选坦克")
+            
+            selected = False
+            for candidate in candidates:
+                self._debug_log_status(f"尝试选择: {candidate.name}")
+                success = self.debug_ui_actions_.SelectVehicle(
+                    template_name=candidate.name,
+                    template_dir=str(candidate.directory),
+                    confidence=candidate.confidence,
+                    timeout=5.0
+                )
+                if success:
+                    self._debug_log_status(f"✓ 成功选择坦克: {candidate.name}")
+                    selected = True
+                    break
+                else:
+                    self._debug_log_status(f"✗ 坦克不可用: {candidate.name}")
+            
+            if not selected:
+                messagebox.showwarning("警告", "所有坦克都不可用或未找到")
+                self._debug_log_status("所有坦克都不可用")
+        except Exception as e:
+            logger.error(f"选择坦克失败: {e}")
+            messagebox.showerror("错误", f"选择坦克失败: {e}")
+            self._debug_log_status(f"选择坦克失败: {e}")
+
+    def _debug_join_battle(self):
+        """单步测试：加入战斗"""
+        self._debug_log_status("开始测试：加入战斗...")
+        
+        try:
+            success = self.debug_ui_actions_.ClickTemplate(
+                "join_battle.png",
+                timeout=5.0,
+                confidence=0.85,
+                max_retries=3
+            )
+            if success:
+                self._debug_log_status("✓ 成功点击加入战斗按钮")
+                import time
+                time.sleep(1.0)
+            else:
+                messagebox.showwarning("警告", "未找到加入战斗按钮")
+                self._debug_log_status("✗ 未找到加入战斗按钮")
+        except Exception as e:
+            logger.error(f"加入战斗失败: {e}")
+            messagebox.showerror("错误", f"加入战斗失败: {e}")
+            self._debug_log_status(f"加入战斗失败: {e}")
+
+    def _debug_detect_map(self):
+        """单步测试：识别地图名称"""
+        self._debug_log_status("开始测试：识别地图名称...")
+        
+        try:
+            # frame = screenshot()
+            # if frame is None:
+            #     messagebox.showerror("错误", "无法获取截图")
+            #     self._debug_log_status("✗ 截图失败")
+            #     return
+            
+            # 尝试多种识别方式
+            # map_name = None
+            
+            # 方法1: 从加载界面识别
+            # self._debug_log_status("尝试从加载界面识别...")
+            # map_name = self.debug_map_detector_.detect_from_loading(frame)
+            # if map_name:
+            #     self._debug_log_status(f"✓ 从加载界面识别到地图: {map_name}")
+            #     messagebox.showinfo("成功", f"识别到地图: {map_name}")
+            #     return
+            
+            # 方法2: 从暂停界面识别
+            frame = self._screenshot_with_key_hold('b', hold_duration=4, warmup=0.4)
+            if frame is None:
+                logger.warning("按住B键后截图失败")
+                return None
+
+            self._debug_log_status("尝试从暂停界面识别...")
+            map_name = self.debug_map_detector_.detect_from_pause(frame)
+            if map_name:
+                self._debug_log_status(f"✓ 从暂停界面识别到地图: {map_name}")
+                messagebox.showinfo("成功", f"识别到地图: {map_name}")
+                return
+            
+            # 方法3: 常规识别
+            # self._debug_log_status("尝试常规识别...")
+            # map_name = self.debug_map_detector_.detect(frame)
+            # if map_name:
+            #     self._debug_log_status(f"✓ 常规识别到地图: {map_name}")
+            #     messagebox.showinfo("成功", f"识别到地图: {map_name}")
+            #     return
+            
+            messagebox.showwarning("警告", "未能识别到地图名称")
+            self._debug_log_status("✗ 未能识别到地图名称")
+        except Exception as e:
+            logger.error(f"识别地图失败: {e}")
+            messagebox.showerror("错误", f"识别地图失败: {e}")
+            self._debug_log_status(f"识别地图失败: {e}")
+
+    def _debug_return_garage(self):
+        """单步测试：返回车库"""
+        self._debug_log_status("开始测试：返回车库...")
+        
+        try:
+            # 方法1: 尝试点击结算界面的继续按钮
+            self._debug_log_status("尝试点击结算界面继续按钮...")
+            success = self.debug_ui_actions_.ClickTemplate(
+                "battle_result_continue.png",
+                timeout=5.0,
+                confidence=0.85,
+                max_retries=3
+            )
+            if success:
+                self._debug_log_status("✓ 成功点击继续按钮")
+                import time
+                time.sleep(2.0)
+                return
+            
+            # 方法2: 尝试按ESC然后点击返回按钮
+            self._debug_log_status("尝试按ESC然后点击返回按钮...")
+            try:
+                import pyautogui
+                pyautogui.keyDown('esc')
+                import time
+                time.sleep(1.0)
+                pyautogui.keyUp('esc')
+                time.sleep(1.0)
+                
+                success = self.debug_ui_actions_.ClickTemplate(
+                    "return.png",
+                    timeout=15.0,
+                    confidence=0.85,
+                    max_retries=5
+                )
+                if success:
+                    self._debug_log_status("✓ 成功点击返回按钮")
+                    time.sleep(2.0)
+                else:
+                    self._debug_log_status("✗ 未找到返回按钮")
+            except Exception as e:
+                self._debug_log_status(f"按键操作失败: {e}")
+            
+            # 检查是否返回车库
+            if self.debug_state_machine_:
+                self.debug_state_machine_.update()
+                current_state = self.debug_state_machine_.current_state()
+                if current_state == GameState.IN_GARAGE:
+                    self._debug_log_status("✓ 已返回车库")
+                    messagebox.showinfo("成功", "已返回车库")
+                else:
+                    self._debug_log_status(f"当前状态: {current_state.value}，等待返回车库...")
+        except Exception as e:
+            logger.error(f"返回车库失败: {e}")
+            messagebox.showerror("错误", f"返回车库失败: {e}")
+            self._debug_log_status(f"返回车库失败: {e}")
+
+    def _debug_detect_state(self):
+        """检测当前游戏状态"""
+        self._debug_log_status("开始检测当前游戏状态...")
+        
+        try:
+            if not self.debug_state_machine_:
+                messagebox.showerror("错误", "状态机未初始化")
+                return
+            
+            frame = screenshot()
+            if frame is None:
+                messagebox.showerror("错误", "无法获取截图")
+                return
+            
+            self.debug_state_machine_.update(frame)
+            current_state = self.debug_state_machine_.current_state()
+            
+            state_text = f"当前游戏状态: {current_state.value}"
+            self._debug_log_status(state_text)
+            messagebox.showinfo("状态检测", state_text)
+        except Exception as e:
+            logger.error(f"检测状态失败: {e}")
+            messagebox.showerror("错误", f"检测状态失败: {e}")
+            self._debug_log_status(f"检测状态失败: {e}")
+
+    def _debug_refresh_components(self):
+        """刷新调试组件"""
+        self._debug_log_status("刷新调试组件...")
+        try:
+            self._init_debug_components()
+            self._debug_log_status("✓ 调试组件刷新完成")
+            messagebox.showinfo("成功", "调试组件刷新完成")
+        except Exception as e:
+            logger.error(f"刷新调试组件失败: {e}")
+            messagebox.showerror("错误", f"刷新调试组件失败: {e}")
+            self._debug_log_status(f"刷新调试组件失败: {e}")
 
     def run(self):
         self.root.mainloop()

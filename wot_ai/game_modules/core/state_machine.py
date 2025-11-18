@@ -10,19 +10,21 @@ import time
 from enum import Enum
 from typing import Optional
 import numpy as np
+import cv2
 from loguru import logger
+from pathlib import Path
+import mss
 
-from wot_ai.game_modules.ui_control.matcher_pyautogui import match_template
+from wot_ai.config import get_program_dir
+from wot_ai.game_modules.core.actions import screenshot
 
 
 class GameState(Enum):
     """游戏状态枚举"""
-    GARAGE = "garage"
-    BATTLE_LOADING = "battle_loading"
+    IN_GARAGE = "in_garage"
+    IN_LOADING = "in_loading"
     IN_BATTLE = "in_battle"
-    DESTROYED = "destroyed"
-    BATTLE_RESULT = "battle_result"
-    RETURN_TO_GARAGE = "return_to_garage"
+    IN_END = "in_end"
     UNKNOWN = "unknown"
 
 
@@ -43,13 +45,15 @@ class StateMachine:
         
         # 状态模板映射
         self.state_templates_ = {
-            GameState.GARAGE: "garage_join_battle.png",
-            GameState.BATTLE_LOADING: "battle_loading.png",
-            GameState.IN_BATTLE: "minimap_border.png",
-            GameState.DESTROYED: "destroyed_icon.png",
-            GameState.BATTLE_RESULT: "battle_result_continue.png",
-            GameState.RETURN_TO_GARAGE: "return_garage_loading.png",
+            GameState.IN_GARAGE: "in_garage.png",
+            GameState.IN_LOADING: "in_loading.png",
+            GameState.IN_BATTLE: "in_battle.png",
+            GameState.IN_END: ["in_end_destroyed.png", "in_end_victory.png", "in_end_defeat.png", "in_end_dogfall.png"],
         }
+        
+        # 检测屏幕分辨率并确定模板目录
+        self.template_resolution_ = self._detect_resolution_()
+        logger.info(f"检测到屏幕分辨率，使用模板目录: {self.template_resolution_}")
     
     def update(self, frame: Optional[np.ndarray] = None) -> GameState:
         """
@@ -62,28 +66,7 @@ class StateMachine:
             当前确认的游戏状态
         """
         # 检测所有可能的状态
-        detected_states = []
-        
-        for state, template_name in self.state_templates_.items():
-            center = match_template(template_name, confidence=0.75)
-            if center is not None:
-                detected_states.append(state)
-        
-        # 确定当前检测到的状态（优先级：战斗中 > 其他状态）
-        detected_state = GameState.UNKNOWN
-        if GameState.IN_BATTLE in detected_states:
-            detected_state = GameState.IN_BATTLE
-        elif GameState.DESTROYED in detected_states:
-            detected_state = GameState.DESTROYED
-        elif GameState.BATTLE_RESULT in detected_states:
-            detected_state = GameState.BATTLE_RESULT
-        elif GameState.BATTLE_LOADING in detected_states:
-            detected_state = GameState.BATTLE_LOADING
-        elif GameState.RETURN_TO_GARAGE in detected_states:
-            detected_state = GameState.RETURN_TO_GARAGE
-        elif GameState.GARAGE in detected_states:
-            detected_state = GameState.GARAGE
-        
+        detected_state = self.detect_state(frame)
         # 更新状态历史
         self.state_history_.append(detected_state)
         
@@ -148,3 +131,79 @@ class StateMachine:
         logger.warning(f"等待状态超时: {target_state.value} (timeout={timeout}s)")
         return False
 
+    def _detect_resolution_(self) -> str:
+        """
+        检测屏幕分辨率并返回对应的模板目录名
+        
+        Returns:
+            模板目录名："1k", "2k", 或 "4k"
+        """
+        try:
+            with mss.mss() as sct:
+                monitor = sct.monitors[1]  # 主显示器
+                height = monitor['height']
+                
+                # 根据高度判断：<1080=1k，1080-1440=2k，>1440=4k
+                if height < 1080:
+                    return "1k"
+                elif height < 1440:
+                    return "2k"
+                else:
+                    return "4k"
+        except Exception as e:
+            logger.warning(f"无法检测屏幕分辨率: {e}，默认使用 4k")
+            return "4k"
+
+    def detect_state(self, frame: Optional[np.ndarray] = None) -> GameState:
+        """
+        检测游戏状态
+        
+        Args:
+            frame: 可选的屏幕截图（BGR格式），如果为None则自动截图
+        
+        Returns:
+            当前检测到的游戏状态
+        """
+        if frame is None:
+            frame = screenshot()
+        if frame is None:
+            logger.warning("无法获取截图，跳过状态检测")
+            return GameState.UNKNOWN
+
+        # 统一处理模板列表（字符串和列表都支持）
+        for state, templates in self.state_templates_.items():
+            # 将单个字符串转换为列表以便统一处理
+            template_list = templates if isinstance(templates, list) else [templates]
+            
+            for template_name in template_list:
+                # 构建模板路径
+                template_path = get_program_dir() / "templates" / self.template_resolution_ / template_name
+                
+                if not template_path.exists():
+                    logger.debug(f"模板文件不存在: {template_path}")
+                    continue
+                
+                # 加载模板图像
+                template = cv2.imread(str(template_path))
+                if template is None:
+                    logger.warning(f"无法加载模板图像: {template_path}")
+                    continue
+                
+                # 使用 OpenCV 进行模板匹配
+                result = cv2.matchTemplate(frame, template, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                
+                # 设置匹配阈值
+                threshold = 0.8
+                if max_val >= threshold:
+                    logger.debug(f"检测到状态: {state.value} (模板: {template_name}, 匹配度: {max_val:.2f})")
+                    return state
+        
+        return GameState.UNKNOWN
+
+
+if __name__ == "__main__":
+    frame = screenshot()
+    sm = StateMachine(confirmation_frames=2)
+    state = sm.detect_state(frame)
+    print(f"当前检测到的状态: {state.value}")
