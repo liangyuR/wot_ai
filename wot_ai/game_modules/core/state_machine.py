@@ -13,10 +13,10 @@ import numpy as np
 import cv2
 from loguru import logger
 from pathlib import Path
-import mss
 
 from wot_ai.config import get_program_dir
 from wot_ai.game_modules.core.actions import screenshot
+from wot_ai.game_modules.core.global_context import GlobalContext
 
 
 class GameState(Enum):
@@ -25,13 +25,18 @@ class GameState(Enum):
     IN_LOADING = "in_loading"
     IN_BATTLE = "in_battle"
     IN_END = "in_end"
+    IN_RESULT_PAGE = "in_result_page"
     UNKNOWN = "unknown"
 
 
 class StateMachine:
     """游戏状态机"""
     
-    def __init__(self, confirmation_frames: int = 3):
+    def __init__(
+        self,
+        confirmation_frames: int = 3,
+        global_context: Optional[GlobalContext] = None
+    ):
         """
         初始化状态机
         
@@ -42,6 +47,7 @@ class StateMachine:
         self.current_state_ = GameState.UNKNOWN
         self.state_history_ = []  # 状态历史记录
         self.last_update_time_ = 0.0
+        self.global_context_ = global_context or GlobalContext()
         
         # 状态模板映射
         self.state_templates_ = {
@@ -49,12 +55,15 @@ class StateMachine:
             GameState.IN_LOADING: "in_loading.png",
             GameState.IN_BATTLE: "in_battle.png",
             # TODO(@liangyu) 尝试判定评价系统模板，貌似每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
-            GameState.IN_END: ["in_end_destroyed.png", "in_end_victory.png", "in_end_defeat.png", "in_end_dogfall.png"], 
+            GameState.IN_END: "pingjia.png",
+            GameState.IN_RESULT_PAGE: "space_jump.png", # 在胜利/失败结算页面（偶尔可能不会直接回到车库）
         }
         
-        # 检测屏幕分辨率并确定模板目录
-        self.template_resolution_ = self._detect_resolution_()
-        logger.info(f"检测到屏幕分辨率，使用模板目录: {self.template_resolution_}")
+        self.template_resolution_ = self.global_context_.template_tier
+        logger.info(
+            f"使用模板目录: {self.template_resolution_} "
+            f"(分辨率: {self.global_context_.resolution[0]}x{self.global_context_.resolution[1]})"
+        )
     
     def update(self, frame: Optional[np.ndarray] = None) -> GameState:
         """
@@ -132,29 +141,6 @@ class StateMachine:
         logger.warning(f"等待状态超时: {target_state.value} (timeout={timeout}s)")
         return False
 
-    def _detect_resolution_(self) -> str:
-        """
-        检测屏幕分辨率并返回对应的模板目录名
-        
-        Returns:
-            模板目录名："1k", "2k", 或 "4k"
-        """
-        try:
-            with mss.mss() as sct:
-                monitor = sct.monitors[1]  # 主显示器
-                height = monitor['height']
-                
-                # 根据高度判断：<1080=1k，1080-1440=2k，>1440=4k
-                if height < 1080:
-                    return "1k"
-                elif height < 1440:
-                    return "2k"
-                else:
-                    return "4k"
-        except Exception as e:
-            logger.warning(f"无法检测屏幕分辨率: {e}，默认使用 4k")
-            return "4k"
-
     def detect_state(self, frame: Optional[np.ndarray] = None) -> GameState:
         """
         检测游戏状态
@@ -205,6 +191,7 @@ class StateMachine:
 
 if __name__ == "__main__":
     frame = screenshot()
-    sm = StateMachine(confirmation_frames=2)
+    context = GlobalContext()
+    sm = StateMachine(confirmation_frames=2, global_context=context)
     state = sm.detect_state(frame)
     print(f"当前检测到的状态: {state.value}")

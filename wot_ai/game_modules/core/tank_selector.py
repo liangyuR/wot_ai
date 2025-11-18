@@ -43,8 +43,6 @@ class TankSelector:
         # 如果没有提供优先级列表，从目录中读取所有图片文件
         if not self.vehicle_priority_ and self.vehicle_screenshot_dir_.exists():
             image_files = sorted(self.vehicle_screenshot_dir_.glob("*.png"))
-            image_files.extend(sorted(self.vehicle_screenshot_dir_.glob("*.jpg")))
-            image_files.extend(sorted(self.vehicle_screenshot_dir_.glob("*.jpeg")))
             self.vehicle_priority_ = [f.name for f in image_files]
         
         logger.info(f"车辆优先级列表: {self.vehicle_priority_}")

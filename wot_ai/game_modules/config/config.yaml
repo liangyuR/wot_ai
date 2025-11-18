@@ -4,13 +4,13 @@
 
 # YOLO模型配置
 model:
-  path: "models/map_detect_yolo11m.pt"  # YOLO模型文件路径（必需）
-  conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
-  iou_threshold: 0.75  # IoU阈值 (0.0-1.0)
+  path: "resource/model/map_detect_yolo11m.pt"  # YOLO模型文件路径（必需）
+  conf_threshold: 0.65  # 置信度阈值 (0.0-1.0)
+  iou_threshold: 0.55  # IoU阈值 (0.0-1.0)
 
 # 小地图配置
 minimap:
-  template_path: "templates/2k/minimap_border.png"  # 小地图模板文件路径（必需）
+  template_path: "resource/template/2k/minimap_border.png"  # 小地图模板文件路径（必需）
   size: [640, 640]  # 小地图尺寸 [width, height]
   max_size: 1000  # 小地图最大尺寸
 
@@ -25,7 +25,7 @@ mask:
 
 # 车辆配置
 vehicle:
-  screenshot_dir: "vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）
+  screenshot_dir: "resource/vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）
 
 # 栅格配置
 grid:

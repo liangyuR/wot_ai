@@ -10,9 +10,10 @@ from tkinter import ttk, filedialog, messagebox
 from loguru import logger
 import cv2
 
+from wot_ai.game_modules.core.battle_task import BattleTask
 from wot_ai.game_modules.core.task_manager import TaskManager
 from wot_ai.game_modules.core.state_machine import StateMachine, GameState
-from wot_ai.game_modules.core.map_name_detector import MapNameDetector
+from wot_ai.game_modules.core.global_context import GlobalContext
 from wot_ai.game_modules.core.tank_selector import TankSelector
 from wot_ai.game_modules.core.ai_controller import AIController
 from wot_ai.game_modules.core.actions import screenshot, screenshot_with_key_hold
@@ -20,13 +21,14 @@ from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.config import get_program_dir
 from wot_ai.game_modules.navigation.config.loader import load_config
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from wot_ai.game_modules.vision.detection.map_name_detector import MapNameDetector
 
 
 class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("TANK ROBOT – 坦克 AI 控制器")
-        self.root.geometry("900x1100")
+        self.root.title("TANK ROBOT")
+        self.root.geometry("900x1080")
         self.root.configure(bg="#F0F0F0")
 
         # State
@@ -38,6 +40,7 @@ class MainWindow:
         
         self.vehicle_images = []  # List of (path, thumbnail) tuples
         self.vehicle_screenshot_dir = self._init_vehicle_screenshot_dir()
+        self.global_context_ = GlobalContext()
         
         # TaskManager
         self.task_manager_ = None
@@ -48,7 +51,7 @@ class MainWindow:
         self.debug_map_detector_ = None
         self.debug_tank_selector_ = None
         self.debug_ai_controller_ = None
-        self.debug_ui_actions_ = None
+        self.debug_battle_task = None
         self.debug_ai_config_ = None
         self.debug_ai_running_ = False
 
@@ -78,7 +81,7 @@ class MainWindow:
         # 使用提示区
         tips_section = self._create_section(self.root, "使用提示区")
         tips = [
-            "· 请将游戏设置为\"窗口化全屏（Borderless）\"",
+            "· 请将游戏设置为\"窗口化全屏\"",
             "· 推荐画质：中–低",
             "· 游戏进入车库后按 F9 启动 / F10 停止",
         ]
@@ -243,7 +246,8 @@ class MainWindow:
             ai_config=ai_config,
             run_hours=int(self.run_hours.get()),
             auto_stop=self.auto_stop.get(),
-            auto_shutdown=self.auto_shutdown.get()
+            auto_shutdown=self.auto_shutdown.get(),
+            global_context=self.global_context_
         )
         
         # 在独立线程中运行TaskManager
@@ -284,7 +288,7 @@ class MainWindow:
     def _init_vehicle_screenshot_dir(self) -> Path:
         """根据配置初始化车辆截图目录"""
         program_dir = get_program_dir()
-        default_dir = program_dir / "vehicle_screenshots"
+        default_dir = program_dir / "resource" / "vehicle_screenshots"
         config_path = program_dir / "config" / "config.yaml"
         
         try:
@@ -466,15 +470,24 @@ class MainWindow:
     def _init_debug_components(self):
         """初始化调试组件"""
         try:
-            self.debug_state_machine_ = StateMachine()
+            self.debug_state_machine_ = StateMachine(global_context=self.global_context_)
             self.debug_map_detector_ = MapNameDetector()
             vehicle_priority = self._get_vehicle_priority()
             self.debug_tank_selector_ = TankSelector(
                 self.vehicle_screenshot_dir,
                 vehicle_priority
             )
-            self.debug_ai_controller_ = AIController()
             self.debug_ui_actions_ = UIActions()
+            self.debug_ai_controller_ = AIController()
+
+            self.debug_battle_task = BattleTask(
+                self.debug_state_machine_,
+                self.debug_tank_selector_,
+                self.debug_map_detector_,
+                self.debug_ai_controller_,
+                self.debug_ui_actions_
+            )
+
             self.debug_ai_config_ = self._get_ai_config()
             logger.info("调试组件初始化完成")
         except Exception as e:
@@ -594,13 +607,7 @@ class MainWindow:
             return
         
         try:
-            # 需要先识别地图名称
-            frame = screenshot()
-            if frame is None:
-                messagebox.showerror("错误", "无法获取截图")
-                return
-            
-            map_name = self.debug_map_detector_.detect(frame)
+            map_name = self.debug_map_detector_.detect()
             if not map_name:
                 map_name = "default"
                 self._debug_log_status(f"未识别到地图，使用默认配置: {map_name}")
@@ -658,7 +665,7 @@ class MainWindow:
             selected = False
             for candidate in candidates:
                 self._debug_log_status(f"尝试选择: {candidate.name}")
-                success = self.debug_ui_actions_.SelectVehicle(
+                success = self.debug_battle_task.SelectVehicle(
                     template_name=candidate.name,
                     template_dir=str(candidate.directory),
                     confidence=candidate.confidence,
@@ -684,16 +691,9 @@ class MainWindow:
         self._debug_log_status("开始测试：加入战斗...")
         
         try:
-            success = self.debug_ui_actions_.ClickTemplate(
-                "join_battle.png",
-                timeout=5.0,
-                confidence=0.85,
-                max_retries=3
-            )
+            success = self.debug_battle_task.enter_battle()
             if success:
-                self._debug_log_status("✓ 成功点击加入战斗按钮")
-                import time
-                time.sleep(1.0)
+                self._debug_log_status("✓ 成功加入战斗")
             else:
                 messagebox.showwarning("警告", "未找到加入战斗按钮")
                 self._debug_log_status("✗ 未找到加入战斗按钮")
@@ -707,18 +707,11 @@ class MainWindow:
         self._debug_log_status("开始测试：识别地图名称...")
         
         try:
-            frame = screenshot_with_key_hold('b', hold_duration=4, warmup=0.4)
-            if frame is None:
-                logger.warning("按住B键后截图失败")
-                return None
-
-            self._debug_log_status("尝试从暂停界面识别...")
-            map_name = self.debug_map_detector_.detect_from_pause(frame)
+            map_name = self.debug_map_detector_.detect()
             if map_name:
                 self._debug_log_status(f"✓ 从暂停界面识别到地图: {map_name}")
                 messagebox.showinfo("成功", f"识别到地图: {map_name}")
                 return
-                
             messagebox.showwarning("警告", "未能识别到地图名称")
             self._debug_log_status("✗ 未能识别到地图名称")
         except Exception as e:
@@ -733,7 +726,7 @@ class MainWindow:
         try:
             # 方法1: 尝试点击结算界面的继续按钮
             self._debug_log_status("尝试点击结算界面继续按钮...")
-            success = self.debug_ui_actions_.ClickTemplate(
+            success = self.debug_battle_task.ClickTemplate(
                 "battle_result_continue.png",
                 timeout=5.0,
                 confidence=0.85,
@@ -755,7 +748,7 @@ class MainWindow:
                 pyautogui.keyUp('esc')
                 time.sleep(1.0)
                 
-                success = self.debug_ui_actions_.ClickTemplate(
+                success = self.debug_battle_task.ClickTemplate(
                     "return.png",
                     timeout=15.0,
                     confidence=0.85,

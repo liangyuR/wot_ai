@@ -10,7 +10,9 @@ import threading
 from typing import Optional, TYPE_CHECKING
 from loguru import logger
 
+from wot_ai.config import get_program_dir
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from wot_ai.game_modules.core.global_context import GlobalContext
 
 if TYPE_CHECKING:
     from wot_ai.game_modules.navigation.navigation_main import NavigationMain
@@ -51,7 +53,7 @@ class AIController:
         
         # 配置保持不变，导航内部根据地图名称和配置的目录自动解析掩码
         self.config_ = config
-        
+        self.config_.minimap.template_path = str(get_program_dir() / "resource" / "template" / GlobalContext().template_tier / "minimap_border.png")
         # 创建NavigationMain实例（延迟导入）
         NavigationMain = _get_navigation_main()
         self.nav_main_ = NavigationMain(self.config_, map_name=map_name)

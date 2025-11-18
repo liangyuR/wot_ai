@@ -5,19 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Main window debug",
+            "name": "Main",
             "type": "debugpy",
             "request": "launch",
             "program": "wot_ai/game_modules/main_window.py",
             "console": "integratedTerminal",
-            "args": "${command:pickArgs}"
+            "args": ""
         },
         // map_name_detector debug
         {
-            "name": "Map name detector debug",
+            "name": "地图名称检测器调试",
             "type": "debugpy",
             "request": "launch",
-            "program": "wot_ai/game_modules/core/map_name_detector.py",
+            "program": "wot_ai/game_modules/vision/detection/map_name_detector.py",
             "console": "integratedTerminal",
             "args": "C:\\Users\\11601\\Desktop\\微信图片_20251118133709_457_14.jpg"
         }

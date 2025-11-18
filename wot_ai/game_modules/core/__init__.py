@@ -16,7 +16,6 @@
 # 核心模块导出
 from .state_machine import StateMachine, GameState
 from .actions import wait, wait_state, screenshot
-from .map_name_detector import MapNameDetector
 from .tank_selector import TankSelector
 from .battle_task import BattleTask
 from .task_manager import TaskManager
@@ -28,7 +27,6 @@ __all__ = [
     'wait',
     'wait_state',
     'screenshot',
-    'MapNameDetector',
     'TankSelector',
     'BattleTask',
     'TaskManager',

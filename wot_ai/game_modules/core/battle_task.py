@@ -9,17 +9,15 @@
 import time
 from typing import Optional
 from loguru import logger
-import numpy as np
 import pyautogui
 
 from .state_machine import StateMachine, GameState
-from .actions import wait, wait_state, screenshot
-from .map_name_detector import MapNameDetector
+from .actions import wait, wait_state
 from .ai_controller import AIController
 from .tank_selector import TankSelector, TankTemplate
 from wot_ai.game_modules.ui_control.actions import UIActions
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
-from wot_ai.data_collection.game_state_detector import GameStateDetector
+from wot_ai.game_modules.vision.detection.map_name_detector import MapNameDetector
 
 
 class BattleTask:
@@ -56,8 +54,7 @@ class BattleTask:
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
         self.selected_tank_: Optional[TankTemplate] = None
-        self.game_state_detector_ = GameStateDetector()
-    
+
     def run(self) -> bool:
         """
         执行战斗任务
@@ -247,24 +244,6 @@ class BattleTask:
             logger.warning("手动退出流程等待返回车库超时")
         else:
             logger.info("已通过手动流程回到车库")
-
-    def _attempt_detect_battle_end(self) -> bool:
-        """
-        OCR 检测胜利/失败/被击毁等状态
-        """
-        frame = screenshot()
-        if frame is None:
-            logger.debug("无法获取截图，跳过战斗结果检测")
-            return False
-        
-        detected_state = self.game_state_detector_.DetectState(frame)
-        if detected_state in {'战斗胜利', '战斗失败', '坦克被该玩家击毁'}:
-            logger.info(f"OCR 检测到战斗状态: {detected_state}")
-            self.ai_controller_.stop()
-            self._handle_manual_exit_to_garage(detected_state)
-            return True
-        
-        return False
     
     def in_battle_loop(self, map_name: str) -> bool:
         """
