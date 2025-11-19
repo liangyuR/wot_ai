@@ -16,10 +16,10 @@ import numpy as np
 from loguru import logger
 
 # 导入所需模块
-from wot_ai.game_modules.navigation.service.capture_service import CaptureService
-from wot_ai.game_modules.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
-from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetector
-from wot_ai.game_modules.navigation.ui.transparent_overlay import TransparentOverlay
+from src.navigation.service.capture_service import CaptureService
+from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.detection.minimap_detector import MinimapDetector
+from src.navigation.ui.transparent_overlay import TransparentOverlay
 
 
 class DetectionPerformanceTest:

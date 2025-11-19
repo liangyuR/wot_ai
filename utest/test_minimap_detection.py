@@ -10,9 +10,9 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple
 from loguru import logger
-from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetector, MinimapDetectionResult
-from wot_ai.game_modules.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
-from wot_ai.game_modules.navigation.core.path_planner import AStarPlanner
+from src.vision.detection.minimap_detector import MinimapDetector, MinimapDetectionResult
+from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
+from src.navigation.core.path_planner import AStarPlanner
 
 
 def TestYOLODetector(minimap: np.ndarray, model_path: str, confidence_threshold: float = 0.25) -> Tuple[bool, MinimapDetectionResult, np.ndarray]:
