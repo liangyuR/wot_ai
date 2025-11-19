@@ -17,8 +17,8 @@ from loguru import logger
 
 # 导入所需模块
 from src.navigation.service.capture_service import CaptureService
-from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
-from src.vision.detection.minimap_detector import MinimapDetector
+from src.vision.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.minimap_detector import MinimapDetector
 from src.navigation.ui.transparent_overlay import TransparentOverlay
 
 

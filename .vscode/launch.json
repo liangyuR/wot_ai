@@ -13,17 +13,15 @@
             "console": "integratedTerminal",
             "args": ""
         },
-        // map_name_detector debug
         {
             "name": "地图名称检测器调试",
             "type": "debugpy",
             "request": "launch",
-            "program": "src/vision/detection/map_name_detector.py",
+            "program": "src/vision/map_name_detector.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": "C:\\Users\\11601\\Desktop\\微信图片_20251118133709_457_14.jpg"
         },
-        // path test
         {
             "name": "路径测试",
             "type": "debugpy",
@@ -31,6 +29,15 @@
             "program": "src/utils/global_path.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "小地图检测器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/vision/minimap_detector.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": "D:\\project\\wot_ai\\utest\\minimap_bak.png"
         }
     ]
 }

@@ -16,8 +16,8 @@ import signal
 from loguru import logger
 
 from src.navigation.service.capture_service import CaptureService
-from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
-from src.vision.detection.minimap_detector import MinimapDetector
+from src.vision.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.minimap_detector import MinimapDetector
 from src.navigation.service.control_service import ControlService
 from src.navigation.core.navigation_executor import NavigationExecutor
 from src.navigation.core.mask_loader import load_mask

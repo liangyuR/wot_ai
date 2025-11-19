@@ -18,7 +18,7 @@ import numpy as np
 from loguru import logger
 import cv2
 
-from ..detection_engine import DetectionEngine
+from detection_engine import DetectionEngine
 
 
 @dataclass
@@ -125,7 +125,7 @@ class MinimapDetector:
         return self.class_name_to_id_.get(class_name)
 
     # -----------------------------------------------------------
-    def Detect(self, frame: np.ndarray, debug: bool = False) -> MinimapDetectionResult:
+    def Detect(self, frame: np.ndarray) -> MinimapDetectionResult:
         """
         检测小地图中的关键元素
 
@@ -155,10 +155,6 @@ class MinimapDetector:
         
         if not yolo_results:
             logger.error("MinimapDetector: 检测结果为空")
-            if debug:
-                cv2.imshow("MinimapDetector Debug", frame)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
             return MinimapDetectionResult(None, None, None, [])
 
         if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
@@ -178,7 +174,7 @@ class MinimapDetector:
         
         # 角度提取
         angle_start = time.time()
-        self_angle = self._extract_angle(frame, raw_detections, "self_arrow", debug=debug)
+        self_angle = self._extract_angle(frame, raw_detections, "self_arrow")
         angle_elapsed = time.time() - angle_start
 
         result = MinimapDetectionResult(self_pos, self_angle, enemy_flag_pos, raw_detections)
@@ -191,13 +187,6 @@ class MinimapDetector:
             logger.debug(f"[性能] 角度提取耗时: {angle_elapsed*1000:.1f}ms")
         if total_elapsed > 0.1:  # 总耗时超过100ms
             logger.warning(f"[性能] 检测总耗时: {total_elapsed*1000:.1f}ms (YOLO:{yolo_elapsed*1000:.1f}ms, 解析:{parse_elapsed*1000:.1f}ms, 位置:{pos_elapsed*1000:.1f}ms, 角度:{angle_elapsed*1000:.1f}ms)")
-        
-        if debug:
-            vis_img = self._visualize_results(frame, result)
-            if vis_img is not None:
-                cv2.imshow("MinimapDetector Debug", vis_img)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
 
         return result
 
@@ -374,7 +363,7 @@ class MinimapDetector:
         center_y = (y1 + y2) / 2.0
         return (center_x, center_y)
 
-    def _extract_angle(self, minimap: np.ndarray, detections: List[Dict], class_name: str, debug: bool = False) -> Optional[float]:
+    def _extract_angle(self, minimap: np.ndarray, detections: List[Dict], class_name: str) -> Optional[float]:
         """从检测结果中提取角度（通过轮廓分析）
         
         Args:
@@ -515,3 +504,42 @@ class MinimapDetector:
     def Reset(self):
         """重置检测器状态"""
         self.angle_smoother_.Reset()
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+    parser = argparse.ArgumentParser(
+        description="测试 MinimapDetector 检测功能",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "image_path",
+        type=str,
+        help="图片文件路径（小地图截图）"
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default="best.pt",
+        help="检测模型路径 (默认: best.pt)"
+    )
+    args = parser.parse_args()
+
+    image_path = args.image_path
+    model_path = args.model_path
+    frame = cv2.imread(image_path)
+    if frame is None:
+        print(f"无法读取图片: {image_path}")
+        sys.exit(1)
+
+    detector = MinimapDetector(model_path=model_path)
+    if not detector.LoadModel():
+        print("模型加载失败")
+        sys.exit(1)
+    result = detector.Detect(frame)
+    print("检测结果:", result)
+
+    vis_img = detector._visualize_results(frame, result)
+    cv2.imshow("MinimapDetector Vis", vis_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()

@@ -10,8 +10,8 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple
 from loguru import logger
-from src.vision.detection.minimap_detector import MinimapDetector, MinimapDetectionResult
-from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.minimap_detector import MinimapDetector, MinimapDetectionResult
+from src.vision.minimap_anchor_detector import MinimapAnchorDetector
 from src.navigation.core.path_planner import AStarPlanner
 
 

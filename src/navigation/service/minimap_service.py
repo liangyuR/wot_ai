@@ -10,7 +10,7 @@ from typing import Optional
 import numpy as np
 from loguru import logger
 
-from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.minimap_anchor_detector import MinimapAnchorDetector
 from src.navigation.ui.transparent_overlay import TransparentOverlay
 from src.navigation.config.models import NavigationConfig
 
