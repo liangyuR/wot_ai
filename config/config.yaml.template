@@ -1,0 +1,61 @@
+# 导航系统配置文件模板
+# 复制此文件为 config.yaml 并填写实际值
+
+# YOLO模型配置
+model:
+  path: "tests/best_m_detect.pt"  # YOLO模型文件路径（必需）
+  conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
+  iou_threshold: 0.75  # IoU阈值 (0.0-1.0)
+
+# 小地图配置
+minimap:
+  template_path: "tests/minimap_border.png"  # 小地图模板文件路径（必需）
+  size: [640, 640]  # 小地图尺寸 [width, height]
+  max_size: 1000  # 小地图最大尺寸
+
+# 掩码配置（可选）
+mask:
+  directory: null  # 掩码文件夹路径（支持相对路径）
+  filename_format: "{map_name}_mask.png"  # 命名模板，支持 {map_name}
+  path: null  # 手动指定单个掩码文件，优先级最高
+  inflation_radius_px: 18  # 障碍膨胀半径（像素）
+  cost_alpha: 120.0  # 代价图权重
+
+# 车辆配置
+vehicle:
+  screenshot_dir: "vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）
+
+# 栅格配置
+grid:
+  size: [256, 256]  # 栅格尺寸 [width, height]
+
+# 路径规划配置
+path_planning:
+  enable_astar_smoothing: true  # 是否启用A*内部平滑
+  astar_smooth_weight: 0.3  # A*平滑权重 (0.0-1.0)
+  post_smoothing_method: "catmull_rom"  # cost-map后处理: "catmull_rom" 或 "los"
+  simplify_method: "rdp"  # 简化方法
+  simplify_threshold: 8.0  # 简化阈值
+  num_points_per_segment: 8  # 每段采样点数
+  curvature_threshold_deg: 40.0  # 曲率阈值（度）
+  check_curvature: true  # 是否进行曲率检查
+  enable_los_post_smoothing: true  # 当 post_smoothing_method=los 时是否启用
+
+# 控制配置
+control:
+  move_speed: 1.0  # 移动速度
+  rotation_smooth: 0.3  # 旋转平滑度
+  target_point_offset: 20  # 目标点偏移量
+  path_deviation_tolerance: 60.0  # 路径偏离容忍度（像素）
+  goal_arrival_threshold: 30.0  # 终点到达阈值（像素）
+  stuck_threshold: 5.0  # 卡顿检测阈值（像素）
+  stuck_frames_threshold: 10  # 连续卡顿帧数阈值
+
+# UI配置
+ui:
+  overlay_fps: 30  # 覆盖层FPS
+  overlay_alpha: 180  # 覆盖层透明度 (0-255)
+
+# 屏幕捕获配置
+monitor_index: 1  # 屏幕捕获监视器索引
+
