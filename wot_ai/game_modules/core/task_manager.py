@@ -86,10 +86,23 @@ class TaskManager:
                     self.ui_actions_
                 )
                 
-                # 执行战斗任务
-                success = task.run()
-                if not success:
-                    logger.warning("战斗任务执行失败，继续下一局")
+                # 启动事件驱动循环
+                if not task.start():
+                    logger.warning("战斗任务启动失败，继续下一局")
+                    time.sleep(2.0)
+                    continue
+                
+                # 等待任务运行，直到达到停止条件
+                try:
+                    while task.is_running() and self.running_:
+                        if self._should_stop():
+                            logger.info("达到停止条件，停止战斗任务")
+                            task.stop()
+                            break
+                        time.sleep(2.0)
+                except Exception as e:
+                    logger.error(f"战斗任务运行异常: {e}")
+                    task.stop()
                 
                 # 短暂休息
                 time.sleep(2.0)

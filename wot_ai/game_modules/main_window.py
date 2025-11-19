@@ -705,7 +705,7 @@ class MainWindow:
         self._debug_log_status("开始测试：返回车库...")
         try:
             sleep(5)
-            success = self.debug_battle_task.enter_grage()
+            success = self.debug_battle_task.enter_garage()
             if success:
                 self._debug_log_status("✓ 成功返回车库")
             else:

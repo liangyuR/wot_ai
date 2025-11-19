@@ -12,7 +12,6 @@ from typing import Optional
 import numpy as np
 import cv2
 from loguru import logger
-from pathlib import Path
 
 from wot_ai.config import get_program_dir
 from wot_ai.game_modules.core.actions import screenshot
@@ -22,7 +21,6 @@ from wot_ai.game_modules.core.global_context import GlobalContext
 class GameState(Enum):
     """游戏状态枚举"""
     IN_GARAGE = "in_garage"
-    IN_LOADING = "in_loading"
     IN_BATTLE = "in_battle"
     IN_END = "in_end"
     IN_RESULT_PAGE = "in_result_page"
@@ -52,7 +50,6 @@ class StateMachine:
         # 状态模板映射
         self.state_templates_ = {
             GameState.IN_GARAGE: "in_garage.png",
-            GameState.IN_LOADING: "in_loading.png",
             GameState.IN_END: "pingjia.png",
             GameState.IN_BATTLE: "in_battle.png",
             # TODO(@liangyu) 尝试判定评价系统模板，貌似每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束

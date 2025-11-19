@@ -12,17 +12,8 @@ UI 动作封装模块
 import time
 from typing import Optional, Tuple
 from loguru import logger
-
-try:
-    import pyautogui
-    # 启用安全模式：鼠标移到屏幕角落可中断
-    pyautogui.FAILSAFE = True
-except ImportError:
-    logger.error("pyautogui 未安装，请运行: pip install pyautogui")
-    pyautogui = None
-
+import pyautogui
 from .matcher_pyautogui import match_template
-
 
 class UIActions:
     """UI 动作封装类"""
@@ -35,9 +26,6 @@ class UIActions:
             click_delay: 点击后的延迟时间（秒），让游戏 UI 有时间响应
             move_duration: 鼠标移动的持续时间（秒），用于平滑移动
         """
-        if pyautogui is None:
-            raise RuntimeError("pyautogui 未安装，无法使用 UIActions")
-        
         self.click_delay_ = click_delay
         self.move_duration_ = move_duration
     
