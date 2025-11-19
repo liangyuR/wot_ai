@@ -15,12 +15,10 @@ import numpy as np
 from loguru import logger
 
 from wot_ai.game_modules.navigation.service.capture_service import CaptureService
-from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetectionResult
 from wot_ai.game_modules.navigation.service.minimap_service import MinimapService
 from wot_ai.game_modules.navigation.service.path_planning_service import PathPlanningService
 from wot_ai.game_modules.navigation.core.navigation_executor import NavigationExecutor
 from wot_ai.game_modules.navigation.core.path_follower import PathFollower
-from wot_ai.game_modules.navigation.core.coordinate_utils import grid_to_world
 from wot_ai.game_modules.navigation.config.models import NavigationConfig
 
 
@@ -136,9 +134,6 @@ class ThreadManager:
         detection_fps = 30
         detection_interval = 1.0 / detection_fps
         
-        fps_window_size = 10
-        frame_times = []
-        
         minimap_region = self.minimap_service_.minimap_region
         
         while self.running_:
@@ -158,10 +153,10 @@ class ThreadManager:
                 detections = self.minimap_detector_.Detect(minimap, debug=False)
                 detect_elapsed = time.time() - detect_start
                 
-                # 性能监控
-                if capture_elapsed > 0.05:
+                # 性能监控（仅在超时时记录）
+                if capture_elapsed > 0.1:
                     logger.warning(f"屏幕捕获耗时: {capture_elapsed*1000:.2f}ms")
-                if detect_elapsed > 0.1:
+                if detect_elapsed > 0.2:
                     logger.warning(f"YOLO检测耗时: {detect_elapsed*1000:.2f}ms")
                 
                 if detections.self_pos is None:
@@ -178,22 +173,9 @@ class ThreadManager:
                     except queue.Empty:
                         pass
                 
-                # 计算FPS
-                elapsed = time.time() - start_time
-                frame_times.append(elapsed)
-                if len(frame_times) > fps_window_size:
-                    frame_times.pop(0)
-                
-                # 更新overlay FPS
-                if len(frame_times) > 0:
-                    avg_frame_time = sum(frame_times) / len(frame_times)
-                    current_fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0.0
-                    overlay = self.minimap_service_.overlay
-                    if overlay and hasattr(overlay, 'current_ui_fps_'):
-                        overlay.UpdateFps(overlay.current_ui_fps_, current_fps)
-                
                 # 控制循环频率
-                if elapsed > detection_interval * 2:
+                elapsed = time.time() - start_time
+                if elapsed > detection_interval * 3:
                     logger.warning(f"检测耗时过长: {elapsed*1000:.2f}ms")
                 sleep_time = max(0, detection_interval - elapsed)
                 if sleep_time > 0:
@@ -250,7 +232,6 @@ class ThreadManager:
                 if detections.self_angle is not None:
                     angle_deg = detections.self_angle
                     current_heading_rad = math.radians(angle_deg)
-                    logger.info(f"当前角度: {angle_deg:.2f}°")
                 
                 # 检测卡顿
                 is_stuck = False
@@ -294,7 +275,6 @@ class ThreadManager:
                         local_current_path_ = path
                         local_current_target_idx_ = 0
                         local_stuck_frames_ = 0
-                        logger.info(f"路径规划成功，路径长度: {len(path)}")
                         
                         # 将路径放入队列
                         try:
@@ -359,6 +339,8 @@ class ThreadManager:
                 
                 # 控制循环频率
                 elapsed = time.time() - start_time
+                if elapsed > control_interval * 3:
+                    logger.warning(f"控制耗时过长: {elapsed*1000:.2f}ms")
                 sleep_time = max(0, control_interval - elapsed)
                 if sleep_time > 0:
                     time.sleep(sleep_time)
@@ -379,9 +361,6 @@ class ThreadManager:
         
         ui_fps = 30
         ui_interval = 1.0 / ui_fps
-        
-        fps_window_size = 30
-        frame_times = []
         
         while self.running_:
             try:
@@ -435,22 +414,9 @@ class ThreadManager:
                         mask=self.mask_data_.aligned_mask if self.mask_data_ else None
                     )
                 
-                # 计算FPS
-                elapsed = time.time() - start_time
-                frame_times.append(elapsed)
-                if len(frame_times) > fps_window_size:
-                    frame_times.pop(0)
-                
-                if len(frame_times) > 0:
-                    avg_frame_time = sum(frame_times) / len(frame_times)
-                    current_fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0.0
-                    
-                    if overlay:
-                        detection_fps = 0.0
-                        overlay.UpdateFps(current_fps, detection_fps)
-                
                 # 控制循环频率
-                if elapsed > ui_interval * 1.5:
+                elapsed = time.time() - start_time
+                if elapsed > ui_interval * 3:
                     logger.warning(f"UI更新耗时过长: {elapsed*1000:.2f}ms")
                 sleep_time = max(0, ui_interval - elapsed)
                 if sleep_time > 0:

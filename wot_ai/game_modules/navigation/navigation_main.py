@@ -72,8 +72,6 @@ class NavigationMain:
             except ValueError:
                 # 如果信号注册失败（例如在非主线程），记录警告但不中断
                 logger.warning("无法注册信号处理器（非主线程），将使用其他方式处理退出")
-        else:
-            logger.debug("非主线程，跳过信号注册")
     
     def set_map_name(self, map_name: Optional[str]) -> None:
         """更新地图名称"""
@@ -351,8 +349,6 @@ class NavigationMain:
         
         logger.warning(f"未在 {directory} 中找到地图 {self.map_name_} 的掩码，使用默认空地图")
         return None
-        
-        logger.info("导航主循环结束")
     
     def Stop(self):
         """停止运行"""

@@ -79,32 +79,34 @@ class MinimapService:
     
     def initialize_overlay(self, minimap_region: dict) -> bool:
         """
-        初始化透明覆盖层（显示在左上角，避免影响 mss 录制小地图）
+        初始化透明覆盖层（直接绘制到小地图位置）
         
         Args:
-            minimap_region: 小地图区域 {x, y, width, height}（用于确定 overlay 尺寸）
+            minimap_region: 小地图区域 {x, y, width, height}（用于确定 overlay 位置和尺寸）
         
         Returns:
             是否初始化成功
         """
         try:
-            # overlay 显示在左上角，尺寸与小地图相同以保持路径显示比例
+            # overlay 直接绘制到小地图位置
             overlay_width = minimap_region['width']
             overlay_height = minimap_region['height']
-            logger.info(f"初始化透明覆盖层，位置: (0, 0)（左上角）, "
+            overlay_x = minimap_region['x']
+            overlay_y = minimap_region['y']
+            logger.info(f"初始化透明覆盖层，位置: ({overlay_x}, {overlay_y})（小地图位置）, "
                        f"尺寸: {overlay_width}x{overlay_height}")
             
             self.overlay_ = TransparentOverlay(
                 width=overlay_width,
                 height=overlay_height,
                 window_name="WOT_AI Navigation Overlay",
-                pos_x=0,  # 左上角
-                pos_y=0,  # 左上角
+                pos_x=overlay_x,  # 小地图X坐标
+                pos_y=overlay_y,  # 小地图Y坐标
                 fps=self.config_.ui.overlay_fps,
                 alpha=self.config_.ui.overlay_alpha
             )
             
-            logger.info("透明覆盖层初始化成功（位于左上角）")
+            logger.info("透明覆盖层初始化成功（位于小地图位置）")
             return True
             
         except Exception as e:
