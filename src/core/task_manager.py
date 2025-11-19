@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 from loguru import logger
 
 from .state_machine import StateMachine
-from .global_context import GlobalContext
 from .tank_selector import TankSelector
 from .battle_task import BattleTask
 
@@ -28,39 +27,31 @@ class TaskManager:
     
     def __init__(
         self,
-        vehicle_screenshot_dir: Path,
-        vehicle_priority: List[str],
         ai_config: NavigationConfig,
         run_hours: int = 4,
         auto_stop: bool = False,
         auto_shutdown: bool = False,
-        global_context: Optional[GlobalContext] = None
     ):
         """
         初始化任务管理器
         
         Args:
-            vehicle_screenshot_dir: 车辆截图目录
-            vehicle_priority: 车辆优先级列表
             ai_config: NavigationConfig配置对象
             run_hours: 运行时长限制（小时）
             auto_stop: 达到时长后自动停止
             auto_shutdown: 达到时长后自动关机（需要管理员权限）
             global_context: 全局上下文（分辨率、模板信息）
         """
-        self.vehicle_screenshot_dir_ = vehicle_screenshot_dir
-        self.vehicle_priority_ = vehicle_priority
         self.ai_config_ = ai_config
         self.run_hours_ = run_hours
         self.auto_stop_ = auto_stop
         self.auto_shutdown_ = auto_shutdown
-        self.global_context_ = global_context or GlobalContext()
         
         self.running_ = False
         self.start_time_ = None
-        self.state_machine_ = StateMachine(global_context=self.global_context_)
+        self.state_machine_ = StateMachine()
         self.map_detector_ = MapNameDetector()
-        self.tank_selector_ = TankSelector(vehicle_screenshot_dir, vehicle_priority)
+        self.tank_selector_ = TankSelector()
         self.ui_actions_ = UIActions()
     
     def run_forever(self) -> None:

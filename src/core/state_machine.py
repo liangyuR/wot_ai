@@ -14,7 +14,6 @@ import cv2
 from loguru import logger
 
 from src.core.actions import screenshot
-from src.core.global_context import GlobalContext
 from src.utils.global_path import TemplatePath
 
 
@@ -33,7 +32,6 @@ class StateMachine:
     def __init__(
         self,
         confirmation_frames: int = 3,
-        global_context: Optional[GlobalContext] = None
     ):
         """
         初始化状态机
@@ -45,22 +43,15 @@ class StateMachine:
         self.current_state_ = GameState.UNKNOWN
         self.state_history_ = []  # 状态历史记录
         self.last_update_time_ = 0.0
-        self.global_context_ = global_context or GlobalContext()
         
         # 状态模板映射
         self.state_templates_ = {
             GameState.IN_GARAGE: "in_garage.png",
             GameState.IN_END: "pingjia.png",
             GameState.IN_BATTLE: "in_battle.png",
-            # TODO(@liangyu) 尝试判定评价系统模板，貌似每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
+            # 每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
             GameState.IN_RESULT_PAGE: "space_jump.png", # 在胜利/失败结算页面（偶尔可能不会直接回到车库）
         }
-        
-        self.template_resolution_ = self.global_context_.template_tier
-        logger.info(
-            f"使用模板目录: {self.template_resolution_} "
-            f"(分辨率: {self.global_context_.resolution[0]}x{self.global_context_.resolution[1]})"
-        )
     
     def update(self, frame: Optional[np.ndarray] = None) -> GameState:
         """
@@ -187,8 +178,4 @@ class StateMachine:
 
 
 if __name__ == "__main__":
-    frame = screenshot()
-    context = GlobalContext()
-    sm = StateMachine(confirmation_frames=2, global_context=context)
-    state = sm.detect_state(frame)
-    print(f"当前检测到的状态: {state.value}")
+    pass

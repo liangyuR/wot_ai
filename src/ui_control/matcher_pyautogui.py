@@ -15,14 +15,12 @@ from typing import Optional, Tuple
 from loguru import logger
 import pyautogui
 
-from src.core.global_context import GlobalContext
 from src.utils.global_path import TemplatePath
 
 def match_template(
     template_name: str,
     confidence: float = 0.85,
     region: Optional[Tuple[int, int, int, int]] = None,
-    template_dir: Optional[str] = None
 ) -> Optional[Tuple[int, int]]:
     """
     在屏幕上查找模板，返回匹配位置的中心点坐标

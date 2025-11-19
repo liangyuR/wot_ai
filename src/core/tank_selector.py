@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 from loguru import logger
-
+from src.utils.global_path import GetVehicleScreenshotsDir
 
 @dataclass(frozen=True)
 class TankTemplate:
@@ -29,7 +29,7 @@ class TankTemplate:
 class TankSelector:
     """坦克选择器"""
     
-    def __init__(self, vehicle_screenshot_dir: Path, vehicle_priority: List[str] = None):
+    def __init__(self):
         """
         初始化坦克选择器
         
@@ -37,10 +37,10 @@ class TankSelector:
             vehicle_screenshot_dir: 车辆截图目录路径
             vehicle_priority: 车辆优先级列表（文件名列表），如果为None则按文件名排序
         """
-        self.vehicle_screenshot_dir_ = Path(vehicle_screenshot_dir)
-        self.vehicle_priority_ = vehicle_priority or []
+        self.vehicle_screenshot_dir_ = GetVehicleScreenshotsDir()
+        self.vehicle_priority_ = []
         
-        # 如果没有提供优先级列表，从目录中读取所有图片文件
+        # 从目录中读取所有图片文件
         if not self.vehicle_priority_ and self.vehicle_screenshot_dir_.exists():
             image_files = sorted(self.vehicle_screenshot_dir_.glob("*.png"))
             self.vehicle_priority_ = [f.name for f in image_files]

@@ -17,7 +17,7 @@ from src.core.tank_selector import TankSelector, TankTemplate
 from src.ui_control.actions import UIActions
 from src.navigation.config.models import NavigationConfig
 from src.vision.detection.map_name_detector import MapNameDetector
-from src.listeners.global_listener import GlobalInputListener
+from src.listeners.pynput_listener import PynputInputListener
 from src.navigation.service.control_service import ControlService
 
 
@@ -72,15 +72,12 @@ class BattleTask:
         self.selected_tank_: Optional[TankTemplate] = None
         
         # 热键监听器
-        self.input_listener_: Optional[GlobalInputListener] = None
-        try:
-            self.input_listener_ = GlobalInputListener()
-            self.input_listener_.SetHotkeyCallback("f9", self._on_f9_pressed)
-            self.input_listener_.SetHotkeyCallback("f10", self._on_f10_pressed)
-            self.input_listener_.Start()
-            logger.info("热键监听器已启动 (F9: 启动, F10: 停止)")
-        except Exception as e:
-            logger.warning(f"热键监听器启动失败: {e}")
+        self.input_listener_: Optional[PynputInputListener] = None
+        self.input_listener_ = PynputInputListener()
+        self.input_listener_.SetHotkeyCallback("f9", self._on_f9_pressed)
+        self.input_listener_.SetHotkeyCallback("f10", self._on_f10_pressed)
+        self.input_listener_.Start()
+        logger.info("热键监听器已启动 (F9: 启动, F10: 停止)")
     
     def start(self) -> bool:
         """

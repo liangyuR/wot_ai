@@ -14,7 +14,6 @@ minimap:
   size: [1200, 1200]  # 小地图尺寸 [width, height]
   max_size: 1200  # 小地图最大尺寸
 
-# TODO(@ly) 这里的路径后续可以改为从程序目录/masks/ 目录下读取，当加入游戏地图后，自动该地图的掩码文件 {地图名_mask}.png
 # 掩码配置（可选）
 mask:
   directory: null  # 掩码文件夹，支持相对路径（相对于程序目录）

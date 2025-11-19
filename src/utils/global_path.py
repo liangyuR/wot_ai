@@ -3,15 +3,23 @@ from pathlib import Path
 from src.core.global_context import GlobalContext
 from loguru import logger
 
+_global_context = None
+
+def GetGlobalContext() -> GlobalContext:
+    global _global_context
+    if _global_context is None:
+        _global_context = GlobalContext()
+    return _global_context
+
 def GetProgramDir() -> Path:
     path = Path(os.getcwd())
     return path
 
 def MinimapBorderTemplatePath() -> str:
-    return GetProgramDir() / "resource" / "template" / GlobalContext().template_tier / "minimap_border.png"
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "minimap_border.png"
 
 def TemplatePath(template_name: str) -> str:
-    return GetProgramDir() / "resource" / "template" / GlobalContext().template_tier / template_name
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / template_name
 
 def GetMapsDir() -> Path:
     return GetProgramDir() / "resource" / "maps"

@@ -9,7 +9,6 @@ AI控制器模块
 import threading
 from typing import Optional
 from loguru import logger
-from src.core.global_context import GlobalContext
 from src.navigation.config.models import NavigationConfig
 from src.navigation.navigation_main import NavigationMain
 from src.utils.global_path import MinimapBorderTemplatePath
