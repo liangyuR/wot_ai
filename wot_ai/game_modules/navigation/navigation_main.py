@@ -79,6 +79,78 @@ class NavigationMain:
         """更新地图名称"""
         self.map_name_ = map_name
     
+    def update_mask(self, map_name: Optional[str] = None) -> bool:
+        """
+        更新地图名称并重新加载掩码
+        
+        Args:
+            map_name: 新的地图名称，如果为None则使用当前地图名称
+        
+        Returns:
+            是否成功更新
+        """
+        if map_name is not None:
+            self.map_name_ = map_name
+        
+        if not self.map_name_:
+            logger.error("未提供地图名称，无法更新掩码")
+            return False
+        
+        if self.running_:
+            logger.error("导航系统正在运行，无法更新掩码，请先停止")
+            return False
+        
+        if not self.capture_service_ or not self.minimap_service_:
+            logger.error("服务未初始化，无法更新掩码")
+            return False
+        
+        try:
+            logger.info(f"开始更新掩码，地图: {self.map_name_}")
+            
+            # 1. 检测小地图位置
+            logger.info("检测小地图位置...")
+            frame = self.capture_service_.Capture()
+            if frame is None:
+                logger.error("无法捕获屏幕")
+                return False
+            
+            minimap_region = self.minimap_service_.detect_region(frame)
+            if minimap_region is None:
+                logger.error("无法检测到小地图位置")
+                return False
+            
+            # 2. 重新加载掩码
+            minimap_size = (minimap_region['width'], minimap_region['height'])
+            mask_path = self._ResolveMaskPath_()
+            
+            self.mask_data_ = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_)
+            if self.mask_data_ is None:
+                logger.error("掩码加载失败")
+                return False
+            
+            # 3. 更新路径规划服务的掩码数据
+            if self.path_planning_service_:
+                self.path_planning_service_.set_mask_data(
+                    self.mask_data_.grid,
+                    self.mask_data_.cost_map,
+                    self.mask_data_.inflated_obstacle
+                )
+                logger.info("路径规划服务掩码数据已更新")
+            
+            # 4. 更新线程管理器的掩码数据（如果存在）
+            if self.thread_manager_:
+                self.thread_manager_.mask_data_ = self.mask_data_
+                logger.info("线程管理器掩码数据已更新")
+            
+            logger.info("掩码更新成功")
+            return True
+            
+        except Exception as e:
+            logger.error(f"更新掩码失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def _SignalHandler_(self, signum, frame):
         """信号处理器（Ctrl+C）"""
         logger.info("收到退出信号，正在关闭...")

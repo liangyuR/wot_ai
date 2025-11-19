@@ -176,6 +176,14 @@ class BattleTask:
         
         logger.info("检测到车库状态，开始选择车辆...")
         
+        # 如果导航AI未初始化，在第一次进入车库时初始化（使用默认地图）
+        if not self.ai_controller_.is_initialized():
+            logger.info("导航AI未初始化，在车库状态进行初始化...")
+            if not self.ai_controller_.start(self.ai_config_, "default"):
+                logger.error("导航AI初始化失败")
+                return
+            logger.info("导航AI初始化完成（YOLO模型已加载）")
+        
         # 选择车辆
         if not self.select_tank():
             logger.error("选择车辆失败，将在下次循环重试")
@@ -213,12 +221,28 @@ class BattleTask:
         else:
             logger.info(f"识别到地图: {map_name}")
         
-        # 启动导航AI
+        # 如果导航AI已初始化，更新掩码
+        if self.ai_controller_.is_initialized():
+            logger.info("导航AI已初始化，更新掩码...")
+            if not self.ai_controller_.update_mask(map_name):
+                logger.warning("掩码更新失败，继续使用当前掩码")
+            else:
+                logger.info("掩码更新成功")
+        
+        # 启动导航AI运行循环
         if not self.ai_controller_.is_running():
-            if not self.ai_controller_.start(self.ai_config_, map_name):
-                logger.error("导航AI启动失败")
-                return
-            logger.info("导航AI已启动")
+            if not self.ai_controller_.is_initialized():
+                # 如果未初始化，执行完整初始化
+                if not self.ai_controller_.start(self.ai_config_, map_name):
+                    logger.error("导航AI启动失败")
+                    return
+                logger.info("导航AI已启动")
+            else:
+                # 已初始化，只启动运行循环
+                if not self.ai_controller_.start(self.ai_config_, map_name):
+                    logger.error("导航AI运行循环启动失败")
+                    return
+                logger.info("导航AI运行循环已启动")
         else:
             logger.debug("导航AI已在运行")
         
@@ -228,17 +252,17 @@ class BattleTask:
     
     def _handle_end_state(self) -> None:
         """
-        处理结束状态：停止导航AI
+        处理结束状态：停止导航AI运行循环（保留初始化状态）
         """
         if self.end_handled_:
             return
         
-        logger.info("检测到战斗结束状态，停止导航AI...")
+        logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
-        # 停止导航AI
+        # 停止导航AI运行循环（保留初始化状态）
         if self.ai_controller_.is_running():
             self.ai_controller_.stop()
-            logger.info("导航AI已停止")
+            logger.info("导航AI运行循环已停止（保留初始化状态）")
         
         # 重置战斗状态标志，为下一局做准备
         self.battle_handled_ = False
