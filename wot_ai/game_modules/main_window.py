@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from loguru import logger
 import cv2
+from time import sleep
 
 from wot_ai.game_modules.core.battle_task import BattleTask
 from wot_ai.game_modules.core.task_manager import TaskManager
@@ -481,10 +482,10 @@ class MainWindow:
             self.debug_ai_controller_ = AIController()
 
             self.debug_battle_task = BattleTask(
-                self.debug_state_machine_,
                 self.debug_tank_selector_,
+                self.debug_state_machine_,
                 self.debug_map_detector_,
-                self.debug_ai_controller_,
+                self.debug_ai_config_,
                 self.debug_ui_actions_
             )
 
@@ -654,33 +655,12 @@ class MainWindow:
             return
         
         try:
-            candidates = self.debug_tank_selector_.pick()
-            if not candidates:
-                messagebox.showwarning("警告", "没有可用的坦克模板")
-                self._debug_log_status("没有可用的坦克模板")
-                return
-            
-            self._debug_log_status(f"找到 {len(candidates)} 个候选坦克")
-            
-            selected = False
-            for candidate in candidates:
-                self._debug_log_status(f"尝试选择: {candidate.name}")
-                success = self.debug_battle_task.SelectVehicle(
-                    template_name=candidate.name,
-                    template_dir=str(candidate.directory),
-                    confidence=candidate.confidence,
-                    timeout=5.0
-                )
-                if success:
-                    self._debug_log_status(f"✓ 成功选择坦克: {candidate.name}")
-                    selected = True
-                    break
-                else:
-                    self._debug_log_status(f"✗ 坦克不可用: {candidate.name}")
-            
-            if not selected:
-                messagebox.showwarning("警告", "所有坦克都不可用或未找到")
-                self._debug_log_status("所有坦克都不可用")
+            success = self.debug_battle_task.select_tank()
+            if success:
+                self._debug_log_status("✓ 成功选择坦克")
+            else:
+                messagebox.showwarning("警告", "未找到坦克")
+                self._debug_log_status("✗ 未找到坦克")
         except Exception as e:
             logger.error(f"选择坦克失败: {e}")
             messagebox.showerror("错误", f"选择坦克失败: {e}")
@@ -707,6 +687,7 @@ class MainWindow:
         self._debug_log_status("开始测试：识别地图名称...")
         
         try:
+            sleep(5)
             map_name = self.debug_map_detector_.detect()
             if map_name:
                 self._debug_log_status(f"✓ 从暂停界面识别到地图: {map_name}")
@@ -723,6 +704,7 @@ class MainWindow:
         """单步测试：返回车库"""
         self._debug_log_status("开始测试：返回车库...")
         try:
+            sleep(5)
             success = self.debug_battle_task.enter_grage()
             if success:
                 self._debug_log_status("✓ 成功返回车库")
@@ -753,9 +735,10 @@ class MainWindow:
             return
 
         try:
-            self.debug_state_machine_.update(image_path=file_path)
+            frame = cv2.imread(file_path)
+            for _ in range(3):
+                self.debug_state_machine_.update(frame=frame)
             self._debug_log_status(f"✓ 已加载图片: {file_path}")
-            self.debug_state_machine_.update()
             current_state = self.debug_state_machine_.current_state()
             state_text = f"当前游戏状态: {current_state.value}"
             self._debug_log_status(state_text)

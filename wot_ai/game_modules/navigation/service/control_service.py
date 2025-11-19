@@ -212,37 +212,30 @@ class ControlService:
     def StopForward(self) -> None:
         """停止前进（释放W键）"""
         self.ReleaseKey('w')
-        logger.debug("停止前进")
     
     def StartLeft(self) -> None:
         """开始持续左转（按下A键）"""
         self.PressKey('a')
-        logger.debug("开始持续左转")
     
     def StopLeft(self) -> None:
         """停止左转（释放A键）"""
         self.ReleaseKey('a')
-        logger.debug("停止左转")
     
     def StartRight(self) -> None:
         """开始持续右转（按下D键）"""
         self.PressKey('d')
-        logger.debug("开始持续右转")
     
     def StopRight(self) -> None:
         """停止右转（释放D键）"""
         self.ReleaseKey('d')
-        logger.debug("停止右转")
     
     def StartBackward(self) -> None:
         """开始持续后退（按下S键）"""
         self.PressKey('s')
-        logger.debug("开始持续后退")
     
     def StopBackward(self) -> None:
         """停止后退（释放S键）"""
         self.ReleaseKey('s')
-        logger.debug("停止后退")
     
     def Stop(self) -> None:
         """停止移动（释放所有按键）"""
@@ -251,7 +244,6 @@ class ControlService:
             keys_to_release = list(self.pressed_keys_)
             for key in keys_to_release:
                 self.ReleaseKey(key)
-            logger.debug("已释放所有移动按键")
         except Exception as e:
             error_msg = f"停止操作失败: {e}"
             logger.error(error_msg)

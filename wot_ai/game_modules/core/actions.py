@@ -13,6 +13,7 @@ import pyautogui
 import mss
 import numpy as np
 import cv2
+from pynput import keyboard
 
 
 
@@ -88,9 +89,9 @@ def screenshot(region: Optional[Tuple[int, int, int, int]] = None) -> Optional[n
 
 
 def screenshot_with_key_hold(
-    key: str,
+    key: keyboard.Key,
     hold_duration: float = 2.0,
-    warmup: float = 1
+    warmup: float = 0.0
 ) -> Optional[np.ndarray]:
     """
     按住指定按键后截图
@@ -103,26 +104,36 @@ def screenshot_with_key_hold(
     Returns:
         BGR格式的numpy数组截图，如果失败则返回None
     """
-    if pyautogui is None:
-        logger.error("pyautogui 未安装，无法执行按键截图")
-        return screenshot()
-
+    kb = keyboard.Controller()
+    
+    def _key_down():
+        try:
+            kb.press(key)
+            return True
+        except Exception as exc:
+            logger.error(f"pynput 按键失败 {key}: {exc}")
+            return False
+    
+    def _key_up():
+        try:
+            kb.release(key)
+        except Exception as exc:
+            logger.error(f"释放按键 {key} 失败: {exc}")
+    
+    if not _key_down():
+        return None
+    
     try:
-        logger.info(f"按下按键 {key} 并准备截屏")
-        pyautogui.keyDown(key)
-        wait(warmup)
-
+        logger.info(f"按下按键 {key} 并保持 {hold_duration} 秒后截图")
+        if warmup > 0:
+            wait(warmup)
+        remain = max(0.0, hold_duration - warmup)
+        if remain > 0:
+            wait(remain)
         frame = screenshot()
-        elapsed = warmup
-        remaining = max(0.0, hold_duration - elapsed)
-        if remaining > 0:
-            wait(remaining)
         return frame
     except Exception as exc:
         logger.error(f"按住 {key} 截图失败: {exc}")
         return None
     finally:
-        try:
-            pyautogui.keyUp(key)
-        except Exception as exc:
-            logger.error(f"释放按键 {key} 失败: {exc}")
+        _key_up()
