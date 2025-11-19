@@ -5,9 +5,7 @@ Pynput 输入监听实现
 from typing import Set, Callable, Tuple
 from pynput import keyboard, mouse
 from loguru import logger
-
-from wot_ai.data_collection.core.input_listener import InputListener, InputAction
-
+from .input_listener import InputListener
 
 class PynputInputListener(InputListener):
     """使用 pynput 的输入监听实现"""

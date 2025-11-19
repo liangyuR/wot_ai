@@ -4,19 +4,7 @@
 
 from typing import Set, Callable, Tuple
 from loguru import logger
-
-try:
-    from data_collection.global_hotkey import GlobalKeyboardListener
-    GLOBAL_HOOK_AVAILABLE = True
-except ImportError:
-    try:
-        from global_hotkey import GlobalKeyboardListener
-        GLOBAL_HOOK_AVAILABLE = True
-    except ImportError:
-        GLOBAL_HOOK_AVAILABLE = False
-        logger.warning("全局键盘钩子不可用")
-
-from wot_ai.data_collection.core.input_listener import InputListener, InputAction
+from .input_listener import InputListener
 
 
 class GlobalInputListener(InputListener):
