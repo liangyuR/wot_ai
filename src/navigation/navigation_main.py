@@ -56,6 +56,9 @@ class NavigationMain:
         
         # 掩码数据
         self.mask_data_ = None
+        self.light_initialized_ = False
+        self.battle_initialized_ = False
+        self.battle_services_ready_ = False
         
         # 使用队列传递数据（完全无锁）
         self.detection_queue_ = queue.Queue(maxsize=10)  # 支持30FPS
@@ -95,8 +98,8 @@ class NavigationMain:
             logger.error("导航系统正在运行，无法更新掩码，请先停止")
             return False
         
-        if not self.capture_service_ or not self.minimap_service_:
-            logger.error("服务未初始化，无法更新掩码")
+        if not self._EnsureBattleServices_():
+            logger.error("战斗相关服务未准备，无法更新掩码")
             return False
         
         try:
@@ -152,28 +155,19 @@ class NavigationMain:
         self.Stop()
     
     def Initialize(self) -> bool:
-        """
-        初始化所有服务
+        """兼容旧接口，仅执行轻量初始化"""
+        return self.LightInitialize()
+    
+    def LightInitialize(self) -> bool:
+        """加载与战斗画面无关的基础服务"""
+        if self.light_initialized_:
+            logger.info("基础导航服务已初始化，跳过轻量初始化")
+            return True
         
-        Returns:
-            是否初始化成功
-        """
         try:
-            logger.info("开始初始化服务...")
+            logger.info("开始轻量初始化服务...")
             
-            # 1. 初始化屏幕捕获服务
-            logger.info("初始化屏幕捕获服务...")
-            self.capture_service_ = CaptureService(monitor_index=self.config_.monitor_index)
-            
-            # 2. 初始化小地图锚点检测器
-            logger.info(f"初始化小地图锚点检测器: {self.config_.minimap.template_path}")
-            self.anchor_detector_ = MinimapAnchorDetector(
-                template_path=self.config_.minimap.template_path,
-                debug=False,
-                multi_scale=False
-            )
-            
-            # 3. 初始化YOLO检测器
+            # 1. 初始化YOLO检测器
             logger.info(f"初始化YOLO检测器: {self.config_.model.path}")
             self.minimap_detector_ = MinimapDetector(
                 model_path=self.config_.model.path,
@@ -189,11 +183,11 @@ class NavigationMain:
             logger.info(f"模型预热中，使用尺寸: {self.config_.minimap.size}")
             self.minimap_detector_.engine_.Warmup(img_size=self.config_.minimap.size)
             
-            # 4. 初始化控制服务
+            # 2. 初始化控制服务
             logger.info("初始化控制服务...")
             self.control_service_ = ControlService()
             
-            # 5. 初始化导航执行器
+            # 3. 初始化导航执行器
             logger.info("初始化导航执行器...")
             self.nav_executor_ = NavigationExecutor(
                 control_service=self.control_service_,
@@ -201,95 +195,182 @@ class NavigationMain:
                 rotation_smooth=self.config_.control.rotation_smooth
             )
             
-            # 6. 初始化小地图服务
-            logger.info("初始化小地图服务...")
-            self.minimap_service_ = MinimapService(self.anchor_detector_, self.config_)
-            
-            # 7. 初始化路径规划服务
+            # 4. 初始化路径规划服务
             logger.info("初始化路径规划服务...")
             self.path_planning_service_ = PathPlanningService(self.config_)
             
-            logger.info("所有服务初始化成功")
+            self.light_initialized_ = True
+            logger.info("轻量初始化完成")
             return True
             
         except Exception as e:
-            logger.error(f"初始化失败: {e}")
+            logger.error(f"轻量初始化失败: {e}")
             import traceback
             traceback.print_exc()
+            self.light_initialized_ = False
+            return False
+    
+    def _EnsureBattleServices_(self) -> bool:
+        """确保与战斗画面相关的服务已准备（不启动线程）"""
+        if not self.LightInitialize():
+            return False
+        
+        if (
+            self.battle_services_ready_
+            and self.capture_service_ is not None
+            and self.minimap_service_ is not None
+        ):
+            return True
+        
+        try:
+            logger.info("准备战斗相关服务...")
+            
+            if self.capture_service_ is None:
+                logger.info("初始化屏幕捕获服务...")
+                self.capture_service_ = CaptureService(monitor_index=self.config_.monitor_index)
+            
+            if self.anchor_detector_ is None:
+                template_path = str(self.config_.minimap.template_path)
+                logger.info(f"初始化小地图锚点检测器: {template_path}")
+                self.anchor_detector_ = MinimapAnchorDetector(
+                    template_path=template_path,
+                    debug=False,
+                    multi_scale=False
+                )
+            
+            if self.minimap_service_ is None:
+                logger.info("初始化小地图服务...")
+                self.minimap_service_ = MinimapService(self.anchor_detector_, self.config_)
+            
+            self.battle_services_ready_ = True
+            logger.info("战斗相关服务准备完成")
+            return True
+        
+        except Exception as e:
+            logger.error(f"战斗服务准备失败: {e}")
+            import traceback
+            traceback.print_exc()
+            self.anchor_detector_ = None
+            self.minimap_service_ = None
+            self.battle_services_ready_ = False
+            return False
+    
+    def BattleInitialize(self) -> bool:
+        """战斗阶段初始化：检测小地图、加载掩码、启动线程"""
+        if self.battle_initialized_:
+            logger.info("战斗阶段服务已就绪，跳过初始化")
+            return True
+        
+        if self.running_:
+            logger.warning("导航系统已在运行，无法重复初始化战斗阶段")
+            return True
+        
+        if not self._EnsureBattleServices_():
+            return False
+        
+        try:
+            logger.info("开始战斗阶段初始化...")
+            
+            # 1. 首次检测小地图位置
+            logger.info("首次检测小地图位置...")
+            frame = self.capture_service_.Capture()
+            if frame is None:
+                logger.error("无法捕获屏幕")
+                return False
+            
+            minimap_region = self.minimap_service_.detect_region(frame)
+            if minimap_region is None:
+                logger.error("无法检测到小地图位置")
+                return False
+            
+            # 2. 加载掩码
+            minimap_size = (minimap_region['width'], minimap_region['height'])
+            mask_path = self._ResolveMaskPath_()
+            
+            self.mask_data_ = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_)
+            if self.mask_data_ is None:
+                logger.error("掩码加载失败")
+                return False
+            
+            # 3. 更新路径规划服务的掩码数据
+            self.path_planning_service_.set_mask_data(
+                self.mask_data_.grid,
+                self.mask_data_.cost_map,
+                self.mask_data_.inflated_obstacle
+            )
+            
+            # 4. 初始化透明覆盖层
+            if not self.minimap_service_.initialize_overlay(minimap_region):
+                logger.error("透明覆盖层初始化失败")
+                return False
+            
+            # 5. 创建线程管理器并启动
+            queues = {
+                'detection': self.detection_queue_,
+                'path': self.path_queue_
+            }
+            
+            self.thread_manager_ = ThreadManager(
+                capture_service=self.capture_service_,
+                minimap_detector=self.minimap_detector_,
+                minimap_service=self.minimap_service_,
+                path_planning_service=self.path_planning_service_,
+                nav_executor=self.nav_executor_,
+                queues=queues,
+                mask_data=self.mask_data_,
+                config=self.config_
+            )
+            
+            if not self.thread_manager_.start_all():
+                logger.error("线程管理器启动失败")
+                self.thread_manager_ = None
+                return False
+            
+            self.running_ = True
+            self.battle_initialized_ = True
+            logger.info("战斗阶段初始化完成，线程已启动")
+            return True
+        
+        except Exception as e:
+            logger.error(f"战斗阶段初始化失败: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.thread_manager_:
+                self.thread_manager_.stop_all()
+                self.thread_manager_ = None
+            self.running_ = False
+            self.battle_initialized_ = False
             return False
     
     def Run(self):
         """主循环：启动多线程架构"""
         logger.info("启动导航主循环（多线程模式）...")
-        self.running_ = True
         
-        # 首次检测小地图位置
-        logger.info("首次检测小地图位置...")
-        frame = self.capture_service_.Capture()
-        if frame is None:
-            logger.error("无法捕获屏幕")
-            return
-        
-        minimap_region = self.minimap_service_.detect_region(frame)
-        if minimap_region is None:
-            logger.error("无法检测到小地图位置，退出")
-            return
-        
-        # 加载掩码（在初始化时调用一次）
-        minimap_size = (minimap_region['width'], minimap_region['height'])
-        mask_path = self._ResolveMaskPath_()
-        
-        self.mask_data_ = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_)
-        if self.mask_data_ is None:
-            logger.error("掩码加载失败，退出")
-            return
-        
-        # 设置路径规划服务的掩码数据
-        self.path_planning_service_.set_mask_data(
-            self.mask_data_.grid,
-            self.mask_data_.cost_map,
-            self.mask_data_.inflated_obstacle
-        )
-        
-        # 初始化透明覆盖层
-        if not self.minimap_service_.initialize_overlay(minimap_region):
-            logger.error("透明覆盖层初始化失败，退出")
-            return
-        
-        # 创建线程管理器
-        queues = {
-            'detection': self.detection_queue_,
-            'path': self.path_queue_
-        }
-        
-        self.thread_manager_ = ThreadManager(
-            capture_service=self.capture_service_,
-            minimap_detector=self.minimap_detector_,
-            minimap_service=self.minimap_service_,
-            path_planning_service=self.path_planning_service_,
-            nav_executor=self.nav_executor_,
-            queues=queues,
-            mask_data=self.mask_data_,
-            config=self.config_
-        )
-        
-        # 启动所有线程
-        if not self.thread_manager_.start_all():
-            logger.error("线程管理器启动失败")
+        if not self.BattleInitialize():
+            logger.error("战斗阶段初始化失败，无法启动导航主循环")
             return
         
         logger.info("所有线程已启动，等待线程运行...")
         
         # 主线程等待所有线程完成
         try:
-            while self.running_ and self.thread_manager_.is_running():
+            while self.running_ and self.thread_manager_ and self.thread_manager_.is_running():
                 time.sleep(5)
                 # 检查线程是否还在运行
-                if self.thread_manager_.detection_thread_ and not self.thread_manager_.detection_thread_.is_alive():
+                if (
+                    self.thread_manager_.detection_thread_
+                    and not self.thread_manager_.detection_thread_.is_alive()
+                ):
                     logger.warning("检测线程已退出")
-                if self.thread_manager_.control_thread_ and not self.thread_manager_.control_thread_.is_alive():
+                if (
+                    self.thread_manager_.control_thread_
+                    and not self.thread_manager_.control_thread_.is_alive()
+                ):
                     logger.warning("控制线程已退出")
-                if self.thread_manager_.ui_thread_ and not self.thread_manager_.ui_thread_.is_alive():
+                if (
+                    self.thread_manager_.ui_thread_
+                    and not self.thread_manager_.ui_thread_.is_alive()
+                ):
                     logger.warning("UI更新线程已退出")
         except KeyboardInterrupt:
             logger.info("收到键盘中断信号")
@@ -355,10 +436,12 @@ class NavigationMain:
         # 停止线程管理器
         if self.thread_manager_:
             self.thread_manager_.stop_all()
+            self.thread_manager_ = None
         
         # 关闭透明覆盖层
         if self.minimap_service_ and self.minimap_service_.overlay:
             self.minimap_service_.overlay.Close()
         
+        self.battle_initialized_ = False
         logger.info("已停止")
 

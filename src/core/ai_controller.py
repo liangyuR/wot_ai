@@ -11,7 +11,6 @@ from typing import Optional
 from loguru import logger
 from src.navigation.config.models import NavigationConfig
 from src.navigation.navigation_main import NavigationMain
-from src.utils.global_path import MinimapBorderTemplatePath
 
 # 延迟导入NavigationMain以避免循环导入
 def _get_navigation_main():
@@ -31,46 +30,28 @@ class AIController:
         self.running_ = False  # 是否正在运行（线程是否活跃）
         self.thread_: Optional[threading.Thread] = None
     
-    def start(self, config: NavigationConfig, map_name: str) -> bool:
+    def start(self, config: NavigationConfig, map_name: str, start_loop: bool = True) -> bool:
         """
         启动AI控制器
         
         Args:
             config: NavigationConfig配置对象
             map_name: 地图名称，用于加载对应的mask掩码
+            start_loop: 是否立即启动运行线程
         
         Returns:
             是否成功启动
         """
+        if not self._ensure_initialized(config, map_name):
+            return False
+        
+        if not start_loop:
+            return True
+        
         if self.running_:
             logger.warning("AI控制器已在运行")
             return False
         
-        self.map_name_ = map_name
-        
-        # 如果未初始化，执行完整初始化
-        if not self.initialized_:
-            # 配置保持不变，导航内部根据地图名称和配置的目录自动解析掩码
-            self.config_ = config
-            self.config_.minimap.template_path = MinimapBorderTemplatePath()
-            # 创建NavigationMain实例（延迟导入）
-            NavigationMain = _get_navigation_main()
-            self.nav_main_ = NavigationMain(self.config_, map_name=map_name)
-            
-            # 初始化
-            if not self.nav_main_.Initialize():
-                logger.error("NavigationMain 初始化失败")
-                return False
-            
-            self.initialized_ = True
-            logger.info("导航AI初始化完成（YOLO模型已加载）")
-        else:
-            # 已初始化，只更新地图名称
-            if self.nav_main_:
-                self.nav_main_.set_map_name(map_name)
-            logger.info("导航AI已初始化，跳过初始化步骤")
-        
-        # 在独立线程中运行
         self.running_ = True
         self.thread_ = threading.Thread(target=self._run_thread, daemon=True)
         self.thread_.start()
@@ -155,4 +136,30 @@ class AIController:
             traceback.print_exc()
         finally:
             self.running_ = False
+
+    def _ensure_initialized(self, config: NavigationConfig, map_name: str) -> bool:
+        """确保导航主程序已初始化"""
+        self.map_name_ = map_name
+        
+        if self.initialized_:
+            if self.nav_main_:
+                self.nav_main_.set_map_name(map_name)
+            return True
+        
+        # 配置保持不变，导航内部根据地图名称和配置的目录自动解析掩码
+        self.config_ = config
+        from src.utils.global_path import MinimapBorderTemplatePath
+        self.config_.minimap.template_path = MinimapBorderTemplatePath()
+        # 创建NavigationMain实例（延迟导入）
+        NavigationMain = _get_navigation_main()
+        self.nav_main_ = NavigationMain(self.config_, map_name=map_name)
+        
+        if not self.nav_main_.Initialize():
+            logger.error("NavigationMain 初始化失败")
+            self.nav_main_ = None
+            return False
+        
+        self.initialized_ = True
+        logger.info("导航AI初始化完成（YOLO模型已加载）")
+        return True
     

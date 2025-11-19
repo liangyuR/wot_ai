@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 from loguru import logger
-from src.utils.global_path import GetVehicleScreenshotsDir
 
 @dataclass(frozen=True)
 class TankTemplate:
@@ -37,6 +36,7 @@ class TankSelector:
             vehicle_screenshot_dir: 车辆截图目录路径
             vehicle_priority: 车辆优先级列表（文件名列表），如果为None则按文件名排序
         """
+        from src.utils.global_path import GetVehicleScreenshotsDir
         self.vehicle_screenshot_dir_ = GetVehicleScreenshotsDir()
         self.vehicle_priority_ = []
         

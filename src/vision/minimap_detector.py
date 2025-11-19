@@ -18,7 +18,7 @@ import numpy as np
 from loguru import logger
 import cv2
 
-from detection_engine import DetectionEngine
+from .detection_engine import DetectionEngine
 
 
 @dataclass

@@ -10,12 +10,8 @@ import time
 from enum import Enum
 from typing import Optional
 import numpy as np
-import cv2
 from loguru import logger
-
 from src.core.actions import screenshot
-from src.utils.global_path import TemplatePath
-
 
 class GameState(Enum):
     """游戏状态枚举"""
@@ -31,7 +27,7 @@ class StateMachine:
     
     def __init__(
         self,
-        confirmation_frames: int = 3,
+        confirmation_frames: int = 1,
     ):
         """
         初始化状态机
@@ -103,7 +99,7 @@ class StateMachine:
         self,
         target_state: GameState,
         timeout: float = 10.0,
-        check_interval: float = 3
+        check_interval: float = 1
     ) -> bool:
         """
         等待状态切换到目标状态
@@ -144,36 +140,15 @@ class StateMachine:
         if frame is None:
             logger.warning("无法获取截图，跳过状态检测")
             return GameState.UNKNOWN
-
-        # 统一处理模板列表（字符串和列表都支持）
+        from src.ui_control.matcher_pyautogui import match_template
         for state, templates in self.state_templates_.items():
-            # 将单个字符串转换为列表以便统一处理
             template_list = templates if isinstance(templates, list) else [templates]
-            
             for template_name in template_list:
-                # 构建模板路径
-                template_path = TemplatePath(template_name)
-                
-                if not template_path.exists():
-                    logger.debug(f"模板文件不存在: {template_path}")
-                    continue
-                
-                # 加载模板图像
-                template = cv2.imread(str(template_path))
-                if template is None:
-                    logger.warning(f"无法加载模板图像: {template_path}")
-                    continue
-                
-                # 使用 OpenCV 进行模板匹配
-                result = cv2.matchTemplate(frame, template, cv2.TM_CCOEFF_NORMED)
-                _, max_val, _, _ = cv2.minMaxLoc(result)
-                
-                # 设置匹配阈值
-                threshold = 0.8
-                if max_val >= threshold:
-                    logger.debug(f"检测到状态: {state.value} (模板: {template_name}, 匹配度: {max_val:.2f})")
+                match_result = match_template(template_name)
+                if match_result is not None:
+                    logger.debug(f"检测到状态: {state.value} (模板: {template_name})")
                     return state
-        
+
         return GameState.UNKNOWN
 
 

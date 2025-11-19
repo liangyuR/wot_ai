@@ -18,20 +18,25 @@ def GetProgramDir() -> Path:
 def MinimapBorderTemplatePath() -> str:
     return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "minimap_border.png"
 
-def TemplatePath(template_name: str) -> str:
-    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / template_name
+def GetHubTemplatePath() -> str:
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "hub"
 
-def GetMapsDir() -> Path:
-    return GetProgramDir() / "resource" / "maps"
+def GetMapTemplatePath() -> Path:
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "map"
 
 def GetVehicleScreenshotsDir() -> Path:
     return GetProgramDir() / "resource" / "vehicle_screenshots"
+
+def GetMapsDir() -> Path:
+    return GetProgramDir() / "resource" / "maps"
 
 def GetConfigPath() -> Path:
     return GetProgramDir() / "config" / "config.yaml"
 
 def GetConfigTemplatePath() -> Path:
     return GetProgramDir() / "config" / "config.yaml.template"
+
+
 
 if __name__ == "__main__":
     logger.info(GetProgramDir())

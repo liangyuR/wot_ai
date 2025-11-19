@@ -9,7 +9,7 @@
 from typing import Optional, List, Tuple
 from loguru import logger
 
-from src.vision.detection.minimap_detector import MinimapDetectionResult
+from src.vision.minimap_detector import MinimapDetectionResult
 from src.navigation.core.coordinate_utils import world_to_grid
 from src.navigation.core.path_planner import AStarPlanner
 from src.navigation.core.planner_astar import astar_with_cost

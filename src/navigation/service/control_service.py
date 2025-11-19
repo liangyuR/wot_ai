@@ -169,12 +169,12 @@ class ControlService:
         """
         if key not in self.pressed_keys_:
             try:
-                logger.debug(f"准备按下按键: {key}")
+                # logger.debug(f"准备按下按键: {key}")
                 self.keyboard_controller_.press(key)
                 self.pressed_keys_.add(key)
-                logger.debug(f"成功按下按键: {key}")
+                # logger.debug(f"成功按下按键: {key}")
             except Exception as e:
-                logger.error(f"按下按键失败 {key}: {e}")
+                # logger.error(f"按下按键失败 {key}: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -189,7 +189,7 @@ class ControlService:
             try:
                 self.keyboard_controller_.release(key)
                 self.pressed_keys_.discard(key)
-                logger.debug(f"释放按键: {key}")
+                # logger.debug(f"释放按键: {key}")
             except Exception as e:
                 logger.warning(f"释放按键失败 {key}: {e}")
     

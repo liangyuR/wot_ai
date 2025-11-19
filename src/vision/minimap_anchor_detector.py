@@ -13,6 +13,7 @@ from loguru import logger
 
 class MinimapAnchorDetector:
     def __init__(self, template_path: str, debug: bool = False, multi_scale: bool = False):
+        template_path = str(template_path)
         self.template_path_ = template_path
         self.debug_ = debug
         self.multi_scale_ = multi_scale

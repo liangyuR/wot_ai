@@ -110,7 +110,6 @@ class UIActions:
                 template_name,
                 confidence=confidence,
                 region=region,
-                template_dir=template_dir
             )
             
             if center is not None:

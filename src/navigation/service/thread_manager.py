@@ -150,7 +150,7 @@ class ThreadManager:
                 
                 # 2. YOLO检测
                 detect_start = time.time()
-                detections = self.minimap_detector_.Detect(minimap, debug=False)
+                detections = self.minimap_detector_.Detect(minimap)
                 detect_elapsed = time.time() - detect_start
                 
                 # 性能监控（仅在超时时记录）

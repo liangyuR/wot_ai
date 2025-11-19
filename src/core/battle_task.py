@@ -16,10 +16,10 @@ from src.core.ai_controller import AIController
 from src.core.tank_selector import TankSelector, TankTemplate
 from src.ui_control.actions import UIActions
 from src.navigation.config.models import NavigationConfig
-from src.vision.detection.map_name_detector import MapNameDetector
+from src.vision.map_name_detector import MapNameDetector
 from src.listeners.pynput_listener import PynputInputListener
 from src.navigation.service.control_service import ControlService
-
+from src.ui_control.matcher_pyautogui import match_template
 
 class BattleTask:
     """战斗任务（事件驱动模式）"""
@@ -175,7 +175,7 @@ class BattleTask:
         # 如果导航AI未初始化，在第一次进入车库时初始化（使用默认地图）
         if not self.ai_controller_.is_initialized():
             logger.info("导航AI未初始化，在车库状态进行初始化...")
-            if not self.ai_controller_.start(self.ai_config_, "default"):
+            if not self.ai_controller_.start(self.ai_config_, "default", start_loop=False):
                 logger.error("导航AI初始化失败")
                 return
             logger.info("导航AI初始化完成（YOLO模型已加载）")
@@ -227,18 +227,10 @@ class BattleTask:
         
         # 启动导航AI运行循环
         if not self.ai_controller_.is_running():
-            if not self.ai_controller_.is_initialized():
-                # 如果未初始化，执行完整初始化
-                if not self.ai_controller_.start(self.ai_config_, map_name):
-                    logger.error("导航AI启动失败")
-                    return
-                logger.info("导航AI已启动")
-            else:
-                # 已初始化，只启动运行循环
-                if not self.ai_controller_.start(self.ai_config_, map_name):
-                    logger.error("导航AI运行循环启动失败")
-                    return
-                logger.info("导航AI运行循环已启动")
+            if not self.ai_controller_.start(self.ai_config_, map_name):
+                logger.error("导航AI启动失败")
+                return
+            logger.info("导航AI运行循环已启动")
         else:
             logger.debug("导航AI已在运行")
         
@@ -371,12 +363,7 @@ class BattleTask:
         logger.info("退出结算界面，返回车库...")
 
         # 1. 当前在结算页面
-        success = self.ui_actions_.WaitAppear(
-            "space_jump.png",
-            timeout=5.0,
-            confidence=0.85,
-            max_retries=3
-        )
+        success = match_template("space_jump.png")
         if success:
             ControlService().TapKey("esc")
             return True

@@ -20,7 +20,7 @@
             "program": "src/vision/map_name_detector.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "args": "C:\\Users\\11601\\Desktop\\微信图片_20251118133709_457_14.jpg"
+            "args": "C:\\Users\\11601\\OneDrive\\Desktop\\map_template\\Snipaste_2025-11-19_22-37-19.png"
         },
         {
             "name": "路径测试",

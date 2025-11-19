@@ -20,7 +20,7 @@ from src.ui_control.actions import UIActions
 from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath, GetProgramDir
 from src.navigation.config.loader import load_config
 from src.navigation.config.models import NavigationConfig
-from src.vision.detection.map_name_detector import MapNameDetector
+from src.vision.map_name_detector import MapNameDetector
 
 
 class MainWindow:
@@ -286,12 +286,12 @@ class MainWindow:
                 raise FileNotFoundError(error_msg)
         
         try:
-            config = load_config(config_path, base_dir=GetProgramDir())
+            config = load_config(config_path)
+            logger.info(f"加载配置文件成功: {config}")
             return config
         except Exception as e:
-            error_msg = f"加载配置文件失败: {e}"
-            logger.error(error_msg)
-            messagebox.showerror("配置错误", error_msg)
+            logger.error(f"加载配置文件失败: {e}")
+            messagebox.showerror("配置错误", str(e))
             raise
 
     def _update_status(self):
@@ -439,6 +439,8 @@ class MainWindow:
             self.debug_ui_actions_ = UIActions()
             self.debug_ai_controller_ = AIController()
 
+            self.debug_ai_config_ = self._get_ai_config()
+
             self.debug_battle_task = BattleTask(
                 self.debug_tank_selector_,
                 self.debug_state_machine_,
@@ -446,8 +448,6 @@ class MainWindow:
                 self.debug_ai_config_,
                 self.debug_ui_actions_
             )
-
-            self.debug_ai_config_ = self._get_ai_config()
             logger.info("调试组件初始化完成")
         except Exception as e:
             logger.error(f"调试组件初始化失败: {e}")

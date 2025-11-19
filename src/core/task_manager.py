@@ -18,7 +18,7 @@ from .state_machine import StateMachine
 from .tank_selector import TankSelector
 from .battle_task import BattleTask
 
-from src.vision.detection.map_name_detector import MapNameDetector
+from src.vision.map_name_detector import MapNameDetector
 from src.ui_control.actions import UIActions
 from src.navigation.config.models import NavigationConfig
 
