@@ -11,18 +11,18 @@ from loguru import logger
 import cv2
 from time import sleep
 
-from wot_ai.game_modules.core.battle_task import BattleTask
-from wot_ai.game_modules.core.task_manager import TaskManager
-from wot_ai.game_modules.core.state_machine import StateMachine, GameState
-from wot_ai.game_modules.core.global_context import GlobalContext
-from wot_ai.game_modules.core.tank_selector import TankSelector
-from wot_ai.game_modules.core.ai_controller import AIController
-from wot_ai.game_modules.core.actions import screenshot, screenshot_with_key_hold
-from wot_ai.game_modules.ui_control.actions import UIActions
-from wot_ai.config import get_program_dir
-from wot_ai.game_modules.navigation.config.loader import load_config
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
-from wot_ai.game_modules.vision.detection.map_name_detector import MapNameDetector
+from src.core.battle_task import BattleTask
+from src.core.task_manager import TaskManager
+from src.core.state_machine import StateMachine, GameState
+from src.core.global_context import GlobalContext
+from src.core.tank_selector import TankSelector
+from src.core.ai_controller import AIController
+from src.core.actions import screenshot, screenshot_with_key_hold
+from src.ui_control.actions import UIActions
+from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath, GetProgramDir
+from src.navigation.config.loader import load_config
+from src.navigation.config.models import NavigationConfig
+from src.vision.detection.map_name_detector import MapNameDetector
 
 
 class MainWindow:
@@ -288,31 +288,16 @@ class MainWindow:
     
     def _init_vehicle_screenshot_dir(self) -> Path:
         """根据配置初始化车辆截图目录"""
-        program_dir = get_program_dir()
-        default_dir = program_dir / "resource" / "vehicle_screenshots"
-        config_path = program_dir / "config" / "config.yaml"
-        
-        try:
-            if config_path.exists():
-                config = load_config(config_path, base_dir=program_dir)
-                if getattr(config, 'vehicle', None) and config.vehicle.screenshot_dir:
-                    vehicle_dir = Path(config.vehicle.screenshot_dir)
-                    vehicle_dir.mkdir(parents=True, exist_ok=True)
-                    return vehicle_dir
-        except Exception as exc:
-            logger.warning(f"加载车辆截图目录配置失败，使用默认目录: {exc}")
-        
+        default_dir = GetVehicleScreenshotsDir()
         default_dir.mkdir(parents=True, exist_ok=True)
         return default_dir
     
     def _get_ai_config(self) -> NavigationConfig:
         """获取AI配置"""
-        program_dir = get_program_dir()
-
-        config_path = program_dir / "config" / "config.yaml"
+        config_path = GetConfigPath()
         if not config_path.exists():
             # 如果配置文件不存在，使用模板路径
-            template_path = program_dir / "config" / "config.yaml.template"
+            template_path = GetConfigTemplatePath()
             if template_path.exists():
                 logger.warning(f"配置文件不存在，使用模板: {template_path}")
                 config_path = template_path
@@ -324,7 +309,7 @@ class MainWindow:
                 raise FileNotFoundError(error_msg)
         
         try:
-            config = load_config(config_path, base_dir=program_dir)
+            config = load_config(config_path, base_dir=GetProgramDir())
             return config
         except Exception as e:
             error_msg = f"加载配置文件失败: {e}"

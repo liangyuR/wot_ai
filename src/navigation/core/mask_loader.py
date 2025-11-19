@@ -13,8 +13,8 @@ import numpy as np
 import cv2
 from loguru import logger
 
-from wot_ai.game_modules.navigation.core.grid_preprocess import build_inflated_and_cost_map
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from src.navigation.core.grid_preprocess import build_inflated_and_cost_map
+from src.navigation.config.models import NavigationConfig
 
 
 @dataclass

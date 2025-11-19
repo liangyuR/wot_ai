@@ -14,12 +14,12 @@ from typing import Optional
 import numpy as np
 from loguru import logger
 
-from wot_ai.game_modules.navigation.service.capture_service import CaptureService
-from wot_ai.game_modules.navigation.service.minimap_service import MinimapService
-from wot_ai.game_modules.navigation.service.path_planning_service import PathPlanningService
-from wot_ai.game_modules.navigation.core.navigation_executor import NavigationExecutor
-from wot_ai.game_modules.navigation.core.path_follower import PathFollower
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from src.navigation.service.capture_service import CaptureService
+from src.navigation.service.minimap_service import MinimapService
+from src.navigation.service.path_planning_service import PathPlanningService
+from src.navigation.core.navigation_executor import NavigationExecutor
+from src.navigation.core.path_follower import PathFollower
+from src.navigation.config.models import NavigationConfig
 
 
 class ThreadManager:

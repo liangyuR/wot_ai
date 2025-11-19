@@ -12,7 +12,7 @@ from typing import Optional, Any, Dict
 from loguru import logger
 from pydantic import ValidationError
 
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from src.navigation.config.models import NavigationConfig
 
 
 def load_config(config_path: Path, base_dir: Optional[Path] = None) -> NavigationConfig:

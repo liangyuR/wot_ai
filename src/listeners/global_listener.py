@@ -34,10 +34,6 @@ class GlobalInputListener(InputListener):
         if self.is_running_:
             return
         
-        if not GLOBAL_HOOK_AVAILABLE:
-            logger.error("全局键盘钩子不可用")
-            return
-        
         self.is_running_ = True
         
         # 全局键盘监听

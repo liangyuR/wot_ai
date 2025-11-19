@@ -11,15 +11,14 @@ import threading
 from typing import Optional
 from loguru import logger
 
-from wot_ai.game_modules.core.state_machine import StateMachine, GameState
-from wot_ai.game_modules.core.actions import wait
-from wot_ai.game_modules.core.ai_controller import AIController
-from wot_ai.game_modules.core.tank_selector import TankSelector, TankTemplate
-from wot_ai.game_modules.ui_control.actions import UIActions
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
-from wot_ai.game_modules.vision.detection.map_name_detector import MapNameDetector
-from data_collection.listeners.global_listener import GlobalInputListener
-from wot_ai.game_modules.navigation.service.control_service import ControlService
+from src.core.state_machine import StateMachine, GameState
+from src.core.ai_controller import AIController
+from src.core.tank_selector import TankSelector, TankTemplate
+from src.ui_control.actions import UIActions
+from src.navigation.config.models import NavigationConfig
+from src.vision.detection.map_name_detector import MapNameDetector
+from src.listeners.global_listener import GlobalInputListener
+from src.navigation.service.control_service import ControlService
 
 
 class BattleTask:
@@ -157,13 +156,13 @@ class BattleTask:
                     pass
                 
                 # 等待一段时间后再次检查
-                wait(self.state_check_interval_)
+                time.sleep(self.state_check_interval_)
                 
             except Exception as e:
                 logger.error(f"事件循环异常: {e}")
                 import traceback
                 traceback.print_exc()
-                wait(self.state_check_interval_)
+                time.sleep(self.state_check_interval_)
         
         logger.info("事件循环结束")
     
@@ -211,7 +210,7 @@ class BattleTask:
         logger.info("检测到战斗状态，开始识别地图并启动导航AI...")
         
         # 等待一段时间让游戏稳定
-        wait(10.0)
+        time.sleep(10.0)
         
         # 识别地图名称
         map_name = self.map_detector_.detect()
@@ -324,7 +323,7 @@ class BattleTask:
                     return True
             
             logger.info(f"所有车辆暂不可用，等待 {self.selection_retry_interval_} 秒后重试")
-            wait(self.selection_retry_interval_)
+            time.sleep(self.selection_retry_interval_)
         
         logger.error("选择车辆超时")
         return False
@@ -337,7 +336,7 @@ class BattleTask:
             confidence=candidate.confidence
         )
         if success:
-            wait(0.5)
+            time.sleep(0.5)
         else:
             logger.debug(f"车辆不可用或未找到: {candidate.name}")
         return success
@@ -361,7 +360,7 @@ class BattleTask:
             logger.error("未找到加入战斗按钮")
             return False
         
-        wait(1.0)  # 等待进入战斗界面
+        time.sleep(1.0)  # 等待进入战斗界面
         logger.info("已点击加入战斗")
         return True
     
@@ -400,7 +399,7 @@ class BattleTask:
             logger.error("未找到返回车库按钮")
             return False
         
-        wait(5.0)  # 等待返回车库
+        time.sleep(5.0)  # 等待返回车库
 
         logger.info("已点击返回车库按钮")
         return True

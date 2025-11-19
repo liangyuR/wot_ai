@@ -7,21 +7,13 @@
 """
 
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Tuple
-
 from loguru import logger
-
-try:
-    import mss
-except ImportError:  # pragma: no cover
-    mss = None
-
+import mss
 
 DEFAULT_RESOLUTION: Tuple[int, int] = (3840, 2160)
 DEFAULT_TEMPLATE_TIER = "4k"
-
 
 @dataclass
 class GlobalContext:

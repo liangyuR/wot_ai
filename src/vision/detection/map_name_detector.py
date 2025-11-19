@@ -18,8 +18,8 @@ from rapidfuzz import fuzz, process
 
 import pytesseract
 from pynput import keyboard
-from wot_ai.game_modules.core.actions import screenshot_with_key_hold
-from wot_ai.utils.paths import get_project_root
+from src.core.actions import screenshot_with_key_hold
+from src.utils.global_path import GetMapsDir
 
 class MapNameDetector:
     """地图名称识别器（使用OCR方式）"""
@@ -28,14 +28,7 @@ class MapNameDetector:
         """
         初始化地图名称识别器
         """
-        # 常见地图名称列表（用于OCR识别后的匹配）
-        self.common_map_names_ = [
-            "胜利之门", "马利诺夫卡", "普罗霍洛夫卡", "鲁别克", "卡累利阿",
-            "拉斯威利", "湖边的角逐", "荒蛮之地", "锡默尔斯多夫", "斯特拉特福",
-            "费舍尔湾", "埃里-哈罗夫", "安斯克", "慕尼黑", "巴黎",
-            "柏林", "明斯克", "哈尔科夫", "斯大林格勒", "库尔斯克"
-        ]
-        self.known_map_names_ = self._build_map_name_library()
+        self.map_names = self._load_names_from_maps_dir();
     
     def detect(self, frame: Optional[np.ndarray] = None) -> Optional[str]:
         """
@@ -226,38 +219,19 @@ class MapNameDetector:
                 return matched
         return None
 
-    def _build_map_name_library(self) -> List[str]:
-        """
-        构建地图名称库，合并默认列表与 maps 目录下的文件名
-        """
-        names = set(self.common_map_names_)
-        names.update(self._load_names_from_maps_dir())
-        return sorted(names)
-
     def _load_names_from_maps_dir(self) -> List[str]:
         """
         从 maps 目录加载可用地图名称
         """
-        try:
-            maps_dir = get_project_root() / "maps"
-        except Exception as exc:
-            logger.warning(f"获取地图目录失败: {exc}")
-            return []
-        
+        maps_dir = GetMapsDir()
         if not maps_dir.exists():
+            logger.error(f"地图目录不存在: {maps_dir}")
             return []
-        
-        candidates: List[str] = []
-        for path in maps_dir.glob("*.png"):
-            name = path.stem
-            if name.endswith("_mask"):
-                continue
-            candidates.append(name)
-        return candidates
+        return [path.stem for path in maps_dir.glob("*.png") if not path.stem.endswith("_mask")]
 
 
-def main():
-    """主函数，用于测试地图名称检测功能"""
+if __name__ == "__main__":
+    """用于测试地图名称检测功能"""
     parser = argparse.ArgumentParser(
         description="测试地图名称检测功能（使用OCR方式）",
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -293,14 +267,9 @@ def main():
     # 使用提供的截图进行检测
     logger.info("开始识别地图名称...")
     map_name = detector.detect(frame)
-    w
     # 输出结果
     if map_name:
         print(f"检测到地图名称: {map_name}")
         sys.exit(0)
     else:
         print("未检测到地图名称")
-
-
-if __name__ == "__main__":
-    main()

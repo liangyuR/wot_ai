@@ -9,12 +9,12 @@
 from typing import Optional, List, Tuple
 from loguru import logger
 
-from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetectionResult
-from wot_ai.game_modules.navigation.core.coordinate_utils import world_to_grid
-from wot_ai.game_modules.navigation.core.path_planner import AStarPlanner
-from wot_ai.game_modules.navigation.core.planner_astar import astar_with_cost
-from wot_ai.game_modules.navigation.core.path_smoothing import smooth_path_los, smooth_path
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from src.vision.detection.minimap_detector import MinimapDetectionResult
+from src.navigation.core.coordinate_utils import world_to_grid
+from src.navigation.core.path_planner import AStarPlanner
+from src.navigation.core.planner_astar import astar_with_cost
+from src.navigation.core.path_smoothing import smooth_path_los, smooth_path
+from src.navigation.config.models import NavigationConfig
 
 
 class PathPlanningService:

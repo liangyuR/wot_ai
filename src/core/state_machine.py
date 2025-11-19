@@ -13,9 +13,9 @@ import numpy as np
 import cv2
 from loguru import logger
 
-from wot_ai.config import get_program_dir
-from wot_ai.game_modules.core.actions import screenshot
-from wot_ai.game_modules.core.global_context import GlobalContext
+from src.core.actions import screenshot
+from src.core.global_context import GlobalContext
+from src.utils.global_path import TemplatePath
 
 
 class GameState(Enum):
@@ -161,7 +161,7 @@ class StateMachine:
             
             for template_name in template_list:
                 # 构建模板路径
-                template_path = get_program_dir() / "resource" / "template" / self.template_resolution_ / template_name
+                template_path = TemplatePath(template_name)
                 
                 if not template_path.exists():
                     logger.debug(f"模板文件不存在: {template_path}")

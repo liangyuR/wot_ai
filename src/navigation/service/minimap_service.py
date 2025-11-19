@@ -10,9 +10,9 @@ from typing import Optional
 import numpy as np
 from loguru import logger
 
-from wot_ai.game_modules.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
-from wot_ai.game_modules.navigation.ui.transparent_overlay import TransparentOverlay
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
+from src.navigation.ui.transparent_overlay import TransparentOverlay
+from src.navigation.config.models import NavigationConfig
 
 
 class MinimapService:

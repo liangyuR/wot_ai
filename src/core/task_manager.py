@@ -16,12 +16,12 @@ from loguru import logger
 
 from .state_machine import StateMachine
 from .global_context import GlobalContext
-from wot_ai.game_modules.vision.detection.map_name_detector import MapNameDetector
 from .tank_selector import TankSelector
 from .battle_task import BattleTask
-from wot_ai.game_modules.ui_control.actions import UIActions
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
 
+from src.vision.detection.map_name_detector import MapNameDetector
+from src.ui_control.actions import UIActions
+from src.navigation.config.models import NavigationConfig
 
 class TaskManager:
     """任务管理器"""

@@ -4,7 +4,6 @@
 
 from abc import ABC, abstractmethod
 from typing import Set, Callable, Tuple
-from loguru import logger
 
 
 class InputListener(ABC):

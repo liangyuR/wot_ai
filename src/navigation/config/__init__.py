@@ -6,7 +6,7 @@
 提供类型安全的配置管理和验证。
 """
 
-from wot_ai.game_modules.navigation.config.models import (
+from .models import (
     NavigationConfig,
     ModelConfig,
     MinimapConfig,
@@ -16,7 +16,7 @@ from wot_ai.game_modules.navigation.config.models import (
     ControlConfig,
     UIConfig
 )
-from wot_ai.game_modules.navigation.config.loader import load_config
+from .loader import load_config
 
 __all__ = [
     'NavigationConfig',

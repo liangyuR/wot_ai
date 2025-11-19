@@ -15,19 +15,16 @@ import signal
 
 from loguru import logger
 
-# 导入所需模块
-from wot_ai.game_modules.navigation.service.capture_service import CaptureService
-from wot_ai.game_modules.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
-from wot_ai.game_modules.vision.detection.minimap_detector import MinimapDetector
-from wot_ai.game_modules.navigation.service.control_service import ControlService
-from wot_ai.game_modules.navigation.core.navigation_executor import NavigationExecutor
-
-# 导入新模块
-from wot_ai.game_modules.navigation.core.mask_loader import load_mask
-from wot_ai.game_modules.navigation.service.minimap_service import MinimapService
-from wot_ai.game_modules.navigation.service.path_planning_service import PathPlanningService
-from wot_ai.game_modules.navigation.service.thread_manager import ThreadManager
-from wot_ai.game_modules.navigation.config.models import NavigationConfig
+from src.navigation.service.capture_service import CaptureService
+from src.vision.detection.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.detection.minimap_detector import MinimapDetector
+from src.navigation.service.control_service import ControlService
+from src.navigation.core.navigation_executor import NavigationExecutor
+from src.navigation.core.mask_loader import load_mask
+from src.navigation.service.minimap_service import MinimapService
+from src.navigation.service.path_planning_service import PathPlanningService
+from src.navigation.service.thread_manager import ThreadManager
+from src.navigation.config.models import NavigationConfig
 
 
 class NavigationMain:

@@ -9,6 +9,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "wot_ai/game_modules/main_window.py",
+            "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": ""
         },
@@ -18,8 +19,18 @@
             "type": "debugpy",
             "request": "launch",
             "program": "wot_ai/game_modules/vision/detection/map_name_detector.py",
+            "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": "C:\\Users\\11601\\Desktop\\微信图片_20251118133709_457_14.jpg"
+        },
+        // path test
+        {
+            "name": "路径测试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/utils/global_path.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
         }
     ]
 }
