@@ -24,18 +24,17 @@ def GetHubTemplatePath() -> str:
 def GetMapTemplatePath() -> Path:
     return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "map"
 
+def GetMapMaskPath() -> Path:
+    return GetProgramDir() / "resource" / "map_mask"
+
 def GetVehicleScreenshotsDir() -> Path:
     return GetProgramDir() / "resource" / "vehicle_screenshots"
-
-def GetMapsDir() -> Path:
-    return GetProgramDir() / "resource" / "maps"
 
 def GetConfigPath() -> Path:
     return GetProgramDir() / "config" / "config.yaml"
 
 def GetConfigTemplatePath() -> Path:
     return GetProgramDir() / "config" / "config.yaml.template"
-
 
 
 if __name__ == "__main__":

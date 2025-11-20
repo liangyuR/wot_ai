@@ -15,7 +15,6 @@
 
 # 核心模块导出
 from .state_machine import StateMachine, GameState
-from .actions import screenshot
 from .tank_selector import TankSelector
 from .battle_task import BattleTask
 from .task_manager import TaskManager
@@ -24,7 +23,6 @@ from .ai_controller import AIController
 __all__ = [
     'StateMachine',
     'GameState',
-    'screenshot',
     'TankSelector',
     'BattleTask',
     'TaskManager',

@@ -7,19 +7,11 @@
 """
 
 import time
-import os
 import subprocess
-from pathlib import Path
-from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime
 from loguru import logger
 
-from .state_machine import StateMachine
-from .tank_selector import TankSelector
 from .battle_task import BattleTask
-
-from src.vision.map_name_detector import MapNameDetector
-from src.ui_control.actions import UIActions
 from src.navigation.config.models import NavigationConfig
 
 class TaskManager:
@@ -40,7 +32,6 @@ class TaskManager:
             run_hours: 运行时长限制（小时）
             auto_stop: 达到时长后自动停止
             auto_shutdown: 达到时长后自动关机（需要管理员权限）
-            global_context: 全局上下文（分辨率、模板信息）
         """
         self.ai_config_ = ai_config
         self.run_hours_ = run_hours
@@ -49,10 +40,6 @@ class TaskManager:
         
         self.running_ = False
         self.start_time_ = None
-        self.state_machine_ = StateMachine()
-        self.map_detector_ = MapNameDetector()
-        self.tank_selector_ = TankSelector()
-        self.ui_actions_ = UIActions()
     
     def run_forever(self) -> None:
         """持续执行战斗循环"""
@@ -69,13 +56,7 @@ class TaskManager:
                     break
                 
                 # 创建战斗任务
-                task = BattleTask(
-                    self.tank_selector_,
-                    self.state_machine_,
-                    self.map_detector_,
-                    self.ai_config_,
-                    self.ui_actions_
-                )
+                task = BattleTask(self.ai_config_)
                 
                 # 启动事件驱动循环
                 if not task.start():

@@ -3,24 +3,21 @@
 """
 地图名称识别模块（模板匹配版）
 
-通过 `match_template` 在屏幕上查找地图标题模板，完全替代 OCR。
+通过 `match_template` 在屏幕上查找地图标题模板
 """
 
 from typing import Dict, List, Optional
 from pathlib import Path
-
 from loguru import logger
-
-
+from src.utils.template_matcher import TemplateMatcher
 
 class MapNameDetector:
     """基于模板匹配的地图名称识别器"""
 
     def __init__(self) -> None:
-        self.known_map_names_ = self._load_names_from_maps_dir()
-        self.map_names = self.known_map_names_
         self.template_confidence_ = 0.82
         self.template_mapping_ = self._load_map_templates()
+        self.template_matcher_ = TemplateMatcher()
         if not self.template_mapping_:
             logger.warning("未加载到地图标题模板，将无法识别地图名称")
 
@@ -31,14 +28,13 @@ class MapNameDetector:
         Args:
             frame: 兼容旧版接口的占位参数（当前实现未使用）。
         """
-        from src.ui_control.matcher_pyautogui import match_template
 
         if not self.template_mapping_:
             return None
         for map_name, template_files in self.template_mapping_.items():
             for template_name in template_files:
                 try:
-                    center = match_template(
+                    center = self.template_matcher_.match_template(
                         template_name,
                         confidence=self.template_confidence_,
                         region=None  # 需求：全屏范围搜索
@@ -72,21 +68,11 @@ class MapNameDetector:
             map_name = tpl_path.stem.split("__")[0]
             template_rel = tpl_path.name
             mapping.setdefault(map_name, []).append(template_rel)
+            logger.info(f"加载地图标题模板: {map_name} -> {template_rel}")
 
         total_templates = sum(len(files) for files in mapping.values())
         logger.info(f"已加载 {total_templates} 个地图标题模板，覆盖 {len(mapping)} 张地图")
         return mapping
-
-    def _load_names_from_maps_dir(self) -> List[str]:
-        """
-        从 maps 目录加载可用地图名称（保留外部兼容）。
-        """
-        from src.utils.global_path import GetMapsDir
-        maps_dir = GetMapsDir()
-        if not maps_dir.exists():
-            logger.error(f"地图目录不存在: {maps_dir}")
-            return []
-        return [path.stem for path in maps_dir.glob("*.png") if not path.stem.endswith("_mask")]
 
 
 if __name__ == "__main__":

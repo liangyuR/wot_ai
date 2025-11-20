@@ -11,7 +11,6 @@ import numpy as np
 from loguru import logger
 
 from src.vision.minimap_anchor_detector import MinimapAnchorDetector
-from src.navigation.ui.transparent_overlay import TransparentOverlay
 from src.navigation.config.models import NavigationConfig
 
 
@@ -29,7 +28,6 @@ class MinimapService:
         self.anchor_detector_ = anchor_detector
         self.config_ = config
         self.minimap_region_: Optional[dict] = None
-        self.overlay_: Optional[TransparentOverlay] = None
     
     def detect_region(self, frame: np.ndarray) -> Optional[dict]:
         """
@@ -77,44 +75,6 @@ class MinimapService:
         self.minimap_region_ = region
         return region
     
-    def initialize_overlay(self, minimap_region: dict) -> bool:
-        """
-        初始化透明覆盖层（直接绘制到小地图位置）
-        
-        Args:
-            minimap_region: 小地图区域 {x, y, width, height}（用于确定 overlay 位置和尺寸）
-        
-        Returns:
-            是否初始化成功
-        """
-        try:
-            # overlay 直接绘制到小地图位置
-            overlay_width = minimap_region['width']
-            overlay_height = minimap_region['height']
-            overlay_x = minimap_region['x']
-            overlay_y = minimap_region['y']
-            logger.info(f"初始化透明覆盖层，位置: ({overlay_x}, {overlay_y})（小地图位置）, "
-                       f"尺寸: {overlay_width}x{overlay_height}")
-            
-            self.overlay_ = TransparentOverlay(
-                width=overlay_width,
-                height=overlay_height,
-                window_name="WOT_AI Navigation Overlay",
-                pos_x=overlay_x,  # 小地图X坐标
-                pos_y=overlay_y,  # 小地图Y坐标
-                fps=self.config_.ui.overlay_fps,
-                alpha=self.config_.ui.overlay_alpha
-            )
-            
-            logger.info("透明覆盖层初始化成功（位于小地图位置）")
-            return True
-            
-        except Exception as e:
-            logger.error(f"透明覆盖层初始化失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
     @property
     def minimap_region(self) -> Optional[dict]:
         """
@@ -124,14 +84,3 @@ class MinimapService:
             小地图区域字典，如果未检测到则返回None
         """
         return self.minimap_region_
-    
-    @property
-    def overlay(self) -> Optional[TransparentOverlay]:
-        """
-        获取透明覆盖层实例
-        
-        Returns:
-            TransparentOverlay实例，如果未初始化则返回None
-        """
-        return self.overlay_
-

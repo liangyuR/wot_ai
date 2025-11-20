@@ -13,14 +13,13 @@ from time import sleep
 
 from src.core.battle_task import BattleTask
 from src.core.task_manager import TaskManager
-from src.core.state_machine import StateMachine
 from src.core.tank_selector import TankSelector
 from src.core.ai_controller import AIController
-from src.ui_control.actions import UIActions
 from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath, GetProgramDir
 from src.navigation.config.loader import load_config
 from src.navigation.config.models import NavigationConfig
 from src.vision.map_name_detector import MapNameDetector
+from src.core.state_machine import StateMachine
 
 
 class MainWindow:
@@ -436,18 +435,8 @@ class MainWindow:
             self.debug_state_machine_ = StateMachine()
             self.debug_map_detector_ = MapNameDetector()
             self.debug_tank_selector_ = TankSelector()
-            self.debug_ui_actions_ = UIActions()
             self.debug_ai_controller_ = AIController()
-
             self.debug_ai_config_ = self._get_ai_config()
-
-            self.debug_battle_task = BattleTask(
-                self.debug_tank_selector_,
-                self.debug_state_machine_,
-                self.debug_map_detector_,
-                self.debug_ai_config_,
-                self.debug_ui_actions_
-            )
             logger.info("调试组件初始化完成")
         except Exception as e:
             logger.error(f"调试组件初始化失败: {e}")

@@ -14,23 +14,18 @@ from loguru import logger
 from src.core.state_machine import StateMachine, GameState
 from src.core.ai_controller import AIController
 from src.core.tank_selector import TankSelector, TankTemplate
-from src.ui_control.actions import UIActions
 from src.navigation.config.models import NavigationConfig
 from src.vision.map_name_detector import MapNameDetector
 from src.listeners.pynput_listener import PynputInputListener
 from src.navigation.service.control_service import ControlService
-from src.ui_control.matcher_pyautogui import match_template
+from src.utils.template_matcher import TemplateMatcher
 
 class BattleTask:
     """战斗任务（事件驱动模式）"""
     
     def __init__(
         self,
-        tank_selector: TankSelector,
-        state_machine: StateMachine,
-        map_detector: MapNameDetector,
         ai_config: NavigationConfig,
-        ui_actions: UIActions,
         selection_retry_interval: float = 10.0,
         selection_timeout: float = 120.0,
         state_check_interval: float = 5
@@ -41,19 +36,18 @@ class BattleTask:
         Args:
             tank_selector: 坦克选择器
             state_machine: 状态机实例
-            map_detector: 地图名称识别器
             ai_config: NavigationConfig配置对象
-            ui_actions: UI 控制对象
             selection_retry_interval: 选择失败后的重试间隔
             selection_timeout: 选择超时时间
             state_check_interval: 状态检测间隔（秒）
         """
-        self.tank_selector_ = tank_selector
-        self.state_machine_ = state_machine
-        self.map_detector_ = map_detector
+        self.tank_selector_ = TankSelector()
+        self.state_machine_ = StateMachine()
         self.ai_config_ = ai_config
         self.ai_controller_ = AIController()
-        self.ui_actions_ = ui_actions
+        self.template_matcher_ = TemplateMatcher()
+        self.map_name_detector_ = MapNameDetector()
+
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
         self.state_check_interval_ = state_check_interval
@@ -71,13 +65,13 @@ class BattleTask:
         # 选中的车辆
         self.selected_tank_: Optional[TankTemplate] = None
         
-        # 热键监听器
-        self.input_listener_: Optional[PynputInputListener] = None
-        self.input_listener_ = PynputInputListener()
-        self.input_listener_.SetHotkeyCallback("f9", self._on_f9_pressed)
-        self.input_listener_.SetHotkeyCallback("f10", self._on_f10_pressed)
-        self.input_listener_.Start()
-        logger.info("热键监听器已启动 (F9: 启动, F10: 停止)")
+        # # 热键监听器
+        # self.input_listener_: Optional[PynputInputListener] = None
+        # self.input_listener_ = PynputInputListener()
+        # self.input_listener_.SetHotkeyCallback("f9", self._on_f9_pressed)
+        # self.input_listener_.SetHotkeyCallback("f10", self._on_f10_pressed)
+        # self.input_listener_.Start()
+        # logger.info("热键监听器已启动 (F9: 启动, F10: 停止)")
     
     def start(self) -> bool:
         """
@@ -149,7 +143,6 @@ class BattleTask:
                 elif current_state == GameState.IN_RESULT_PAGE:
                     self._handle_result_page_state()
                 elif current_state == GameState.UNKNOWN:
-                    # 未知状态，不做处理
                     pass
                 
                 # 等待一段时间后再次检查
@@ -210,7 +203,7 @@ class BattleTask:
         time.sleep(10.0)
         
         # 识别地图名称
-        map_name = self.map_detector_.detect()
+        map_name = self.map_name_detector_.detect()
         if not map_name:
             logger.warning("地图名称识别失败，使用默认地图")
             map_name = "default"
@@ -319,16 +312,10 @@ class BattleTask:
     
     def _try_select_candidate(self, candidate: TankTemplate) -> bool:
         """尝试点击单个候选车辆"""
-        success = self.ui_actions_.SelectVehicle(
-            template_name=candidate.name,
-            template_dir=str(candidate.directory),
-            confidence=candidate.confidence
-        )
-        if success:
-            time.sleep(0.5)
-        else:
-            logger.debug(f"车辆不可用或未找到: {candidate.name}")
-        return success
+        success = self.template_matcher_.click_template(candidate.name, confidence=candidate.confidence)
+        if success is not None:
+            return True
+        return False
     
     def enter_battle(self) -> bool:
         """
@@ -339,12 +326,7 @@ class BattleTask:
         """
         logger.info("点击加入战斗...")
         
-        success = self.ui_actions_.ClickTemplate(
-            "join_battle.png",
-            timeout=5.0,
-            confidence=0.85,
-            max_retries=3
-        )
+        success = self.template_matcher_.click_template("join_battle.png", confidence=0.85)
         if not success:
             logger.error("未找到加入战斗按钮")
             return False
@@ -363,8 +345,8 @@ class BattleTask:
         logger.info("退出结算界面，返回车库...")
 
         # 1. 当前在结算页面
-        success = match_template("space_jump.png")
-        if success:
+        success = self.template_matcher_.match_template("space_jump.png", confidence=0.85)
+        if success is not None:
             ControlService().TapKey("esc")
             return True
         
@@ -373,13 +355,8 @@ class BattleTask:
         ControlService().TapKey("esc")
 
         # 点击"返回车库"按钮
-        success = self.ui_actions_.ClickTemplate(
-            "return_garage.png",
-            timeout=5.0,
-            confidence=0.85,
-            max_retries=3
-        )
-        if not success:
+        success = self.template_matcher_.click_template("garage_button.png", confidence=0.85)
+        if success is None:
             logger.error("未找到返回车库按钮")
             return False
         

@@ -9,12 +9,9 @@ Catmull-Rom Spline实现：生成平滑曲线轨迹
 - 生成连续、可微分的曲线
 """
 
-import numpy as np
-import math
 from typing import List, Tuple
 
 Point = Tuple[float, float]  # (x, y)
-
 
 def catmull_rom_spline(
     p0: Point, p1: Point, p2: Point, p3: Point,

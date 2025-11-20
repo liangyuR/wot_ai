@@ -285,8 +285,8 @@ class NavigationMain:
             
             # 2. 加载掩码
             minimap_size = (minimap_region['width'], minimap_region['height'])
-            mask_path = self._ResolveMaskPath_()
-            
+            from src.utils.global_path import GetMapMaskPath
+            mask_path = GetMapMaskPath()
             self.mask_data_ = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_)
             if self.mask_data_ is None:
                 logger.error("掩码加载失败")

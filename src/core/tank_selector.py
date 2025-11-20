@@ -8,7 +8,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from loguru import logger
 
 @dataclass(frozen=True)
@@ -28,6 +28,13 @@ class TankTemplate:
 class TankSelector:
     """坦克选择器"""
     
+    _instance: Optional['TankSelector'] = None
+    
+    def __new__(cls) -> 'TankSelector':
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self):
         """
         初始化坦克选择器
@@ -36,6 +43,10 @@ class TankSelector:
             vehicle_screenshot_dir: 车辆截图目录路径
             vehicle_priority: 车辆优先级列表（文件名列表），如果为None则按文件名排序
         """
+        # 如果已经初始化过，跳过
+        if hasattr(self, '_initialized'):
+            return
+        
         from src.utils.global_path import GetVehicleScreenshotsDir
         self.vehicle_screenshot_dir_ = GetVehicleScreenshotsDir()
         self.vehicle_priority_ = []
@@ -46,6 +57,7 @@ class TankSelector:
             self.vehicle_priority_ = [f.name for f in image_files]
         
         logger.info(f"车辆优先级列表: {self.vehicle_priority_}")
+        self._initialized = True
     
     def pick(self) -> List[TankTemplate]:
         """

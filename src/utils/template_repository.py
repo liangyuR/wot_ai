@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-模板匹配模块：使用 PyAutoGUI 进行模板匹配，并缓存模板路径。
+模板仓库，根据分辨率自动读取对应的模板文件组
 """
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
-
+from typing import Dict, List, Optional, Union
 from loguru import logger
-import pyautogui
 
 
 class TemplateRepository:
     """负责扫描并缓存模板路径。"""
 
     SUPPORTED_SUFFIXES = (".png",)
+    _instance: Optional['TemplateRepository'] = None
+
+    def __new__(cls) -> 'TemplateRepository':
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(self) -> None:
+        # 如果已经初始化过，跳过
+        if hasattr(self, '_initialized'):
+            return
         self.templates_: Dict[str, Path] = {}
         self.loaded_: bool = False
         self.search_dirs_: List[Path] = []
+        self._initialized = True
 
     def ensure_loaded(self, force_reload: bool = False) -> None:
         if force_reload or not self.loaded_:
@@ -124,58 +132,3 @@ class TemplateRepository:
             return ""
         key = str(value).replace("\\", "/").strip()
         return key.lower()
-
-
-_TEMPLATE_REPOSITORY = TemplateRepository()
-
-
-def match_template(
-    template: Union[str, Path],
-    confidence: float = 0.85,
-    region: Optional[Tuple[int, int, int, int]] = None,
-) -> Optional[Tuple[int, int]]:
-    """
-    在屏幕上查找模板，返回匹配位置的中心点坐标。
-
-    Args:
-        template: 模板名称、相对路径或绝对路径
-        confidence: 匹配置信度（0.0-1.0），默认 0.85
-        region: 搜索区域 (left, top, width, height)，None 表示全屏
-    """
-    tpl_path = Path(template)
-    template_path: Optional[Path] = None
-
-    if tpl_path.is_absolute():
-        if tpl_path.exists():
-            template_path = tpl_path
-        else:
-            logger.error(f"模板不存在: {tpl_path}")
-            return None
-    else:
-        _TEMPLATE_REPOSITORY.ensure_loaded()
-        template_path = _TEMPLATE_REPOSITORY.get_path(template)
-        if template_path is None:
-            fallback = _TEMPLATE_REPOSITORY.find_on_disk(template)
-            if fallback:
-                _TEMPLATE_REPOSITORY.register_path(fallback)
-                template_path = fallback
-
-    if template_path is None:
-        logger.debug("模板未找到: %s", template)
-        return None
-
-    try:
-        location = pyautogui.locateOnScreen(
-            str(template_path),
-            confidence=confidence,
-            region=region,
-        )
-        if location:
-            center = pyautogui.center(location)
-            logger.debug(f"找到模板 {template_path} 在位置: {center}")
-            return center
-        logger.debug(f"未在屏幕上找到模板: {template_path}")
-        return None
-    except Exception as exc:
-        logger.error(f"模板匹配失败 {template_path}: {exc}")
-        return None

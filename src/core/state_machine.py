@@ -11,7 +11,8 @@ from enum import Enum
 from typing import Optional
 import numpy as np
 from loguru import logger
-from src.core.actions import screenshot
+from src.utils.screen_action import ScreenAction
+from src.utils.template_matcher import TemplateMatcher
 
 class GameState(Enum):
     """游戏状态枚举"""
@@ -25,9 +26,16 @@ class GameState(Enum):
 class StateMachine:
     """游戏状态机"""
     
+    _instance: Optional['StateMachine'] = None
+    
+    def __new__(cls) -> 'StateMachine':
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(
         self,
-        confirmation_frames: int = 1,
+        confirmation_frames: int = 3,
     ):
         """
         初始化状态机
@@ -35,10 +43,16 @@ class StateMachine:
         Args:
             confirmation_frames: 状态确认所需的连续帧数，默认3帧
         """
+        # 如果已经初始化过，跳过
+        if hasattr(self, '_initialized'):
+            return
+        
         self.confirmation_frames_ = confirmation_frames
         self.current_state_ = GameState.UNKNOWN
         self.state_history_ = []  # 状态历史记录
         self.last_update_time_ = 0.0
+        self.template_matcher_ = TemplateMatcher()
+        self.screen_action_ = ScreenAction()
         
         # 状态模板映射
         self.state_templates_ = {
@@ -48,6 +62,7 @@ class StateMachine:
             # 每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
             GameState.IN_RESULT_PAGE: "space_jump.png", # 在胜利/失败结算页面（偶尔可能不会直接回到车库）
         }
+        self._initialized = True
     
     def update(self, frame: Optional[np.ndarray] = None) -> GameState:
         """
@@ -136,16 +151,15 @@ class StateMachine:
             当前检测到的游戏状态
         """
         if frame is None:
-            frame = screenshot()
+            frame = ScreenAction.screenshot()
+
         if frame is None:
             logger.warning("无法获取截图，跳过状态检测")
             return GameState.UNKNOWN
-        from src.ui_control.matcher_pyautogui import match_template
+        
         for state, templates in self.state_templates_.items():
-            template_list = templates if isinstance(templates, list) else [templates]
-            for template_name in template_list:
-                match_result = match_template(template_name)
-                if match_result is not None:
+            for template_name in (templates if isinstance(templates, list) else [templates]):
+                if self.template_matcher_.match_template(template_name, confidence=0.85):
                     logger.debug(f"检测到状态: {state.value} (模板: {template_name})")
                     return state
 
@@ -153,4 +167,14 @@ class StateMachine:
 
 
 if __name__ == "__main__":
-    pass
+    state_machine = StateMachine()
+    state_machine.update()
+    print(state_machine.current_state())
+    state_machine.wait_state(GameState.IN_GARAGE)
+    print(state_machine.current_state())
+    state_machine.wait_state(GameState.IN_BATTLE)
+    print(state_machine.current_state())
+    state_machine.wait_state(GameState.IN_END)
+    print(state_machine.current_state())
+    state_machine.wait_state(GameState.IN_RESULT_PAGE)
+    print(state_machine.current_state())

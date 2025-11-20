@@ -14,7 +14,6 @@ from .models import (
     GridConfig,
     PathPlanningConfig,
     ControlConfig,
-    UIConfig
 )
 from .loader import load_config
 
@@ -26,7 +25,6 @@ __all__ = [
     'GridConfig',
     'PathPlanningConfig',
     'ControlConfig',
-    'UIConfig',
     'load_config'
 ]
 
