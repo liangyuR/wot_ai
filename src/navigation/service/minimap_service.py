@@ -11,14 +11,12 @@ import numpy as np
 from loguru import logger
 
 from src.vision.minimap_anchor_detector import MinimapAnchorDetector
-from src.navigation.config.models import NavigationConfig
 
-# TODO(ly) 不需要导航配置来检测小地图区域，应该在 mask 更新前，将小地图区域传递给 导航
 
 class MinimapService:
     """小地图服务"""
     
-    def __init__(self, anchor_detector: MinimapAnchorDetector, config: NavigationConfig):
+    def __init__(self, anchor_detector: MinimapAnchorDetector):
         """
         初始化小地图服务
         
@@ -27,7 +25,6 @@ class MinimapService:
             config: NavigationConfig配置对象
         """
         self.anchor_detector_ = anchor_detector
-        self.config_ = config
         self.minimap_region_: Optional[dict] = None
     
     def detect_region(self, frame: np.ndarray) -> Optional[dict]:
@@ -43,11 +40,8 @@ class MinimapService:
         # 获取屏幕尺寸
         frame_h, frame_w = frame.shape[:2]
         
-        # 使用默认尺寸进行模板匹配（用于检测位置）
-        default_size = self.config_.minimap.size
-        
         # 使用MinimapAnchorDetector检测小地图位置
-        top_left = self.anchor_detector_.detect(frame, size=default_size)
+        top_left = self.anchor_detector_.detect(frame)
         if top_left is None:
             logger.warning("无法检测到小地图位置")
             return None

@@ -45,18 +45,8 @@ class ModelConfig(BaseModel):
 
 class MinimapConfig(BaseModel):
     """小地图配置"""
-    template_path: str = Field(..., description="小地图模板文件路径")
     size: Tuple[int, int] = Field(..., description="小地图尺寸 (width, height)")
     max_size: int = Field(..., description="小地图最大尺寸")
-    
-    @field_validator('template_path')
-    @classmethod
-    def validate_template_path(cls, v: str) -> str:
-        """验证模板路径是否存在"""
-        path = Path(v)
-        if not path.exists():
-            raise ValueError(f"小地图模板文件不存在: {v}")
-        return str(path.resolve())
     
     @field_validator('size')
     @classmethod

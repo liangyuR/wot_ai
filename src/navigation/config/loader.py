@@ -99,10 +99,6 @@ def _apply_relative_paths(raw_config: Dict[str, Any], base_dir: Path) -> None:
     if isinstance(model_cfg, dict) and 'path' in model_cfg and model_cfg['path']:
         model_cfg['path'] = _resolve_path(model_cfg['path'], base_dir)
     
-    minimap_cfg = raw_config.get('minimap')
-    if isinstance(minimap_cfg, dict) and 'template_path' in minimap_cfg and minimap_cfg['template_path']:
-        minimap_cfg['template_path'] = _resolve_path(minimap_cfg['template_path'], base_dir)
-    
     mask_cfg = raw_config.get('mask')
     if isinstance(mask_cfg, dict):
         if mask_cfg.get('path'):

@@ -38,6 +38,14 @@
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": "D:\\project\\wot_ai\\utest\\minimap_bak.png"
+        },
+        {
+            "name": "导航运行时调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/nav_runtime/navigation_runtime.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
         }
     ]
 }

@@ -120,3 +120,46 @@ class MinimapAnchorDetector:
         resized_debug_img = cv2.resize(debug_img, dim, interpolation=cv2.INTER_AREA)
         cv2.imshow("Minimap Template Match Debug", resized_debug_img)
         cv2.waitKey(1)
+
+    def DetectRegion(self, frame: np.ndarray) -> Optional[dict]:
+        """
+        检测小地图区域
+        
+        Args:
+            frame: 屏幕帧
+        
+        Returns:
+            小地图区域字典 {x, y, width, height}，失败返回 None
+        """
+        # 获取屏幕尺寸
+        frame_h, frame_w = frame.shape[:2]
+        
+        # 使用MinimapAnchorDetector检测小地图位置
+        top_left = self.anchor_detector_.detect(frame)
+        if top_left is None:
+            logger.warning("无法检测到小地图位置")
+            return None
+        
+        x, y = top_left
+        
+        # 根据 top_left 到屏幕右下角的距离自适应计算小地图尺寸
+        # 计算可用空间
+        available_width = frame_w - x
+        available_height = frame_h - y
+        
+        # 小地图通常是正方形，取宽度和高度的最小值
+        minimap_size = min(available_width, available_height)
+        
+        # 确保尺寸合理（至少大于0，且不超过配置的最大值）
+        minimap_size = max(1, min(minimap_size, self.config_.minimap.max_size))
+        
+        region = {
+            'x': x,
+            'y': y,
+            'width': minimap_size,
+            'height': minimap_size
+        }
+        
+        logger.info(f"检测到小地图区域: {region} (自适应尺寸: {minimap_size}x{minimap_size})")
+        self.minimap_region_ = region
+        return region

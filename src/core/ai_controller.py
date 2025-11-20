@@ -10,12 +10,12 @@ import threading
 from typing import Optional
 from loguru import logger
 from src.navigation.config.models import NavigationConfig
-from src.navigation.navigation_main import NavigationInstance
+# from src.navigation.navigation_main import NavigationInstance
 
-# 延迟导入NavigationMain以避免循环导入
-def _get_navigation_main():
-    from src.navigation.navigation_main import NavigationInstance
-    return NavigationInstance
+# # 延迟导入NavigationMain以避免循环导入
+# def _get_navigation_main():
+#     from src.navigation.navigation_main import NavigationInstance
+#     return NavigationInstance
 
 
 class AIController:
