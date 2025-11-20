@@ -24,8 +24,8 @@ def GetHubTemplatePath() -> str:
 def GetMapTemplatePath() -> Path:
     return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "map"
 
-def GetMapMaskPath() -> Path:
-    return GetProgramDir() / "resource" / "map_mask"
+def GetMapMaskPath(map_name: str) -> Path:
+    return GetProgramDir() / "resource" / "map_mask" / f"{map_name}_mask.png"
 
 def GetVehicleScreenshotsDir() -> Path:
     return GetProgramDir() / "resource" / "vehicle_screenshots"
