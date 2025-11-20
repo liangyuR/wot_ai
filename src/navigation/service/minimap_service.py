@@ -13,6 +13,7 @@ from loguru import logger
 from src.vision.minimap_anchor_detector import MinimapAnchorDetector
 from src.navigation.config.models import NavigationConfig
 
+# TODO(ly) 不需要导航配置来检测小地图区域，应该在 mask 更新前，将小地图区域传递给 导航
 
 class MinimapService:
     """小地图服务"""

@@ -23,13 +23,17 @@ from src.navigation.core.navigation_executor import NavigationExecutor
 from src.navigation.core.mask_loader import load_mask
 from src.navigation.service.minimap_service import MinimapService
 from src.navigation.service.path_planning_service import PathPlanningService
-from src.navigation.service.thread_manager import ThreadManager
+from src.navigation.service.navigation_runtime import NavigationRuntime
 from src.navigation.config.models import NavigationConfig
 
 
-class NavigationMain:
-    """导航主程序"""
-    
+class NavigationInstance:
+    """导航实例"""
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(NavigationInstance, cls).__new__(cls)
+        return cls.instance
+
     def __init__(self, config: NavigationConfig, map_name: Optional[str] = None):
         """
         初始化导航主程序
@@ -52,7 +56,7 @@ class NavigationMain:
         # 新服务实例
         self.minimap_service_: Optional[MinimapService] = None
         self.path_planning_service_: Optional[PathPlanningService] = None
-        self.thread_manager_: Optional[ThreadManager] = None
+        self.nav_runtime_: Optional[NavigationRuntime] = NavigationRuntime()
         
         # 掩码数据
         self.mask_data_ = None
