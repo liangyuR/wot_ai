@@ -25,7 +25,7 @@ from src.navigation.nav_runtime.stuck_detector import StuckDetector
 from src.navigation.nav_runtime.path_planner_wrapper import PathPlannerWrapper
 from src.navigation.nav_runtime.movement_controller import MovementController
 from src.navigation.nav_runtime.path_follower_wrapper import PathFollowerWrapper
-
+from src.vision.minimap_detector import MinimapDetector
 
 
 class NavigationRuntime:
@@ -36,36 +36,23 @@ class NavigationRuntime:
     - DataHub: 共享最新检测结果
     """
 
-    def __init__(
-        self,
-        capture_service: CaptureService,
-        minimap_detector,
-        minimap_service: MinimapService,
-        path_planning_service: PathPlanningService,
-        nav_executor: NavigationExecutor,
-        mask_data,
-        config: NavigationConfig
-    ):
-
+    def __init__(self):
+        self.cfg = NavigationConfig()
         self.stuck_detector = StuckDetector()
-        self.move = MovementController(nav_executor)
+        self.move = MovementController(NavigationExecutor())
         self.path_follower = PathFollower()
         self.path_follower_wrapper = PathFollowerWrapper(
             follower=self.path_follower,
-            deviation_tolerance=config.control.path_deviation_tolerance,
-            target_point_offset=config.control.target_point_offset,
-            goal_arrival_threshold=config.control.goal_arrival_threshold,
+            deviation_tolerance=self.cfg.control.path_deviation_tolerance,
+            target_point_offset=self.cfg.control.target_point_offset,
+            goal_arrival_threshold=self.cfg.control.goal_arrival_threshold,
         )
 
-        self.capture = capture_service
-        self.detector = minimap_detector
-        self.minimap_service = minimap_service
-        self.planner = path_planning_service
-        self.nav = nav_executor
-        self.mask_data = mask_data
-        self.cfg = config
+        self.capture = CaptureService()
+        self.detector = MinimapDetector()
+        self.minimap_service = MinimapService()
+        self.planner = PathPlanningService()
 
-        # 数据总线（替代 detection_queue）
         self.data_hub = DataHub()
 
         # 线程
@@ -78,13 +65,6 @@ class NavigationRuntime:
         self.current_path_world = []
         self.current_target_idx = 0
 
-        # 卡顿检测
-        self.last_pos: Optional[Tuple[float, float]] = None
-        self.stuck_frames: int = 0
-
-        # 过渡期保留 path_queue（不再使用）
-        self.path_queue = None
-
     # ============================================================
     # 外部接口
     # ============================================================
@@ -92,6 +72,12 @@ class NavigationRuntime:
         if self._running:
             logger.warning("NavigationRuntime 已在运行")
             return False
+
+        self.minimap_service.minimap_region = self.minimap_service.detect_region(self.capture.grab())
+        if not self.minimap_service.minimap_region:
+            logger.error("无法检测到小地图位置")
+            return False
+        logger.info(f"检测到小地图区域: {self.minimap_service.minimap_region}")
 
         self._running = True
 
@@ -134,24 +120,17 @@ class NavigationRuntime:
     def _det_loop(self):
         logger.info("检测线程启动")
 
-        minimap = self.minimap_service.minimap_region
-        if not minimap:
-            logger.error("minimap_region 未配置，检测线程退出")
-            return
+        detect_fps = getattr(self.cfg.performance, "detect_fps", 30)
+        min_interval = 1.0 / detect_fps
 
-        # 性能档位
-        max_fps = getattr(self.cfg.performance, "detection_fps", 25)
-        min_interval = 1.0 / max_fps if max_fps > 0 else 0.0
-
+        x, y, w, h = self.minimap_service.minimap_region["x"], self.minimap_service.minimap_region["y"], self.minimap_service.minimap_region["width"], self.minimap_service.minimap_region["height"]
+        
         while self._running:
             t0 = time.perf_counter()
             try:
-                # 1. 截取 minimap
-                x, y = minimap["x"], minimap["y"]
-                w, h = minimap["width"], minimap["height"]
                 frame = self.capture.grab_region(x, y, w, h)
                 if frame is None:
-                    time.sleep(0.002)
+                    time.sleep(0.001)
                     continue
 
                 # 2. YOLO 检测
@@ -177,8 +156,6 @@ class NavigationRuntime:
         
     def _ctrl_loop(self):
         logger.info("控制线程启动")
-    
-        cfg = self.cfg.control
     
         # 控制线程 FPS
         ctrl_fps = getattr(self.cfg.performance, "control_fps", 20)
@@ -331,67 +308,7 @@ class NavigationRuntime:
     
         logger.info("控制线程退出")
 
-
-    def _follow_path(self, pos, heading, dev_tol, offset, arrive_th):
-        path = self.current_path_world
-        if len(path) < 2:
-            self.move.stop()
-            # 也可以同步一个空状态
-            self.data_hub.set_nav_status(
-                is_stuck=False,
-                stuck_frames=self.stuck_frames,
-                path_deviation=0.0,
-                distance_to_goal=0.0,
-                goal_reached=True,
-            )
-            return
-
-        # 1. 最近路径点
-        search_start = max(0, self.current_target_idx - 5)
-        idx, nearest, dev = self.path_follower.find_nearest_point(
-            pos, path, search_start
-        )
-
-        if idx > self.current_target_idx:
-            self.current_target_idx = idx
-
-        if dev > dev_tol * 2:
-            logger.warning(f"路径偏离：{dev:.1f}px")
-
-        # 2. 前瞻目标点
-        tgt_idx = min(self.current_target_idx + offset, len(path) - 1)
-        target = path[tgt_idx]
-        goal = path[-1]
-
-        dist_goal = math.hypot(goal[0] - pos[0], goal[1] - pos[1])
-        goal_reached = dist_goal < arrive_th
-
-        # === 这里同步 NavStatus 到 DataHub ===
-        try:
-            self.data_hub.set_nav_status(
-                is_stuck=self.stuck_detector.is_stuck,
-                stuck_frames=self.stuck_detector.stuck_frames,
-                path_deviation=dev,
-                distance_to_goal=dist_goal,
-                goal_reached=goal_reached,
-            )
-            # 同步 path 的当前 target_idx
-            self.data_hub.set_current_path(
-                grid_path=self.current_path_grid,
-                world_path=self.current_path_world,
-                target_idx=self.current_target_idx,
-            )
-        except Exception as e:
-            logger.warning("同步导航状态到 DataHub 失败: {e}")
-
-         # 3. 终点判断
-        if goal_reached:
-             self.move.stop()
-             logger.info("已到达目标")
-             self.current_path_world = []
-             self.current_path_grid = []
-             self.current_target_idx = 0
-             return
-
-         # 4. 控制：转向 + 前进
-        self.move.goto(target, pos, heading)
+if __name__ == "__main__":
+    nav_runtime = NavigationRuntime()
+    nav_runtime.start()
+    logger.info("NavigationRuntime 已停止")

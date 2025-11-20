@@ -23,7 +23,7 @@ from src.navigation.core.navigation_executor import NavigationExecutor
 from src.navigation.core.mask_loader import load_mask
 from src.navigation.service.minimap_service import MinimapService
 from src.navigation.service.path_planning_service import PathPlanningService
-from src.navigation.service.navigation_runtime import NavigationRuntime
+from src.navigation.nav_runtime.navigation_runtime import NavigationRuntime
 from src.navigation.config.models import NavigationConfig
 
 
@@ -140,8 +140,8 @@ class NavigationInstance:
                 logger.info("路径规划服务掩码数据已更新")
             
             # 4. 更新线程管理器的掩码数据（如果存在）
-            if self.thread_manager_:
-                self.thread_manager_.mask_data_ = self.mask_data_
+            if self.nag_runtime_:
+                self.nag_runtime_.mask_data_ = self.mask_data_
                 logger.info("线程管理器掩码数据已更新")
             
             logger.info("掩码更新成功")
@@ -275,59 +275,49 @@ class NavigationInstance:
         try:
             logger.info("开始战斗阶段初始化...")
             
-            # 1. 首次检测小地图位置
-            logger.info("首次检测小地图位置...")
-            frame = self.capture_service_.Capture()
-            if frame is None:
-                logger.error("无法捕获屏幕")
-                return False
+            # # 1. 首次检测小地图位置
+            # logger.info("首次检测小地图位置...")
+            # frame = self.capture_service_.Capture()
+            # if frame is None:
+            #     logger.error("无法捕获屏幕")
+            #     return False
             
-            minimap_region = self.minimap_service_.detect_region(frame)
-            if minimap_region is None:
-                logger.error("无法检测到小地图位置")
-                return False
+            # minimap_region = self.minimap_service_.detect_region(frame)
+            # if minimap_region is None:
+            #     logger.error("无法检测到小地图位置")
+            #     return False
             
             # 2. 加载掩码
-            minimap_size = (minimap_region['width'], minimap_region['height'])
-            from src.utils.global_path import GetMapMaskPath
-            mask_path = GetMapMaskPath()
-            self.mask_data_ = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_)
-            if self.mask_data_ is None:
-                logger.error("掩码加载失败")
-                return False
+            # minimap_size = (minimap_region['width'], minimap_region['height'])
+            # from src.utils.global_path import GetMapMaskPath
+            # mask_path = GetMapMaskPath()
+            # self.mask_data_ = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_)
+            # if self.mask_data_ is None:
+            #     logger.error("掩码加载失败")
+            #     return False
             
             # 3. 更新路径规划服务的掩码数据
-            self.path_planning_service_.set_mask_data(
-                self.mask_data_.grid,
-                self.mask_data_.cost_map,
-                self.mask_data_.inflated_obstacle
-            )
+            # self.path_planning_service_.set_mask_data(
+            #     self.mask_data_.grid,
+            #     self.mask_data_.cost_map,
+            #     self.mask_data_.inflated_obstacle
+            # )
             
             # 4. 初始化透明覆盖层
-            if not self.minimap_service_.initialize_overlay(minimap_region):
-                logger.error("透明覆盖层初始化失败")
-                return False
+            # if not self.minimap_service_.initialize_overlay(minimap_region):
+            #     logger.error("透明覆盖层初始化失败")
+            #     return False
             
             # 5. 创建线程管理器并启动
-            queues = {
-                'detection': self.detection_queue_,
-                'path': self.path_queue_
-            }
+            # queues = {
+            #     'detection': self.detection_queue_,
+            #     'path': self.path_queue_
+            # }
             
-            self.thread_manager_ = ThreadManager(
-                capture_service=self.capture_service_,
-                minimap_detector=self.minimap_detector_,
-                minimap_service=self.minimap_service_,
-                path_planning_service=self.path_planning_service_,
-                nav_executor=self.nav_executor_,
-                queues=queues,
-                mask_data=self.mask_data_,
-                config=self.config_
-            )
-            
-            if not self.thread_manager_.start_all():
-                logger.error("线程管理器启动失败")
-                self.thread_manager_ = None
+            self.nag_runtime_ = NavigationRuntime()
+            if not self.nag_runtime_.start():
+                logger.error("NavigationRuntime 启动失败")
+                self.nag_runtime_ = None
                 return False
             
             self.running_ = True
@@ -339,9 +329,9 @@ class NavigationInstance:
             logger.error(f"战斗阶段初始化失败: {e}")
             import traceback
             traceback.print_exc()
-            if self.thread_manager_:
-                self.thread_manager_.stop_all()
-                self.thread_manager_ = None
+            if self.nag_runtime_:
+                self.nag_runtime_.stop_all()
+                self.nag_runtime_ = None
             self.running_ = False
             self.battle_initialized_ = False
             return False
@@ -358,22 +348,22 @@ class NavigationInstance:
         
         # 主线程等待所有线程完成
         try:
-            while self.running_ and self.thread_manager_ and self.thread_manager_.is_running():
+            while self.running_ and self.nag_runtime_ and self.nag_runtime_.is_running():
                 time.sleep(5)
                 # 检查线程是否还在运行
                 if (
-                    self.thread_manager_.detection_thread_
-                    and not self.thread_manager_.detection_thread_.is_alive()
+                    self.nag_runtime_.detection_thread_
+                    and not self.nag_runtime_.detection_thread_.is_alive()
                 ):
                     logger.warning("检测线程已退出")
                 if (
-                    self.thread_manager_.control_thread_
-                    and not self.thread_manager_.control_thread_.is_alive()
+                    self.nag_runtime_.control_thread_
+                    and not self.nag_runtime_.control_thread_.is_alive()
                 ):
                     logger.warning("控制线程已退出")
                 if (
-                    self.thread_manager_.ui_thread_
-                    and not self.thread_manager_.ui_thread_.is_alive()
+                    self.nag_runtime_.ui_thread_
+                    and not self.nag_runtime_.ui_thread_.is_alive()
                 ):
                     logger.warning("UI更新线程已退出")
         except KeyboardInterrupt:
@@ -438,9 +428,9 @@ class NavigationInstance:
         self.running_ = False
         
         # 停止线程管理器
-        if self.thread_manager_:
-            self.thread_manager_.stop_all()
-            self.thread_manager_ = None
+        if self.nag_runtime_:
+            self.nag_runtime_.stop_all()
+            self.nag_runtime_ = None
         
         # 关闭透明覆盖层
         if self.minimap_service_ and self.minimap_service_.overlay:
