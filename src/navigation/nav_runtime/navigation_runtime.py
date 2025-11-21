@@ -81,7 +81,7 @@ class NavigationRuntime:
     # ============================================================
     # 外部接口
     # ============================================================
-    def start(self) -> bool:
+    def start(self, map_name: str) -> bool:
         """启动导航 Runtime"""
         if self._running:
             logger.warning("NavigationRuntime 已在运行")
@@ -104,17 +104,21 @@ class NavigationRuntime:
         logger.info(f"检测到小地图区域: {self.minimap_region}")
 
         # 检测当前地图名称，读取 mask 图片
-        map_name_frame = ScreenAction().screenshot_with_key_hold('b')
-        if map_name_frame is None:
-            logger.error("无法截取地图名称界面")
-            return False
-        map_name = self.minimap_name_detector.detect(map_name_frame)
-        if map_name:
-            logger.info(f"当前地图名称: {map_name}")
-            if not self.planner_service.load_map(map_name, self.minimap_region):
-                logger.error("无法加载地图")
+        if not map_name:
+            map_name_frame = ScreenAction().screenshot_with_key_hold('b')
+            if map_name_frame is None:
+                logger.error("无法截取地图名称界面")
                 return False
-            logger.info(f"地图{map_name}加载成功")
+            map_name = self.minimap_name_detector.detect(map_name_frame)
+            if not map_name:
+                logger.error("无法识别地图名称")
+                return False
+            logger.info(f"当前地图名称: {map_name}")
+
+        if not self.planner_service.load_map(map_name, (self.minimap_region["width"], self.minimap_region["height"])):
+            logger.error("无法加载地图")
+            return False
+        logger.info(f"地图{map_name}加载成功")
 
         self._running = True
 
@@ -158,7 +162,8 @@ class NavigationRuntime:
     def _det_loop(self) -> None:
         logger.info("检测线程启动")
 
-        detect_fps = getattr(self.cfg.performance, "detect_fps", 30)
+        # detect_fps = getattr(self.cfg.performance, "detect_fps", 30)
+        detect_fps = 30
         detect_fps = max(1, int(detect_fps))
         min_interval = 1.0 / detect_fps
 
@@ -197,7 +202,8 @@ class NavigationRuntime:
         logger.info("控制线程启动")
 
         # 控制线程 FPS
-        ctrl_fps = getattr(self.cfg.performance, "control_fps", 20)
+        # ctrl_fps = getattr(self.cfg.performance, "control_fps", 20)
+        ctrl_fps = 20
         ctrl_fps = max(1, int(ctrl_fps))
         interval = 1.0 / ctrl_fps
 
@@ -240,9 +246,9 @@ class NavigationRuntime:
             is_stuck = self.stuck_detector.update(pos)
 
             need_replan = (
-                not self.current_path_world
+                not current_path_world
                 or is_stuck
-                or self.current_target_idx >= len(self.current_path_world) - 1
+                or current_target_idx >= len(current_path_world) - 1
             )
 
             # 3) 路径规划（若需要）
@@ -350,7 +356,7 @@ if __name__ == "__main__":
             logger.info("NavigationRuntime 已在运行，忽略 F9")
             return
         rt = NavigationRuntime()
-        if rt.start():
+        if rt.start(map_name="乌蒙雄山"):
             runtime_holder["rt"] = rt
             logger.info("F9: NavigationRuntime 已启动")
         else:
@@ -365,18 +371,18 @@ if __name__ == "__main__":
         logger.info("F10: NavigationRuntime 已停止")
 
     def on_press(key):
-        try:
-            if key == keyboard.Key.f9:
-                start_runtime()
-            elif key == keyboard.Key.f10:
-                stop_runtime()
-            elif key == keyboard.Key.esc:
-                # 退出前确保停止 Runtime
-                stop_runtime()
-                logger.info("ESC: 退出程序")
-                return False  # 停止监听器，程序退出
-        except Exception as e:
-            logger.error(f"热键处理异常: {e}")
+        # try:
+        if key == keyboard.Key.f11:
+            start_runtime()
+        elif key == keyboard.Key.f12:
+            stop_runtime()
+        elif key == keyboard.Key.esc:
+            # 退出前确保停止 Runtime
+            stop_runtime()
+            logger.info("ESC: 退出程序")
+            return False  # 停止监听器，程序退出
+        # except Exception as e:
+        #     logger.error(f"热键处理异常: {e}")
 
     logger.info("按 F9 启动导航，F10 停止导航，ESC 退出程序")
 

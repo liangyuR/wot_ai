@@ -19,7 +19,7 @@ class MinimapAnchorDetector:
         self.debug_ = debug
         self.multi_scale_ = multi_scale
 
-        tpl_rgba = cv2.imread(self.template_path_, cv2.IMREAD_UNCHANGED)
+        tpl_rgba = cv2.imread(str(self.template_path_), cv2.IMREAD_UNCHANGED)
         if tpl_rgba is None:
             raise FileNotFoundError(f"无法加载模板图像: {self.template_path_}")
 
@@ -136,7 +136,7 @@ class MinimapAnchorDetector:
         frame_h, frame_w = frame.shape[:2]
         
         # 使用MinimapAnchorDetector检测小地图位置
-        top_left = self.anchor_detector_.detect(frame)
+        top_left = self.detect(frame)
         if top_left is None:
             logger.warning("无法检测到小地图位置")
             return None
@@ -150,9 +150,6 @@ class MinimapAnchorDetector:
         
         # 小地图通常是正方形，取宽度和高度的最小值
         minimap_size = min(available_width, available_height)
-        
-        # 确保尺寸合理（至少大于0，且不超过配置的最大值）
-        minimap_size = max(1, min(minimap_size, self.config_.minimap.max_size))
         
         region = {
             'x': x,

@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from src.core.global_context import GlobalContext
+from src.utils.global_context import GlobalContext
 from loguru import logger
 
 _global_context = None
@@ -40,7 +40,7 @@ def GetConfigTemplatePath() -> Path:
 if __name__ == "__main__":
     logger.info(GetProgramDir())
     logger.info(MinimapBorderTemplatePath())
-    logger.info(GetMapsDir())
+    logger.info(GetMapTemplatePath())
     logger.info(GetVehicleScreenshotsDir())
     logger.info(GetConfigPath())
     logger.info(GetConfigTemplatePath())

@@ -80,6 +80,14 @@
             "args": [
                 "冰川之地",
             ]
+        },
+        {
+            "name": "运动控制器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/controller/movement_controller.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
         }
     ]
 }

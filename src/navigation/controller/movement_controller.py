@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from src.navigation.controller.move_executor import MovementCommand
+from src.navigation.controller.move_executor import MoveExecutor
 
 class MovementController:
     """运动决策层：根据当前位置 / 朝向 / 目标点，算出这一帧的 MovementCommand。
@@ -103,3 +104,65 @@ class MovementController:
         forward_cmd = self.max_forward_speed * dist_factor * angle_factor
 
         return MovementCommand(forward=forward_cmd, turn=turn_cmd, brake=False)
+
+
+if __name__ == "__main__":
+    """真实控制演示版 Demo：
+    - MovementController 决策
+    - MoveExecutor 执行实际按键（W/A/S/D）
+
+    **运行此 demo 会真的按键！**
+    建议：
+      1. 打开一个空记事本窗口用于观察按键
+      2. 不要把鼠标焦点放在游戏窗口上
+    """
+
+    import time
+    
+    time.sleep(5)
+
+    # --- 初始化完整三层结构 ---
+    executor = MoveExecutor()     # 控制键盘
+    controller = MovementController(         # 输出控制量
+        angle_dead_zone_deg=3.0,
+        angle_slow_turn_deg=15.0,
+        distance_stop_threshold=5.0,
+        slow_down_distance=30.0,
+        max_forward_speed=1.0,
+    )
+
+    print("\n===== MovementController + MoveExecutor Demo =====")
+    print("此示例会真实按下 W/A/S/D 键，请确保焦点不在游戏窗口！")
+    print("建议打开记事本观察按键效果。")
+
+    # Demo 环境参数
+    current_pos = (100.0, 100.0)
+    heading = math.radians(0.0)
+    target_pos = (200.0, 130.0)
+
+    for i in range(40):
+        cmd = controller.decide(
+            current_pos=current_pos,
+            heading=heading,
+            target_pos=target_pos,
+        )
+
+        print(
+            f"Frame {i:02d}: forward={cmd.forward:.3f}, turn={cmd.turn:.3f}, brake={cmd.brake}"
+        )
+
+        # 执行按键
+        executor.apply_command(cmd)
+
+        # --- 模拟简单运动 ---
+        current_pos = (
+            current_pos[0] + cmd.forward * math.cos(heading) * 3.0,
+            current_pos[1] + cmd.forward * math.sin(heading) * 3.0,
+        )
+        heading += cmd.turn * 0.06
+
+        time.sleep(0.05)
+
+    print("演示结束，释放所有按键...")
+    executor.stop_all()
+    print("===== Demo End =====")

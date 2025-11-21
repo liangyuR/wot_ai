@@ -39,7 +39,7 @@ class GlobalContext:
                 width = monitor["width"]
                 height = monitor["height"]
                 self.resolution = (width, height)
-                self.template_tier = self._resolve_template_tier(height)
+                self.template_tier = self._resolve_template_tier(width, height)
                 logger.info(
                     f"检测到屏幕分辨率: {width}x{height}, 模板目录: {self.template_tier}"
                 )
@@ -51,12 +51,12 @@ class GlobalContext:
             self.template_tier = DEFAULT_TEMPLATE_TIER
 
     @staticmethod
-    def _resolve_template_tier(height: int) -> str:
+    def _resolve_template_tier(width: int, height: int) -> str:
         """根据高度判断模板目录。"""
+        if width == 3440 and height == 1440:
+            return "2k"
         if height < 1080:
             return "1k"
         if height < 1440:
             return "2k"
         return "4k"
-
-
