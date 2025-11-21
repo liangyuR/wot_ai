@@ -46,6 +46,21 @@
             "program": "src/navigation/nav_runtime/navigation_runtime.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "掩码加载器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/utils/mask_loader.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [
+                "D:/project/wot_ai/resource/map_mask/乌蒙雄山_mask.png",
+                "--minimap_size", "1100", "1100",
+                "--grid_size", "512", "512",
+                "--inflation_radius_px", "3",
+                "--cost_alpha", "5.0"
+            ],
         }
     ]
 }

@@ -3,7 +3,7 @@
 
 from typing import Tuple, Optional
 from loguru import logger
-
+from src.navigation.core.navigation_executor import NavigationExecutor
 
 class MovementController:
     """
@@ -22,7 +22,7 @@ class MovementController:
     """
 
     def __init__(self, nav_executor):
-        self.nav = nav_executor
+        self.nav = NavigationExecutor()
 
     def goto(
         self,

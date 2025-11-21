@@ -44,6 +44,7 @@ from ..service.control_service import ControlService
 from .heading_controller import HeadingControlResult, HeadingController, normalize_angle
 from .local_avoidance import PotentialFieldAvoider
 from .path_adjuster import OnlinePathAdjuster
+from ..service.control_service import ControlService
 
 
 class NavigationExecutor:
@@ -51,18 +52,15 @@ class NavigationExecutor:
 
     def __init__(
         self,
-        control_service: ControlService,
         move_speed: float = DEFAULT_MOVE_SPEED,
         rotation_smooth: float = DEFAULT_ROTATION_SMOOTH,
     ) -> None:
-        if control_service is None:
-            raise ValueError("control_service不能为None")
         if move_speed <= 0:
             raise ValueError("move_speed必须是正数")
         if not 0 <= rotation_smooth <= 1:
             raise ValueError("rotation_smooth必须在0-1之间")
 
-        self.control_service_ = control_service
+        self.control_service_ = ControlService()
         self.move_speed_ = move_speed
         self.rotation_smooth_ = rotation_smooth
 

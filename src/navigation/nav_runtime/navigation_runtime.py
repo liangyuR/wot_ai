@@ -17,9 +17,6 @@ from src.navigation.service.data_hub import DataHub
 from src.navigation.service.capture_service import CaptureService
 from src.vision.minimap_anchor_detector import MinimapAnchorDetector
 from src.navigation.service.path_planning_service import PathPlanningService
-from src.navigation.core.navigation_executor import NavigationExecutor
-from src.navigation.core.path_follower import PathFollower
-from src.navigation.config.models import NavigationConfig
 from src.navigation.config.loader import load_config
 
 from src.navigation.nav_runtime.stuck_detector import StuckDetector
@@ -27,7 +24,9 @@ from src.navigation.nav_runtime.path_planner_wrapper import PathPlannerWrapper
 from src.navigation.nav_runtime.movement_controller import MovementController
 from src.navigation.nav_runtime.path_follower_wrapper import PathFollowerWrapper
 from src.vision.minimap_detector import MinimapDetector
-from src.utils.global_path import GetConfigPath, MinimapBorderTemplatePath
+from src.utils.global_path import GetConfigPath
+from src.vision.map_name_detector import MapNameDetector
+from src.utils.screen_action import ScreenAction
 
 class NavigationRuntime:
     """导航运行时：
@@ -42,17 +41,16 @@ class NavigationRuntime:
         self.cfg = load_config(config_path)
 
         # 组件
-        self.capture = CaptureService()
+        self.capture = CaptureService(self.cfg.monitor_index)
         self.detector = MinimapDetector(self.cfg.model.path, self.cfg.model.conf_threshold, self.cfg.model.iou_threshold)
-        self.planner = PathPlanningService()
+        self.planner = PathPlanningService(self.cfg)
         self.data_hub = DataHub()
-        self.anchor_detector = MinimapAnchorDetector(MinimapBorderTemplatePath())
+        self.anchor_detector = MinimapAnchorDetector()
+        self.map_name_detector = MapNameDetector()
 
         # 控制与跟随
-        self.move = MovementController(NavigationExecutor())
-        self.path_follower = PathFollower()
+        self.move = MovementController()
         self.path_follower_wrapper = PathFollowerWrapper(
-            follower=self.path_follower,
             deviation_tolerance=self.cfg.control.path_deviation_tolerance,
             target_point_offset=self.cfg.control.target_point_offset,
             goal_arrival_threshold=self.cfg.control.goal_arrival_threshold,
@@ -100,6 +98,22 @@ class NavigationRuntime:
             logger.error("无法检测到小地图位置")
             return False
         logger.info(f"检测到小地图区域: {self.minimap_region}")
+
+        # 检测当前地图名称，读取 mask 图片
+        map_name_frame = ScreenAction().screenshot_with_key_hold('b')
+        if map_name_frame is None:
+            logger.error("无法截取地图名称界面")
+            return False
+        map_name = self.map_name_detector.detect(map_name_frame)
+        if map_name:
+            logger.info(f"当前地图名称: {map_name}")
+            if not self.planner.UpdateMask(map_name, self.minimap_region):
+                logger.error("无法更新掩码")
+                return False
+            logger.info(f"掩码更新成功: {map_name}")
+        else:
+            logger.error("无法识别地图名称, 以空掩码模式运行")
+            return False
 
         self._running = True
 
@@ -311,7 +325,6 @@ class NavigationRuntime:
                 time.sleep(interval - dt)
 
         logger.info("控制线程退出")
-
 
 if __name__ == "__main__":
     """使用 F9/F10 控制导航 Runtime 的启动和停止

@@ -10,17 +10,18 @@ import numpy as np
 from typing import Optional, Tuple
 from loguru import logger
 
+from src.utils.global_path import MinimapBorderTemplatePath
+
 
 class MinimapAnchorDetector:
-    def __init__(self, template_path: str, debug: bool = False, multi_scale: bool = False):
-        template_path = str(template_path)
-        self.template_path_ = template_path
+    def __init__(self, debug: bool = False, multi_scale: bool = False):
+        self.template_path_ = MinimapBorderTemplatePath()
         self.debug_ = debug
         self.multi_scale_ = multi_scale
 
-        tpl_rgba = cv2.imread(template_path, cv2.IMREAD_UNCHANGED)
+        tpl_rgba = cv2.imread(self.template_path_, cv2.IMREAD_UNCHANGED)
         if tpl_rgba is None:
-            raise FileNotFoundError(f"无法加载模板图像: {template_path}")
+            raise FileNotFoundError(f"无法加载模板图像: {self.template_path_}")
 
         if tpl_rgba.shape[2] == 4:
             self.template_bgr_ = tpl_rgba[..., :3]
@@ -36,7 +37,7 @@ class MinimapAnchorDetector:
         self.tpl_h_, self.tpl_w_ = self.template_gray_.shape[:2]
         self.clahe_ = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
-        logger.info(f"模板加载成功: {template_path}, 尺寸=({self.tpl_w_}x{self.tpl_h_})")
+        logger.info(f"模板加载成功: {self.template_path_}, 尺寸=({self.tpl_w_}x{self.tpl_h_})")
 
     def detect(self, frame: np.ndarray, size: Tuple[int, int] = (640, 640)) -> Optional[Tuple[int, int]]:
         if frame is None or frame.size == 0:

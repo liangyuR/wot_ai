@@ -5,6 +5,8 @@ import math
 from typing import List, Tuple, Optional
 from loguru import logger
 
+from src.navigation.core.path_follower import PathFollower
+
 
 class PathFollowerWrapper:
     """
@@ -17,7 +19,6 @@ class PathFollowerWrapper:
 
     def __init__(
         self,
-        follower,
         deviation_tolerance: float,
         target_point_offset: int,
         goal_arrival_threshold: float,
@@ -29,7 +30,7 @@ class PathFollowerWrapper:
             target_point_offset: 前瞻点偏移量（索引）
             goal_arrival_threshold: 认为“到达终点”的距离阈值（px）
         """
-        self._follower = follower
+        self._follower = PathFollower()
         self._dev_tol = deviation_tolerance
         self._offset = max(0, target_point_offset)
         self._goal_th = goal_arrival_threshold

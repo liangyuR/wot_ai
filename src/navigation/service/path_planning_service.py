@@ -15,6 +15,8 @@ from src.navigation.core.path_planner import AStarPlanner
 from src.navigation.core.planner_astar import astar_with_cost
 from src.navigation.core.path_smoothing import smooth_path_los, smooth_path
 from src.navigation.config.models import NavigationConfig
+from src.utils.mask_loader import load_mask
+from src.utils.global_path import GetMapMaskPath
 
 
 class PathPlanningService:
@@ -36,19 +38,29 @@ class PathPlanningService:
         self.cost_map_: Optional = None
         self.inflated_obstacle_: Optional = None
     
-    def set_mask_data(self, grid, cost_map, inflated_obstacle) -> None:
+    def UpdateMask(self, map_name: str, minimap_region: dict) -> bool:
         """
-        设置掩码数据
-        
+        加载并更新当前地图的掩码数据
+
         Args:
-            grid: 栅格地图
-            cost_map: 代价图
-            inflated_obstacle: 膨胀障碍图
+            map_name: 地图名称
+
+        Returns:
+            bool: 是否加载成功
         """
-        self.grid_ = grid
-        self.cost_map_ = cost_map
-        self.inflated_obstacle_ = inflated_obstacle
-    
+        minimap_size = (minimap_region['width'], minimap_region['height'])
+        mask_path = GetMapMaskPath(map_name)
+        mask_data = load_mask(mask_path, minimap_size, self.config_.grid.size, self.config_.mask.inflation_radius_px, self.config_.mask.cost_alpha)
+        if mask_data is None:
+            logger.error(f"掩码文件不存在或无法加载: {mask_path}")
+            return False
+        self.grid_ = mask_data.grid
+        self.cost_map_ = mask_data.cost_map
+        self.inflated_obstacle_ = mask_data.inflated_obstacle
+        logger.info(f"掩码文件加载成功: {mask_path}")
+        return True
+
+
     def plan_path(
         self,
         minimap_size: Tuple[int, int],

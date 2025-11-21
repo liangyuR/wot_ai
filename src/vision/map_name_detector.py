@@ -11,6 +11,7 @@ from pathlib import Path
 from loguru import logger
 from src.utils.template_matcher import TemplateMatcher
 
+
 class MapNameDetector:
     """基于模板匹配的地图名称识别器"""
 
