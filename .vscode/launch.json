@@ -61,6 +61,25 @@
                 "--inflation_radius_px", "3",
                 "--cost_alpha", "5.0"
             ],
+        },
+        {
+            "name": "路径规划核心逻辑调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/path_planner/path_planner_core.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "路径规划服务调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/path_planner/path_planning_service.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [
+                "冰川之地",
+            ]
         }
     ]
 }

@@ -9,24 +9,27 @@ ThreadManager 的替代方案（不带 UI）
 import math
 import time
 import threading
-from typing import Optional, Tuple
+from typing import Optional
 
 from loguru import logger
-
-from src.navigation.service.data_hub import DataHub
-from src.navigation.service.capture_service import CaptureService
-from src.vision.minimap_anchor_detector import MinimapAnchorDetector
-from src.navigation.service.path_planning_service import PathPlanningService
-from src.navigation.config.loader import load_config
-
-from src.navigation.nav_runtime.stuck_detector import StuckDetector
-from src.navigation.nav_runtime.path_planner_wrapper import PathPlannerWrapper
-from src.navigation.nav_runtime.movement_controller import MovementController
-from src.navigation.nav_runtime.path_follower_wrapper import PathFollowerWrapper
-from src.vision.minimap_detector import MinimapDetector
 from src.utils.global_path import GetConfigPath
-from src.vision.map_name_detector import MapNameDetector
+from src.navigation.config.loader import load_config
+from src.navigation.service.data_hub import DataHub
+# 屏幕捕获
+from src.navigation.service.capture_service import CaptureService
 from src.utils.screen_action import ScreenAction
+# 运动控制
+from src.navigation.nav_runtime.stuck_detector import StuckDetector
+from src.navigation.nav_runtime.movement_controller import MovementController
+# 路径规划
+from src.navigation.path_planner.path_planning_service import PathPlanningService
+from src.navigation.nav_runtime.path_planner_wrapper import PathPlannerWrapper
+from src.navigation.nav_runtime.path_follower_wrapper import PathFollowerWrapper
+# 小地图识别 & 检测
+from src.vision.minimap_anchor_detector import MinimapAnchorDetector
+from src.vision.minimap_detector import MinimapDetector
+from src.vision.map_name_detector import MapNameDetector
+
 
 class NavigationRuntime:
     """导航运行时：
@@ -42,11 +45,18 @@ class NavigationRuntime:
 
         # 组件
         self.capture = CaptureService(self.cfg.monitor_index)
-        self.detector = MinimapDetector(self.cfg.model.path, self.cfg.model.conf_threshold, self.cfg.model.iou_threshold)
-        self.planner = PathPlanningService(self.cfg)
+
+        # 路径规划
+        self.planner_service = PathPlanningService(self.cfg)
+
+        # 数据总线
         self.data_hub = DataHub()
-        self.anchor_detector = MinimapAnchorDetector()
-        self.map_name_detector = MapNameDetector()
+
+        # 小地图检测
+        self.minimap_detector = MinimapDetector(self.cfg.model.path, self.cfg.model.conf_threshold, self.cfg.model.iou_threshold)
+        self.minimap_anchor_detector = MinimapAnchorDetector()
+        self.minimap_name_detector = MapNameDetector()
+        self.minimap_region: Optional[dict] = None
 
         # 控制与跟随
         self.move = MovementController()
@@ -62,17 +72,10 @@ class NavigationRuntime:
             frame_threshold=self.cfg.control.stuck_frames_threshold,
         )
 
-        self.minimap_region: Optional[dict] = None
-
         # 线程
         self._running = False
         self._det_thread: Optional[threading.Thread] = None
         self._ctrl_thread: Optional[threading.Thread] = None
-
-        # 路径跟随状态（仅控制线程内部访问）
-        self.current_path_grid = []
-        self.current_path_world = []
-        self.current_target_idx = 0
 
     # ============================================================
     # 外部接口
@@ -83,7 +86,7 @@ class NavigationRuntime:
             logger.warning("NavigationRuntime 已在运行")
             return False
 
-        if not self.detector.LoadModel():
+        if not self.minimap_detector.LoadModel():
             logger.error("模型加载失败")
             return False
 
@@ -93,7 +96,7 @@ class NavigationRuntime:
             logger.error("首次抓取屏幕失败，无法检测小地图")
             return False
 
-        self.minimap_region = self.anchor_detector.DetectRegion(first_frame)
+        self.minimap_region = self.minimap_anchor_detector.DetectRegion(first_frame)
         if not self.minimap_region:
             logger.error("无法检测到小地图位置")
             return False
@@ -104,16 +107,13 @@ class NavigationRuntime:
         if map_name_frame is None:
             logger.error("无法截取地图名称界面")
             return False
-        map_name = self.map_name_detector.detect(map_name_frame)
+        map_name = self.minimap_name_detector.detect(map_name_frame)
         if map_name:
             logger.info(f"当前地图名称: {map_name}")
-            if not self.planner.UpdateMask(map_name, self.minimap_region):
-                logger.error("无法更新掩码")
+            if not self.planner_service.load_map(map_name, self.minimap_region):
+                logger.error("无法加载地图")
                 return False
-            logger.info(f"掩码更新成功: {map_name}")
-        else:
-            logger.error("无法识别地图名称, 以空掩码模式运行")
-            return False
+            logger.info(f"地图{map_name}加载成功")
 
         self._running = True
 
@@ -157,7 +157,6 @@ class NavigationRuntime:
     def _det_loop(self) -> None:
         logger.info("检测线程启动")
 
-        # 读取配置 detect_fps，避免为 0
         detect_fps = getattr(self.cfg.performance, "detect_fps", 30)
         detect_fps = max(1, int(detect_fps))
         min_interval = 1.0 / detect_fps
@@ -173,7 +172,7 @@ class NavigationRuntime:
                     time.sleep(0.001)
                     continue
 
-                det = self.detector.Detect(frame)
+                det = self.minimap_detector.Detect(frame)
                 if det is None or getattr(det, "self_pos", None) is None:
                     continue
 
@@ -214,10 +213,14 @@ class NavigationRuntime:
 
         # 包装路径规划器
         self.path_planner = PathPlannerWrapper(
-            planner=self.planner,
+            planner=self.planner_service,
             minimap_size=(mmap_w, mmap_h),
             scale_xy=(sx, sy),
         )
+
+        current_path_grid = []
+        current_path_world = []
+        current_target_idx = 0
 
         while self._running:
             t0 = time.perf_counter()
@@ -244,16 +247,16 @@ class NavigationRuntime:
             # 3) 路径规划（若需要）
             if need_replan:
                 self.move.stop()
-                grid_path, world_path = self.path_planner.plan(det)
+                grid_path, world_path = self.planner_service.plan_path(det)
 
                 if not world_path:
                     self.move.stop()
                     time.sleep(interval)
                     continue
 
-                self.current_path_grid = grid_path
-                self.current_path_world = world_path
-                self.current_target_idx = 0
+                current_path_grid = grid_path
+                current_path_world = world_path
+                current_target_idx = 0
 
                 try:
                     self.data_hub.set_current_path(
@@ -295,9 +298,9 @@ class NavigationRuntime:
                 )
 
                 self.data_hub.set_current_path(
-                    grid_path=self.current_path_grid,
-                    world_path=self.current_path_world,
-                    target_idx=self.current_target_idx,
+                    grid_path=current_path_grid,
+                    world_path=current_path_world,
+                    target_idx=current_target_idx,
                 )
             except Exception:
                 pass
@@ -306,9 +309,9 @@ class NavigationRuntime:
             if goal_reached or target_world is None:
                 self.move.stop()
 
-                self.current_path_grid = []
-                self.current_path_world = []
-                self.current_target_idx = 0
+                current_path_grid = []
+                current_path_world = []
+                current_target_idx = 0
 
                 time.sleep(interval)
                 continue
@@ -332,6 +335,7 @@ if __name__ == "__main__":
     - F9: 启动（若未运行则创建并启动一个 NavigationRuntime 实例）
     - F10: 停止（若正在运行则停止当前实例）
     - ESC: 退出程序（如果在运行则先停止再退出）
+    - tank 进入战斗后调用该测试
     """
     from pynput import keyboard
 

@@ -5,7 +5,3 @@
 
 提供导航系统的核心功能。
 """
-
-from .navigation_main import NavigationInstance
-
-__all__ = ['NavigationInstance']
