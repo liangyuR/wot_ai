@@ -20,7 +20,7 @@ from src.navigation.service.capture_service import CaptureService
 from src.utils.screen_action import ScreenAction
 # 运动控制
 from src.navigation.nav_runtime.stuck_detector import StuckDetector
-from src.navigation.controller.movement_controller import MovementController
+from src.navigation.controller.movement_service import MovementService
 # 路径规划
 from src.navigation.path_planner.path_planning_service import PathPlanningService
 from src.navigation.nav_runtime.path_planner_wrapper import PathPlannerWrapper
@@ -59,7 +59,8 @@ class NavigationRuntime:
         self.minimap_region: Optional[dict] = None
 
         # 控制与跟随
-        self.move = MovementController()
+        self.move = MovementService()
+
         self.path_follower_wrapper = PathFollowerWrapper(
             deviation_tolerance=self.cfg.control.path_deviation_tolerance,
             target_point_offset=self.cfg.control.target_point_offset,
