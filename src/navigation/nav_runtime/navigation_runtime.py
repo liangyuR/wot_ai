@@ -20,7 +20,7 @@ from src.navigation.service.capture_service import CaptureService
 from src.utils.screen_action import ScreenAction
 # 运动控制
 from src.navigation.nav_runtime.stuck_detector import StuckDetector
-from src.navigation.nav_runtime.movement_controller import MovementController
+from src.navigation.controller.movement_controller import MovementController
 # 路径规划
 from src.navigation.path_planner.path_planning_service import PathPlanningService
 from src.navigation.nav_runtime.path_planner_wrapper import PathPlannerWrapper

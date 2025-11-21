@@ -17,7 +17,7 @@ from src.core.tank_selector import TankSelector, TankTemplate
 from src.navigation.config.models import NavigationConfig
 from src.vision.map_name_detector import MapNameDetector
 from src.listeners.pynput_listener import PynputInputListener
-from src.navigation.service.control_service import ControlService
+from src.navigation.service.control_service import KeyBoardManager
 from src.utils.template_matcher import TemplateMatcher
 
 class BattleTask:
@@ -347,12 +347,12 @@ class BattleTask:
         # 1. 当前在结算页面
         success = self.template_matcher_.match_template("space_jump.png", confidence=0.85)
         if success is not None:
-            ControlService().TapKey("esc")
+            KeyBoardManager().TapKey("esc")
             return True
         
         # 2.当被击毁时，点击"返回车库"按钮
         # press esc
-        ControlService().TapKey("esc")
+        KeyBoardManager().TapKey("esc")
 
         # 点击"返回车库"按钮
         success = self.template_matcher_.click_template("garage_button.png", confidence=0.85)

@@ -18,7 +18,7 @@ from loguru import logger
 from src.navigation.service.capture_service import CaptureService
 from src.vision.minimap_anchor_detector import MinimapAnchorDetector
 from src.vision.minimap_detector import MinimapDetector
-from src.navigation.service.control_service import ControlService
+from src.navigation.service.control_service import KeyBoardManager
 from src.navigation.core.navigation_executor import NavigationExecutor
 from src.navigation.core.mask_loader import load_mask
 from src.navigation.service.minimap_service import MinimapService
@@ -50,7 +50,7 @@ class NavigationInstance:
         self.capture_service_: Optional[CaptureService] = None
         self.anchor_detector_: Optional[MinimapAnchorDetector] = None
         self.minimap_detector_: Optional[MinimapDetector] = None
-        self.control_service_: Optional[ControlService] = None
+        self.control_service_: Optional[KeyBoardManager] = None
         self.nav_executor_: Optional[NavigationExecutor] = None
         
         # 新服务实例
@@ -189,7 +189,7 @@ class NavigationInstance:
             
             # 2. 初始化控制服务
             logger.info("初始化控制服务...")
-            self.control_service_ = ControlService()
+            self.control_service_ = KeyBoardManager()
             
             # 3. 初始化导航执行器
             logger.info("初始化导航执行器...")
