@@ -215,6 +215,9 @@ class PathPlanningService:
             traceback.print_exc()
             return None, None
 
+    def get_grid_mask(self) -> np.ndarray:
+        return self._map_model.grid
+
 if __name__ == "__main__":
     import cv2
     import numpy as np

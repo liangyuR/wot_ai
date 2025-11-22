@@ -16,7 +16,7 @@ minimap:
 # 掩码配置（可选）
 mask:
   inflation_radius_px: 4  # 障碍膨胀半径（像素）
-  cost_alpha: 15  # 代价图权重
+  cost_alpha: 4  # 代价图权重
 
 # 栅格配置
 grid:

@@ -88,6 +88,14 @@
             "program": "src/navigation/controller/movement_controller.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "DearPyGui 调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/gui/debug_view.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
         }
     ]
 }

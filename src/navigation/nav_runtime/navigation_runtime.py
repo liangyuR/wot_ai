@@ -29,6 +29,8 @@ from src.navigation.nav_runtime.path_follower_wrapper import PathFollowerWrapper
 from src.vision.minimap_anchor_detector import MinimapAnchorDetector
 from src.vision.minimap_detector import MinimapDetector
 from src.vision.map_name_detector import MapNameDetector
+# View
+from src.gui.debug_view import DpgNavDebugView
 
 
 class NavigationRuntime:
@@ -45,6 +47,7 @@ class NavigationRuntime:
 
         # 组件
         self.capture = CaptureService(self.cfg.monitor_index)
+        self.view = DpgNavDebugView(title="WOT Nav Debug")
 
         # 路径规划
         self.planner_service = PathPlanningService(self.cfg)
@@ -120,6 +123,8 @@ class NavigationRuntime:
             return False
         logger.info(f"地图{map_name}加载成功")
 
+        self.view.set_grid_mask(self.planner_service.get_grid_mask())
+
         self._running = True
 
         self._det_thread = threading.Thread(target=self._det_loop, daemon=True)
@@ -177,6 +182,8 @@ class NavigationRuntime:
                 if frame is None:
                     time.sleep(0.001)
                     continue
+
+                self.view.update_minimap_frame(frame)
 
                 det = self.minimap_detector.Detect(frame)
                 if det is None or getattr(det, "self_pos", None) is None:
@@ -288,11 +295,30 @@ class NavigationRuntime:
                 used_target_idx,
             ) = self.path_follower_wrapper.follow(
                 current_pos=pos,
-                path_world=self.current_path_world,
-                current_target_idx=self.current_target_idx,
+                path_world=current_path_world,
+                current_target_idx=current_target_idx,
             )
 
-            self.current_target_idx = new_idx
+            current_target_idx = new_idx
+
+            # ---- 调试 UI：更新导航状态 + 路径 ----
+            if self.view is not None:
+                try:
+                    goal_pos = getattr(det, "goal_pos", None)  # 或者从 cfg / planner_service 拿
+                    self.view.update_nav_state(
+                        self_pos_mmap=pos,
+                        heading_rad=heading,
+                        goal_pos_mmap=goal_pos,
+                        path_world_mmap=current_path_world,
+                        path_grid=current_path_grid,
+                        target_idx=current_target_idx,
+                        is_stuck=is_stuck,
+                        path_deviation=dev,
+                        distance_to_goal=dist_goal,
+                        goal_reached=goal_reached,
+                    )
+                except Exception:
+                    logger.exception("view.update_nav_state 失败")
 
             # 5) 更新 DataHub 状态
             try:
@@ -371,7 +397,6 @@ if __name__ == "__main__":
         logger.info("F10: NavigationRuntime 已停止")
 
     def on_press(key):
-        # try:
         if key == keyboard.Key.f11:
             start_runtime()
         elif key == keyboard.Key.f12:
@@ -381,8 +406,6 @@ if __name__ == "__main__":
             stop_runtime()
             logger.info("ESC: 退出程序")
             return False  # 停止监听器，程序退出
-        # except Exception as e:
-        #     logger.error(f"热键处理异常: {e}")
 
     logger.info("按 F9 启动导航，F10 停止导航，ESC 退出程序")
 
