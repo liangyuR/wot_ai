@@ -8,9 +8,8 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from loguru import logger
-
 
 @dataclass(frozen=True)
 class TankTemplate:
@@ -29,7 +28,14 @@ class TankTemplate:
 class TankSelector:
     """坦克选择器"""
     
-    def __init__(self, vehicle_screenshot_dir: Path, vehicle_priority: List[str] = None):
+    _instance: Optional['TankSelector'] = None
+    
+    def __new__(cls) -> 'TankSelector':
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
         """
         初始化坦克选择器
         
@@ -37,15 +43,21 @@ class TankSelector:
             vehicle_screenshot_dir: 车辆截图目录路径
             vehicle_priority: 车辆优先级列表（文件名列表），如果为None则按文件名排序
         """
-        self.vehicle_screenshot_dir_ = Path(vehicle_screenshot_dir)
-        self.vehicle_priority_ = vehicle_priority or []
+        # 如果已经初始化过，跳过
+        if hasattr(self, '_initialized'):
+            return
         
-        # 如果没有提供优先级列表，从目录中读取所有图片文件
+        from src.utils.global_path import GetVehicleScreenshotsDir
+        self.vehicle_screenshot_dir_ = GetVehicleScreenshotsDir()
+        self.vehicle_priority_ = []
+        
+        # 从目录中读取所有图片文件
         if not self.vehicle_priority_ and self.vehicle_screenshot_dir_.exists():
             image_files = sorted(self.vehicle_screenshot_dir_.glob("*.png"))
             self.vehicle_priority_ = [f.name for f in image_files]
         
         logger.info(f"车辆优先级列表: {self.vehicle_priority_}")
+        self._initialized = True
     
     def pick(self) -> List[TankTemplate]:
         """

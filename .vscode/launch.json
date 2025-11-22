@@ -8,27 +8,108 @@
             "name": "Main",
             "type": "debugpy",
             "request": "launch",
-            "program": "wot_ai/game_modules/main_window.py",
+            "program": "src/main_window.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": ""
         },
-        // map_name_detector debug
         {
             "name": "地图名称检测器调试",
             "type": "debugpy",
             "request": "launch",
-            "program": "wot_ai/game_modules/vision/detection/map_name_detector.py",
+            "program": "src/vision/map_name_detector.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "args": "C:\\Users\\11601\\Desktop\\微信图片_20251118133709_457_14.jpg"
+            "args": "C:\\Users\\11601\\OneDrive\\Desktop\\map_template\\Snipaste_2025-11-19_22-37-19.png"
         },
-        // path test
         {
             "name": "路径测试",
             "type": "debugpy",
             "request": "launch",
             "program": "src/utils/global_path.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "小地图检测器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/vision/minimap_detector.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": "D:\\project\\wot_ai\\utest\\minimap_bak.png"
+        },
+        {
+            "name": "小地图锚点检测器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/vision/minimap_anchor_detector.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "导航运行时调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/nav_runtime/navigation_runtime.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "掩码加载器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/utils/mask_loader.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [
+                "D:/project/wot_ai/resource/map_mask/乌蒙雄山_mask.png",
+                "--minimap_size", "1100", "1100",
+                "--grid_size", "512", "512",
+                "--inflation_radius_px", "3",
+                "--cost_alpha", "5.0"
+            ],
+        },
+        {
+            "name": "路径规划核心逻辑调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/path_planner/path_planner_core.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "路径规划服务调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/path_planner/path_planning_service.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "args": [
+                "冰川之地",
+            ]
+        },
+        {
+            "name": "运动控制器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/controller/movement_controller.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "DearPyGui 调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/gui/debug_view.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "CaptureService 调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/service/capture_service.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         }

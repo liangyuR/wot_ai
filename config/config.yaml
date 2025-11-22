@@ -10,22 +10,13 @@ model:
 
 # 小地图配置
 minimap:
-  template_path: "resource/template/4k/minimap_border.png"  # 小地图模板文件路径（必需）
   size: [1200, 1200]  # 小地图尺寸 [width, height]
   max_size: 1200  # 小地图最大尺寸
 
-# TODO(@ly) 这里的路径后续可以改为从程序目录/masks/ 目录下读取，当加入游戏地图后，自动该地图的掩码文件 {地图名_mask}.png
 # 掩码配置（可选）
 mask:
-  directory: null  # 掩码文件夹，支持相对路径（相对于程序目录）
-  filename_format: "{map_name}_mask.png"  # 文件命名模板
-  path: null  # 如果填写，将优先生效；为空表示按目录+地图名自动匹配
-  inflation_radius_px: 18  # 障碍膨胀半径（像素）
-  cost_alpha: 120.0  # 代价图权重
-
-# 车辆配置
-vehicle:
-  screenshot_dir: "resource/vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）
+  inflation_radius_px: 4  # 障碍膨胀半径（像素）
+  cost_alpha: 4  # 代价图权重
 
 # 栅格配置
 grid:
@@ -37,7 +28,7 @@ path_planning:
   astar_smooth_weight: 0.3  # A*平滑权重 (0.0-1.0)
   post_smoothing_method: "catmull_rom"  # cost-map后处理: "catmull_rom" 或 "los"
   simplify_method: "rdp"  # 简化方法
-  simplify_threshold: 8.0  # 简化阈值
+  simplify_threshold: 5  # 简化阈值
   num_points_per_segment: 8  # 每段采样点数
   curvature_threshold_deg: 40.0  # 曲率阈值（度）
   check_curvature: true  # 是否进行曲率检查
@@ -52,6 +43,10 @@ control:
   goal_arrival_threshold: 30.0  # 终点到达阈值（像素）
   stuck_threshold: 5.0  # 卡顿检测阈值（像素）
   stuck_frames_threshold: 10  # 连续卡顿帧数阈值
+
+# 车辆配置
+vehicle:
+  screenshot_dir: "resource/vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）
 
 # UI配置
 ui:

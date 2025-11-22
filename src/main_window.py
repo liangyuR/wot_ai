@@ -13,23 +13,20 @@ from time import sleep
 
 from src.core.battle_task import BattleTask
 from src.core.task_manager import TaskManager
-from src.core.state_machine import StateMachine, GameState
-from src.core.global_context import GlobalContext
 from src.core.tank_selector import TankSelector
 from src.core.ai_controller import AIController
-from src.core.actions import screenshot, screenshot_with_key_hold
-from src.ui_control.actions import UIActions
 from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath, GetProgramDir
 from src.navigation.config.loader import load_config
 from src.navigation.config.models import NavigationConfig
-from src.vision.detection.map_name_detector import MapNameDetector
+from src.vision.map_name_detector import MapNameDetector
+from src.core.state_machine import StateMachine
 
 
 class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("TANK ROBOT")
-        self.root.geometry("900x1080")
+        self.root.geometry("900x1440")
         self.root.configure(bg="#F0F0F0")
 
         # State
@@ -41,7 +38,6 @@ class MainWindow:
         
         self.vehicle_images = []  # List of (path, thumbnail) tuples
         self.vehicle_screenshot_dir = self._init_vehicle_screenshot_dir()
-        self.global_context_ = GlobalContext()
         
         # TaskManager
         self.task_manager_ = None
@@ -230,25 +226,16 @@ class MainWindow:
         if self.is_running:
             logger.warning("任务已在运行")
             return
-        
-        # 获取车辆优先级列表
-        vehicle_priority = self._get_vehicle_priority()
-        if not vehicle_priority:
-            messagebox.showwarning("警告", "请先添加车辆截图")
-            return
-        
+
         # 准备AI配置
         ai_config = self._get_ai_config()
         
         # 创建TaskManager
         self.task_manager_ = TaskManager(
-            vehicle_screenshot_dir=self.vehicle_screenshot_dir,
-            vehicle_priority=vehicle_priority,
             ai_config=ai_config,
             run_hours=int(self.run_hours.get()),
             auto_stop=self.auto_stop.get(),
             auto_shutdown=self.auto_shutdown.get(),
-            global_context=self.global_context_
         )
         
         # 在独立线程中运行TaskManager
@@ -275,17 +262,6 @@ class MainWindow:
         logger.info("任务管理器已停止")
         self._update_status()
     
-    def _get_vehicle_priority(self) -> list:
-        """获取车辆优先级列表"""
-        if not self.vehicle_screenshot_dir.exists():
-            return []
-        
-        image_files = sorted(self.vehicle_screenshot_dir.glob("*.png"))
-        image_files.extend(sorted(self.vehicle_screenshot_dir.glob("*.jpg")))
-        image_files.extend(sorted(self.vehicle_screenshot_dir.glob("*.jpeg")))
-        
-        return [f.name for f in image_files]
-    
     def _init_vehicle_screenshot_dir(self) -> Path:
         """根据配置初始化车辆截图目录"""
         default_dir = GetVehicleScreenshotsDir()
@@ -309,12 +285,12 @@ class MainWindow:
                 raise FileNotFoundError(error_msg)
         
         try:
-            config = load_config(config_path, base_dir=GetProgramDir())
+            config = load_config(config_path)
+            logger.info(f"加载配置文件成功: {config}")
             return config
         except Exception as e:
-            error_msg = f"加载配置文件失败: {e}"
-            logger.error(error_msg)
-            messagebox.showerror("配置错误", error_msg)
+            logger.error(f"加载配置文件失败: {e}")
+            messagebox.showerror("配置错误", str(e))
             raise
 
     def _update_status(self):
@@ -456,24 +432,10 @@ class MainWindow:
     def _init_debug_components(self):
         """初始化调试组件"""
         try:
-            self.debug_state_machine_ = StateMachine(global_context=self.global_context_)
+            self.debug_state_machine_ = StateMachine()
             self.debug_map_detector_ = MapNameDetector()
-            vehicle_priority = self._get_vehicle_priority()
-            self.debug_tank_selector_ = TankSelector(
-                self.vehicle_screenshot_dir,
-                vehicle_priority
-            )
-            self.debug_ui_actions_ = UIActions()
+            self.debug_tank_selector_ = TankSelector()
             self.debug_ai_controller_ = AIController()
-
-            self.debug_battle_task = BattleTask(
-                self.debug_tank_selector_,
-                self.debug_state_machine_,
-                self.debug_map_detector_,
-                self.debug_ai_config_,
-                self.debug_ui_actions_
-            )
-
             self.debug_ai_config_ = self._get_ai_config()
             logger.info("调试组件初始化完成")
         except Exception as e:

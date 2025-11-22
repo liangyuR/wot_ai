@@ -1,20 +1,31 @@
 import os
 from pathlib import Path
-from src.core.global_context import GlobalContext
+from src.utils.global_context import GlobalContext
 from loguru import logger
+
+_global_context = None
+
+def GetGlobalContext() -> GlobalContext:
+    global _global_context
+    if _global_context is None:
+        _global_context = GlobalContext()
+    return _global_context
 
 def GetProgramDir() -> Path:
     path = Path(os.getcwd())
     return path
 
 def MinimapBorderTemplatePath() -> str:
-    return GetProgramDir() / "resource" / "template" / GlobalContext().template_tier / "minimap_border.png"
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "minimap_border.png"
 
-def TemplatePath(template_name: str) -> str:
-    return GetProgramDir() / "resource" / "template" / GlobalContext().template_tier / template_name
+def GetHubTemplatePath() -> str:
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "hub"
 
-def GetMapsDir() -> Path:
-    return GetProgramDir() / "resource" / "maps"
+def GetMapTemplatePath() -> Path:
+    return GetProgramDir() / "resource" / "template" / GetGlobalContext().template_tier / "map"
+
+def GetMapMaskPath(map_name: str) -> Path:
+    return GetProgramDir() / "resource" / "map_mask" / f"{map_name}_mask.png"
 
 def GetVehicleScreenshotsDir() -> Path:
     return GetProgramDir() / "resource" / "vehicle_screenshots"
@@ -25,10 +36,11 @@ def GetConfigPath() -> Path:
 def GetConfigTemplatePath() -> Path:
     return GetProgramDir() / "config" / "config.yaml.template"
 
+
 if __name__ == "__main__":
     logger.info(GetProgramDir())
     logger.info(MinimapBorderTemplatePath())
-    logger.info(GetMapsDir())
+    logger.info(GetMapTemplatePath())
     logger.info(GetVehicleScreenshotsDir())
     logger.info(GetConfigPath())
     logger.info(GetConfigTemplatePath())

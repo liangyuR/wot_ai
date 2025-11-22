@@ -22,13 +22,14 @@ pywin32 = "*"
 dearpygui = "*"
 pyautogui = "*"
 pydantic = "*"
+imgui = {version = "*", extras = ["full"]}
+pygame = "*"
 torch = {version = "*", source = "pytorch-cu128"}
 torchvision = {version = "*", source = "pytorch-cu128"}
 
 [[tool.poetry.source]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
-default = false
 secondary = true
 
 

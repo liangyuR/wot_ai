@@ -45,18 +45,8 @@ class ModelConfig(BaseModel):
 
 class MinimapConfig(BaseModel):
     """小地图配置"""
-    template_path: str = Field(..., description="小地图模板文件路径")
     size: Tuple[int, int] = Field(..., description="小地图尺寸 (width, height)")
     max_size: int = Field(..., description="小地图最大尺寸")
-    
-    @field_validator('template_path')
-    @classmethod
-    def validate_template_path(cls, v: str) -> str:
-        """验证模板路径是否存在"""
-        path = Path(v)
-        if not path.exists():
-            raise ValueError(f"小地图模板文件不存在: {v}")
-        return str(path.resolve())
     
     @field_validator('size')
     @classmethod
@@ -78,40 +68,12 @@ class MinimapConfig(BaseModel):
 
 class MaskConfig(BaseModel):
     """掩码配置"""
-    path: Optional[str] = Field(None, description="掩码文件路径（可选）")
-    directory: Optional[str] = Field(None, description="掩码文件夹（可选）")
     filename_format: str = Field(
         "{map_name}_mask.png",
         description="掩码文件命名模板，支持 {map_name} 占位符"
     )
     inflation_radius_px: int = Field(..., description="障碍膨胀半径（像素）")
     cost_alpha: float = Field(..., description="代价图权重")
-    
-    @field_validator('path')
-    @classmethod
-    def validate_path(cls, v: Optional[str]) -> Optional[str]:
-        """验证掩码路径（如果提供）"""
-        if v is not None:
-            path = Path(v)
-            if not path.exists():
-                raise ValueError(f"掩码文件不存在: {v}")
-            if not path.is_file():
-                raise ValueError(f"掩码路径必须是文件: {v}")
-            return str(path.resolve())
-        return v
-    
-    @field_validator('directory')
-    @classmethod
-    def validate_directory(cls, v: Optional[str]) -> Optional[str]:
-        """验证掩码文件夹（如果提供）"""
-        if v is not None:
-            path = Path(v)
-            if not path.exists():
-                raise ValueError(f"掩码文件夹不存在: {v}")
-            if not path.is_dir():
-                raise ValueError(f"掩码文件夹必须是目录: {v}")
-            return str(path.resolve())
-        return v
     
     @field_validator('inflation_radius_px')
     @classmethod
@@ -128,20 +90,6 @@ class MaskConfig(BaseModel):
         if v < 0:
             raise ValueError(f"代价图权重不能为负数: {v}")
         return v
-
-
-class VehicleConfig(BaseModel):
-    """车辆配置"""
-    screenshot_dir: str = Field(..., description="车辆截图目录")
-    
-    @field_validator('screenshot_dir')
-    @classmethod
-    def validate_screenshot_dir(cls, v: str) -> str:
-        """验证车辆截图目录"""
-        path = Path(v)
-        if path.exists() and not path.is_dir():
-            raise ValueError(f"车辆截图路径必须是目录: {v}")
-        return str(path.resolve() if path.exists() else path)
 
 
 class GridConfig(BaseModel):
@@ -230,38 +178,14 @@ class ControlConfig(BaseModel):
         return v
 
 
-class UIConfig(BaseModel):
-    """UI配置"""
-    overlay_fps: int = Field(..., description="覆盖层FPS")
-    overlay_alpha: int = Field(..., description="覆盖层透明度 (0-255)")
-    
-    @field_validator('overlay_fps')
-    @classmethod
-    def validate_fps(cls, v: int) -> int:
-        """验证FPS"""
-        if v <= 0:
-            raise ValueError(f"FPS必须大于0: {v}")
-        return v
-    
-    @field_validator('overlay_alpha')
-    @classmethod
-    def validate_alpha(cls, v: int) -> int:
-        """验证透明度"""
-        if not 0 <= v <= 255:
-            raise ValueError(f"透明度必须在0-255之间: {v}")
-        return v
-
-
 class NavigationConfig(BaseModel):
     """导航主配置"""
     model: ModelConfig = Field(..., description="YOLO模型配置")
     minimap: MinimapConfig = Field(..., description="小地图配置")
     mask: Optional[MaskConfig] = Field(None, description="掩码配置（可选）")
-    vehicle: Optional[VehicleConfig] = Field(None, description="车辆配置（可选）")
     grid: GridConfig = Field(..., description="栅格配置")
     path_planning: PathPlanningConfig = Field(..., description="路径规划配置")
     control: ControlConfig = Field(..., description="控制配置")
-    ui: UIConfig = Field(..., description="UI配置")
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     
     @field_validator('monitor_index')
