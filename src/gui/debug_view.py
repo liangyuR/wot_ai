@@ -119,6 +119,7 @@ class DpgNavDebugView(NavDebugView):
         title: str = "Nav Debug",
         window_size: Tuple[int, int] = (960, 540),
         enable: bool = True,
+        grid_to_minimap_h: Optional[np.ndarray] = None,   # 新增: homography
     ) -> None:
         self._title = title
         self._window_size = window_size
@@ -137,10 +138,20 @@ class DpgNavDebugView(NavDebugView):
         self._grid_tex_w: int = 2
         self._grid_tex_h: int = 2
 
+        # 叠加到 minimap 上用的 grid 纹理
+        self._tex_id_grid_overlay: Optional[int] = None
+        self._grid_overlay_tex_w: int = 2
+        self._grid_overlay_tex_h: int = 2
+
         self._drawlist_minimap: Optional[int] = None
         self._drawlist_grid: Optional[int] = None
         self._txt_status: Optional[int] = None
         self._txt_metrics: Optional[int] = None
+
+        # grid -> minimap 的透视变换矩阵 H (3x3)
+        self._H_grid2mmap: Optional[np.ndarray] = None
+        if grid_to_minimap_h is not None:
+            self.set_grid_to_minimap_homography(grid_to_minimap_h)
 
     # ---------------------------------------------------------------------
     # NavDebugView interface (thread-safe, called from worker threads)
@@ -188,6 +199,21 @@ class DpgNavDebugView(NavDebugView):
             st.goal_reached = goal_reached
 
     # ---------------------------------------------------------------------
+    # Extra public API
+    # ---------------------------------------------------------------------
+
+    def set_grid_to_minimap_homography(self, H: np.ndarray) -> None:
+        """设置 grid 坐标到 minimap 像素坐标的 3x3 透视变换矩阵.
+
+        一般用 cv2.getPerspectiveTransform 得到:
+            H = cv2.getPerspectiveTransform(pts_grid, pts_minimap)
+        """
+        H = np.asarray(H, dtype=np.float32)
+        if H.shape != (3, 3):
+            raise ValueError(f"Homography must be 3x3, got {H.shape}")
+        self._H_grid2mmap = H
+
+    # ---------------------------------------------------------------------
     # Public UI entrypoint
     # ---------------------------------------------------------------------
 
@@ -223,6 +249,14 @@ class DpgNavDebugView(NavDebugView):
             parent=self._tex_registry,
         )
 
+        # grid overlay texture placeholder
+        self._tex_id_grid_overlay = dpg.add_dynamic_texture(
+            2,
+            2,
+            placeholder_data,
+            parent=self._tex_registry,
+        )
+
         win_w, win_h = self._window_size
 
         with dpg.window(label=self._title, width=win_w, height=win_h):
@@ -245,12 +279,12 @@ class DpgNavDebugView(NavDebugView):
         dpg.create_viewport(title=self._title, width=win_w, height=win_h)
         dpg.setup_dearpygui()
         dpg.show_viewport()
-        
+
         # Custom render loop (replaces start_dearpygui for per-frame updates)
         while dpg.is_dearpygui_running():
             self._on_render()
             dpg.render_dearpygui_frame()
-        
+
         dpg.destroy_context()
 
     # ---------------------------------------------------------------------
@@ -303,6 +337,45 @@ class DpgNavDebugView(NavDebugView):
             if self._drawlist_grid is not None:
                 dpg.configure_item(self._drawlist_grid, width=w, height=h)
 
+    def _ensure_grid_overlay_texture(self, overlay_mask: np.ndarray) -> None:
+        """确保叠加在 minimap 上的 grid 纹理尺寸匹配 overlay_mask."""
+        h, w = overlay_mask.shape[:2]
+        if (
+            self._tex_id_grid_overlay is None
+            or w != self._grid_overlay_tex_w
+            or h != self._grid_overlay_tex_h
+        ):
+            if self._tex_id_grid_overlay is not None:
+                dpg.delete_item(self._tex_id_grid_overlay)
+
+            data = [0.0] * (w * h * 4)
+            self._tex_id_grid_overlay = dpg.add_dynamic_texture(
+                w,
+                h,
+                data,
+                parent=self._tex_registry,
+            )
+            self._grid_overlay_tex_w = w
+            self._grid_overlay_tex_h = h
+
+    def _warp_grid_to_minimap(self, grid_mask: np.ndarray, mmap_w: int, mmap_h: int) -> np.ndarray:
+        """将 grid_mask 透视/缩放到 minimap 尺寸.
+
+        优先用 homography; 没有 H 时退化为简单 resize。
+        """
+        src = grid_mask.astype(np.float32)
+        if self._H_grid2mmap is not None:
+            warped = cv2.warpPerspective(
+                src,
+                self._H_grid2mmap,
+                (mmap_w, mmap_h),
+                flags=cv2.INTER_NEAREST,
+                borderValue=0,
+            )
+        else:
+            warped = cv2.resize(src, (mmap_w, mmap_h), interpolation=cv2.INTER_NEAREST)
+        return warped
+
     @staticmethod
     def _bgr_to_rgba_float(frame_bgr: np.ndarray) -> np.ndarray:
         """Convert BGR uint8 image to RGBA float32 in [0, 1], flattened.
@@ -316,10 +389,12 @@ class DpgNavDebugView(NavDebugView):
         return rgba_f
 
     @staticmethod
-    def _grid_mask_to_rgba_float(grid_mask: np.ndarray) -> np.ndarray:
+    def _grid_mask_to_rgba_float(grid_mask: np.ndarray, alpha: float = 1.0) -> np.ndarray:
         """Convert grid mask (0/1 or float) to RGBA float texture.
 
         Obstacles are darker; free space lighter.
+
+        alpha: 透明度 0~1
         """
 
         g = grid_mask.astype(np.float32)
@@ -330,9 +405,9 @@ class DpgNavDebugView(NavDebugView):
 
         h, w = g.shape
         rgb = np.stack([brightness] * 3, axis=2)  # H, W, 3
-        alpha = np.ones((h, w, 1), dtype=np.float32)
+        alpha_arr = np.full((h, w, 1), float(alpha), dtype=np.float32)
 
-        rgba = np.concatenate([rgb, alpha], axis=2)
+        rgba = np.concatenate([rgb, alpha_arr], axis=2)
         rgba_f = rgba.reshape(-1)
         return rgba_f
 
@@ -393,6 +468,30 @@ class DpgNavDebugView(NavDebugView):
                 pmax=(w, h),
                 parent=self._drawlist_minimap,
             )
+
+            # === 将 grid 透视/缩放到 minimap，并以 30% 透明度叠加 ===
+            if grid_mask is not None and self._tex_registry is not None:
+                # 1) warp 或 resize 到 minimap 分辨率
+                overlay_mask = self._warp_grid_to_minimap(grid_mask, w, h)
+
+                # 2) 确保 overlay 纹理尺寸匹配
+                self._ensure_grid_overlay_texture(overlay_mask)
+
+                # 3) 转 RGBA，alpha=0.3 (约 30% 显示)
+                rgba_f_grid_overlay = self._grid_mask_to_rgba_float(
+                    overlay_mask,
+                    alpha=0.3,
+                )
+                dpg.set_value(self._tex_id_grid_overlay, rgba_f_grid_overlay.tolist())
+
+                # 4) 在 minimap drawlist 上叠加
+                dpg.draw_image(
+                    self._tex_id_grid_overlay,
+                    pmin=(0, 0),
+                    pmax=(w, h),
+                    parent=self._drawlist_minimap,
+                )
+            # === 新增结束 ===
 
             # draw path (world path in minimap coords)
             if len(path_world) >= 2:
@@ -465,7 +564,7 @@ class DpgNavDebugView(NavDebugView):
         # --- Grid texture + drawing ---
         if grid_mask is not None and self._drawlist_grid is not None:
             self._ensure_grid_texture(grid_mask)
-            rgba_f_grid = self._grid_mask_to_rgba_float(grid_mask)
+            rgba_f_grid = self._grid_mask_to_rgba_float(grid_mask)  # alpha 默认 1.0
             dpg.set_value(self._tex_id_grid, rgba_f_grid.tolist())
 
             # Clear drawlist by deleting all children
@@ -550,7 +649,7 @@ def _demo_feeder(view: DpgNavDebugView) -> None:
 
     # Fake grid: 64x64 with random obstacles
     import time
-    
+
     grid_h, grid_w = 64, 64
     grid_mask = np.zeros((grid_h, grid_w), dtype=np.uint8)
     rng = np.random.default_rng(0)

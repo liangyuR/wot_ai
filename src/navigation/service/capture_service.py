@@ -38,6 +38,16 @@ class CaptureService:
         self._monitor_index = monitor_index
         self._valid = False
         self._tls = threading.local()  # per-thread context (sct + buffer)
+        self.pid = find_pid_by_process_name()
+        if self.pid is None:
+            raise Exception("WorldOfTanks 进程未找到")
+        self.window_rect = find_window_rect_by_pid(self.pid)
+        if self.window_rect is None:
+            raise Exception("WorldOfTanks 窗口未找到")
+        self.window_left = self.window_rect[0]
+        self.window_top = self.window_rect[1]
+        self.window_width = self.window_rect[2] - self.window_rect[0]
+        self.window_height = self.window_rect[3] - self.window_rect[1]
 
         try:
             import mss  # type: ignore
@@ -182,3 +192,114 @@ class CaptureService:
         }
 
         return self._capture_to_buffer(mon)
+
+    def grab_window_by_name(self, process_name: str) -> Optional[np.ndarray]:
+        """根据进程名抓取该进程主窗口图像（BGR）。"""
+        if not self._valid:
+            return None
+
+        pid = find_pid_by_process_name(process_name)
+        if pid is None:
+            logger.error(f"grab_window_by_name: process not found: {process_name}")
+            return None
+
+        return self.grab_window_by_pid(pid)
+
+    def grab_window_by_pid(self, pid: int) -> Optional[np.ndarray]:
+        """根据进程 PID 抓取该进程主窗口图像（BGR）。"""
+        if not self._valid:
+            return None
+
+        try:
+            rect = self._get_window_rect_by_pid(pid)
+        except Exception as e:
+            logger.error(f"grab_window_by_pid: exception occurred for pid={pid}, error: {e}")
+            return None
+
+        if rect is None:
+            logger.error(f"grab_window_by_pid: cannot find window for pid={pid}")
+            return None
+
+        left, top, right, bottom = rect
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+
+        # 直接复用你已经写好的 grab_region
+        return self.grab_region(left, top, width, height)
+
+    def _get_window_rect_by_pid(self, pid: int):
+        target_hwnd = None
+
+        def enum_handler(hwnd, _ctx):
+            nonlocal target_hwnd
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            tid, window_pid = win32process.GetWindowThreadProcessId(hwnd)
+            if window_pid == pid:
+                target_hwnd = hwnd
+
+        win32gui.EnumWindows(enum_handler, None)
+        if target_hwnd is None:
+            return None
+
+        left, top, right, bottom = win32gui.GetWindowRect(target_hwnd)
+        return left, top, right, bottom
+
+import win32gui
+import win32process
+import psutil
+
+def find_window_rect_by_pid(pid: int):
+    """根据进程 PID 找到第一个顶层窗口，并返回 (left, top, right, bottom)."""
+
+    target_hwnd = None
+
+    def enum_handler(hwnd, _ctx):
+        nonlocal target_hwnd
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+
+        tid, window_pid = win32process.GetWindowThreadProcessId(hwnd)
+        if window_pid == pid:
+            target_hwnd = hwnd
+
+    win32gui.EnumWindows(enum_handler, None)
+
+    if target_hwnd is None:
+        return None
+
+    rect = win32gui.GetWindowRect(target_hwnd)  # (left, top, right, bottom)
+    return rect
+
+
+def find_pid_by_process_name(name: str = "WorldOfTanks.exe") -> int | None:
+    # """根据进程名查 PID，大小写不敏感。"""
+    name = name.lower()
+    for p in psutil.process_iter(["name", "pid"]):
+        try:
+            logger.info(f"PID: {p.info['pid']} - Name: {p.info['name']}")
+            if p.info["name"] and p.info["name"].lower() == name:
+                return p.info["pid"]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return None
+
+def main():
+    cap = CaptureService(monitor_index=1)
+    if not cap.is_valid:
+        logger.error("CaptureService 初始化失败")
+        return
+
+    pid = find_pid_by_process_name()  # 你从任务管理器看到的 PID
+    frame = cap.grab_window_by_pid(pid)
+    if frame is None:
+        logger.error("抓取窗口失败，可能没找到窗口或者被保护了")
+        return
+
+    logger.info(f"frame shape: {frame.shape}")
+    cv2.imshow("wot window", frame)
+    cv2.waitKey(0)
+
+
+if __name__ == "__main__":
+    main()

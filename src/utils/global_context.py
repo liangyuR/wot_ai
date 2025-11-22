@@ -53,6 +53,7 @@ class GlobalContext:
     @staticmethod
     def _resolve_template_tier(width: int, height: int) -> str:
         """根据高度判断模板目录。"""
+        return "1k"
         if width == 3440 and height == 1440:
             return "2k"
         if height < 1080:

@@ -133,6 +133,8 @@ class NavigationRuntime:
         self._det_thread.start()
         self._ctrl_thread.start()
 
+        self.view.run()
+
         logger.info("NavigationRuntime 已启动（检测 + 控制）")
         return True
 
@@ -382,7 +384,7 @@ if __name__ == "__main__":
             logger.info("NavigationRuntime 已在运行，忽略 F9")
             return
         rt = NavigationRuntime()
-        if rt.start(map_name="乌蒙雄山"):
+        if rt.start(map_name="埃里-哈罗夫"):
             runtime_holder["rt"] = rt
             logger.info("F9: NavigationRuntime 已启动")
         else:
@@ -397,9 +399,9 @@ if __name__ == "__main__":
         logger.info("F10: NavigationRuntime 已停止")
 
     def on_press(key):
-        if key == keyboard.Key.f11:
+        if key == keyboard.Key.f9:
             start_runtime()
-        elif key == keyboard.Key.f12:
+        elif key == keyboard.Key.f10:
             stop_runtime()
         elif key == keyboard.Key.esc:
             # 退出前确保停止 Runtime

@@ -40,6 +40,14 @@
             "args": "D:\\project\\wot_ai\\utest\\minimap_bak.png"
         },
         {
+            "name": "小地图锚点检测器调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/vision/minimap_anchor_detector.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "导航运行时调试",
             "type": "debugpy",
             "request": "launch",
@@ -94,6 +102,14 @@
             "type": "debugpy",
             "request": "launch",
             "program": "src/gui/debug_view.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "CaptureService 调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/navigation/service/capture_service.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         }

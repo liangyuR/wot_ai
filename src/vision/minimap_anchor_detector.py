@@ -10,13 +10,13 @@ import numpy as np
 from typing import Optional, Tuple
 from loguru import logger
 
+from src.navigation.service.capture_service import CaptureService
 from src.utils.global_path import MinimapBorderTemplatePath
 
 
 class MinimapAnchorDetector:
-    def __init__(self, debug: bool = False, multi_scale: bool = False):
+    def __init__(self, multi_scale: bool = False):
         self.template_path_ = MinimapBorderTemplatePath()
-        self.debug_ = debug
         self.multi_scale_ = multi_scale
 
         tpl_rgba = cv2.imread(str(self.template_path_), cv2.IMREAD_UNCHANGED)
@@ -44,11 +44,13 @@ class MinimapAnchorDetector:
             logger.error("输入帧为空")
             return None
 
-        h, w = frame.shape[:2]
-        roi_w, roi_h = 1200, 1200
-        start_x = max(0, w - roi_w)
-        start_y = max(0, h - roi_h)
-        roi = frame[start_y:h, start_x:w]
+        # TODO(@ly) 暂时不使用ROI
+        # h, w = frame.shape[:2]
+        # roi_w, roi_h = 1200, 1200
+        # start_x = max(0, w - roi_w)
+        # start_y = max(0, h - roi_h)
+        # roi = frame[start_y:h, start_x:w]
+        roi = frame
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray_eq = self.clahe_.apply(gray)
@@ -92,19 +94,17 @@ class MinimapAnchorDetector:
         best_loc = (rx0 + max_loc2[0], ry0 + max_loc2[1])
 
         # 计算全局坐标
-        top_left = (start_x + best_loc[0], start_y + best_loc[1])
+        # top_left = (start_x + best_loc[0], start_y + best_loc[1])
+        top_left = (best_loc[0], best_loc[1])
         
         # 向右下角偏移约15个像素
-        offset_x, offset_y = 12, 12
+        offset_x, offset_y = 13, 13 # 2948 948
         top_left = (top_left[0] + offset_x, top_left[1] + offset_y)
-
-        if self.debug_:
-            self._draw_debug(frame, top_left, (tpl_w, tpl_h), size, best_val)
 
         logger.info(f"检测成功: 坐标={top_left}, 置信度={best_val:.3f}, 尺度={best_scale:.2f} (已偏移+{offset_x},+{offset_y})")
         return top_left
 
-    def _draw_debug(self, frame: np.ndarray, top_left: Tuple[int, int], tpl_size: Tuple[int, int], minimap_size: Tuple[int, int], confidence: float):
+    def DrawDebug(self, frame: np.ndarray, top_left: Tuple[int, int], tpl_size: Tuple[int, int], minimap_size: Tuple[int, int], confidence: float):
         x, y = top_left
         tpl_w, tpl_h = tpl_size
         w, h = minimap_size
@@ -114,13 +114,13 @@ class MinimapAnchorDetector:
         cv2.rectangle(debug_img, (x, y), (x + w, y + h), (255, 255, 0), 1)
         cv2.putText(debug_img, f"Conf: {confidence:.3f}", (x + 10, y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         # 缩放百分之30图片大小后显示，保持宽高比
-        scale_percent = 30  # 30%
-        width = int(debug_img.shape[1] * scale_percent / 100)
-        height = int(debug_img.shape[0] * scale_percent / 100)
-        dim = (width, height)
-        resized_debug_img = cv2.resize(debug_img, dim, interpolation=cv2.INTER_AREA)
-        cv2.imshow("Minimap Template Match Debug", resized_debug_img)
-        cv2.waitKey(1)
+        # scale_percent = 30  # 30%
+        # width = int(debug_img.shape[1] * scale_percent / 100)
+        # height = int(debug_img.shape[0] * scale_percent / 100)
+        # dim = (width, height)
+        # resized_debug_img = cv2.resize(debug_img, dim, interpolation=cv2.INTER_AREA)
+        # resized_debug_img = cv2.resize(debug_img, interpolation=cv2.INTER_AREA)
+        return debug_img
 
     def DetectRegion(self, frame: np.ndarray) -> Optional[dict]:
         """
@@ -150,6 +150,9 @@ class MinimapAnchorDetector:
         
         # 小地图通常是正方形，取宽度和高度的最小值
         minimap_size = min(available_width, available_height)
+
+        # TODO(@ly) 暂时固定 490x490
+        minimap_size = 490
         
         region = {
             'x': x,
@@ -161,3 +164,21 @@ class MinimapAnchorDetector:
         logger.info(f"检测到小地图区域: {region} (自适应尺寸: {minimap_size}x{minimap_size})")
         self.minimap_region_ = region
         return region
+
+if __name__ == "__main__":
+    cap = CaptureService()
+    frame = cap.grab_window_by_name("WorldOfTanks.exe")
+    if frame is None:
+        logger.error("抓取窗口失败，可能没找到窗口或者被保护了")
+        exit()
+
+    detector = MinimapAnchorDetector()
+    region = detector.DetectRegion(frame)
+    debug_img = detector.DrawDebug(frame = frame,
+     top_left = (region["x"], region["y"]), 
+     tpl_size = (region["width"], region["height"]), 
+     minimap_size = (region["width"], region["height"]), 
+     confidence = 1.0)
+    cv2.imshow("Minimap Template Match Debug", debug_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
