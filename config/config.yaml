@@ -15,8 +15,8 @@ minimap:
 
 # 掩码配置（可选）
 mask:
-  inflation_radius_px: 4  # 障碍膨胀半径（像素）
-  cost_alpha: 4  # 代价图权重
+  inflation_radius_px: 3  # 障碍膨胀半径（像素）
+  cost_alpha: 3  # 代价图权重
 
 # 栅格配置
 grid:
@@ -39,10 +39,33 @@ control:
   move_speed: 1.0  # 移动速度
   rotation_smooth: 0.3  # 旋转平滑度
   target_point_offset: 20  # 目标点偏移量
-  path_deviation_tolerance: 60.0  # 路径偏离容忍度（像素）
   goal_arrival_threshold: 30.0  # 终点到达阈值（像素）
+  path_deviation_tolerance: 60.0  # 路径偏离容忍度（像素）
   stuck_threshold: 5.0  # 卡顿检测阈值（像素）
   stuck_frames_threshold: 10  # 连续卡顿帧数阈值
+  
+  # MovementController 参数
+  angle_dead_zone_deg: 3.0  # 角度死区（度）
+  angle_slow_turn_deg: 15.0  # 角度慢转阈值（度）
+  distance_stop_threshold: 5.0  # 距离停止阈值（像素）
+  slow_down_distance: 30.0  # 开始减速距离（像素）
+  max_forward_speed: 1.0  # 最大前进速度
+  min_forward_factor: 0.3  # 最小前进因子
+  large_angle_threshold_deg: 60.0  # 大角度阈值（度）
+  large_angle_speed_reduction: 0.5  # 大角度速度衰减系数
+  
+  # MoveExecutor 参数
+  smoothing_alpha: 0.3  # 平滑滤波系数
+  forward_deadzone: 0.12  # 前进死区
+  turn_deadzone: 0.12  # 转向死区
+  min_hold_time_ms: 100.0  # 最小按键保持时间（毫秒）
+  forward_hysteresis_on: 0.35  # 前进滞回开启阈值
+  forward_hysteresis_off: 0.08  # 前进滞回关闭阈值
+  
+  # PathFollower 参数
+  max_lateral_error: 80.0  # 最大横向误差（像素）
+  lookahead_distance: 60.0  # 前瞻距离（像素）
+  waypoint_switch_radius: 20.0  # Waypoint切换半径（像素）
 
 # 车辆配置
 vehicle:

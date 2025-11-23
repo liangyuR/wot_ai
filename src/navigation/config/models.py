@@ -161,6 +161,29 @@ class ControlConfig(BaseModel):
     stuck_threshold: float = Field(..., description="卡顿检测阈值（像素）")
     stuck_frames_threshold: int = Field(..., description="连续卡顿帧数阈值")
     
+    # MovementController 参数
+    angle_dead_zone_deg: float = Field(3.0, description="角度死区（度）")
+    angle_slow_turn_deg: float = Field(15.0, description="角度慢转阈值（度）")
+    distance_stop_threshold: float = Field(5.0, description="距离停止阈值（像素）")
+    slow_down_distance: float = Field(30.0, description="开始减速距离（像素）")
+    max_forward_speed: float = Field(1.0, description="最大前进速度")
+    min_forward_factor: float = Field(0.3, description="最小前进因子")
+    large_angle_threshold_deg: float = Field(60.0, description="大角度阈值（度）")
+    large_angle_speed_reduction: float = Field(0.5, description="大角度速度衰减系数")
+    
+    # MoveExecutor 参数
+    smoothing_alpha: float = Field(0.3, description="平滑滤波系数")
+    forward_deadzone: float = Field(0.12, description="前进死区")
+    turn_deadzone: float = Field(0.12, description="转向死区")
+    min_hold_time_ms: float = Field(100.0, description="最小按键保持时间（毫秒）")
+    forward_hysteresis_on: float = Field(0.35, description="前进滞回开启阈值")
+    forward_hysteresis_off: float = Field(0.08, description="前进滞回关闭阈值")
+    
+    # PathFollower 参数
+    max_lateral_error: float = Field(80.0, description="最大横向误差（像素）")
+    lookahead_distance: float = Field(60.0, description="前瞻距离（像素）")
+    waypoint_switch_radius: float = Field(20.0, description="Waypoint切换半径（像素）")
+    
     @field_validator('move_speed', 'rotation_smooth')
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
@@ -175,6 +198,14 @@ class ControlConfig(BaseModel):
         """验证正整数"""
         if v <= 0:
             raise ValueError(f"值必须大于0: {v}")
+        return v
+    
+    @field_validator('smoothing_alpha', 'min_forward_factor', 'large_angle_speed_reduction')
+    @classmethod
+    def validate_range_0_1(cls, v: float) -> float:
+        """验证0-1范围"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"值必须在0.0-1.0之间: {v}")
         return v
 
 

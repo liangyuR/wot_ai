@@ -22,18 +22,26 @@ class PathFollowerWrapper:
         deviation_tolerance: float,
         target_point_offset: int,
         goal_arrival_threshold: float,
+        max_lateral_error: float = 80.0,
+        lookahead_distance: float = 60.0,
+        waypoint_switch_radius: float = 20.0,
     ):
         """
         Args:
-            follower: 你现有的 PathFollower 实例
             deviation_tolerance: 路径偏离容忍度（px）
-            target_point_offset: 前瞻点偏移量（索引）
-            goal_arrival_threshold: 认为“到达终点”的距离阈值（px）
+            target_point_offset: 前瞻点偏移量（索引，向后兼容）
+            goal_arrival_threshold: 认为"到达终点"的距离阈值（px）
+            max_lateral_error: 最大横向误差，定义corridor宽度（px）
+            lookahead_distance: 前瞻距离，用于计算胡萝卜点（px）
+            waypoint_switch_radius: Waypoint切换半径（px）
         """
         self._follower = PathFollower()
         self._dev_tol = deviation_tolerance
-        self._offset = max(0, target_point_offset)
+        self._offset = max(0, target_point_offset)  # 向后兼容
         self._goal_th = goal_arrival_threshold
+        self._max_lateral_error = max_lateral_error
+        self._lookahead_dist = lookahead_distance
+        self._waypoint_switch_radius = waypoint_switch_radius
 
     def follow(
         self,
@@ -69,12 +77,25 @@ class PathFollowerWrapper:
             current_pos, path_world, search_start
         )
 
+        # 计算横向偏差（lateral error）
+        # 使用最近点到当前位置的距离作为横向偏差
+        lateral_error = deviation
+
+        # 2. Waypoint切换：当距离当前waypoint小于切换半径时，切换到下一个
         new_current_idx = max(current_target_idx, idx)
+        if new_current_idx < len(path_world) - 1:
+            current_waypoint = path_world[new_current_idx]
+            dist_to_waypoint = math.hypot(
+                current_waypoint[0] - current_pos[0],
+                current_waypoint[1] - current_pos[1]
+            )
+            if dist_to_waypoint < self._waypoint_switch_radius:
+                new_current_idx = min(new_current_idx + 1, len(path_world) - 1)
 
         if deviation > self._dev_tol * 2:
             logger.warning(f"路径偏离较大: {deviation:.1f}px (tol={self._dev_tol})")
 
-        # 2. 终点判断
+        # 3. 终点判断
         goal = path_world[-1]
         dx_g = goal[0] - current_pos[0]
         dy_g = goal[1] - current_pos[1]
@@ -84,8 +105,40 @@ class PathFollowerWrapper:
         if goal_reached:
             return None, deviation, dist_goal, True, new_current_idx, new_current_idx
 
-        # 3. 前瞻目标点
-        target_idx = min(new_current_idx + self._offset, len(path_world) - 1)
-        target_world = path_world[target_idx]
+        # 4. 计算前瞻目标点（胡萝卜点）
+        # 从当前索引开始，累计距离直到达到lookahead_distance
+        carrot_idx = new_current_idx
+        accumulated_dist = 0.0
+        
+        for i in range(new_current_idx, len(path_world) - 1):
+            p1 = path_world[i]
+            p2 = path_world[i + 1]
+            seg_dist = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+            
+            if accumulated_dist + seg_dist >= self._lookahead_dist:
+                # 在当前线段上插值
+                remaining = self._lookahead_dist - accumulated_dist
+                ratio = remaining / seg_dist if seg_dist > 0 else 0.0
+                carrot_x = p1[0] + ratio * (p2[0] - p1[0])
+                carrot_y = p1[1] + ratio * (p2[1] - p1[1])
+                target_world = (carrot_x, carrot_y)
+                carrot_idx = i + 1
+                break
+            
+            accumulated_dist += seg_dist
+            carrot_idx = i + 1
+        
+        # 如果累计距离未达到lookahead_distance，使用最后一个点
+        if carrot_idx >= len(path_world) - 1:
+            target_world = path_world[-1]
+            carrot_idx = len(path_world) - 1
 
-        return target_world, deviation, dist_goal, False, new_current_idx, target_idx
+        # 5. Corridor判断：根据横向误差决定控制策略
+        # 这里返回的target_world已经考虑了lookahead，corridor逻辑可以在MovementController中进一步处理
+        # 或者在这里根据lateral_error调整target_world的位置
+        if abs(lateral_error) >= self._max_lateral_error:
+            # 偏离走廊，目标点更偏向路径中心
+            # 这里可以进一步优化，暂时先返回lookahead点
+            logger.debug(f"偏离走廊: lateral_error={lateral_error:.1f}px (max={self._max_lateral_error})")
+
+        return target_world, deviation, dist_goal, False, new_current_idx, carrot_idx
