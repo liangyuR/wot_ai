@@ -5,7 +5,8 @@
 """
 
 # 标准库导入
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Callable
+from collections import deque
 import heapq
 
 # 第三方库导入
@@ -88,7 +89,7 @@ class AStarPlanner():
     
     def _FindNearestWalkable(self, grid: np.ndarray, pos: Tuple[int, int], max_radius: int = 10) -> Optional[Tuple[int, int]]:
         """
-        使用 BFS 找到最近的可通行区域
+        使用 BFS 找到最近的可通行区域（向后兼容包装器）
         
         Args:
             grid: 栅格地图（0=可通行，1=障碍）
@@ -98,49 +99,10 @@ class AStarPlanner():
         Returns:
             最近的可通行位置，如果找不到则返回 None
         """
-        height, width = grid.shape
-        x, y = pos
+        def is_free_obstacle(v: float) -> bool:
+            return v == 0
         
-        # 如果当前位置就是可通行的
-        if 0 <= x < width and 0 <= y < height and grid[y, x] == 0:
-            return pos
-        
-        # BFS 搜索
-        from collections import deque
-        queue = deque([(x, y, 0)])
-        visited = {(x, y)}
-        
-        while queue:
-            cx, cy, dist = queue.popleft()
-            
-            # 超过最大半径
-            if dist > max_radius:
-                continue
-            
-            # 检查四个方向
-            for dx, dy in self.directions_:
-                nx, ny = cx + dx, cy + dy
-                
-                # 检查边界
-                if nx < 0 or nx >= width or ny < 0 or ny >= height:
-                    continue
-                
-                # 如果已经访问过
-                if (nx, ny) in visited:
-                    continue
-                
-                visited.add((nx, ny))
-                
-                # 如果找到可通行区域
-                if grid[ny, nx] == 0:
-                    logger.debug(f"找到最近可通行区域: ({nx}, {ny}), 距离: {dist + 1}")
-                    return (nx, ny)
-                
-                # 继续搜索
-                queue.append((nx, ny, dist + 1))
-        
-        logger.warning(f"在半径 {max_radius} 内未找到可通行区域")
-        return None
+        return _find_nearest_free(grid, pos, max_radius, is_free_obstacle)
     
     def AStar(self, grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
         """
@@ -165,32 +127,28 @@ class AStarPlanner():
             logger.warning(error_msg)
             raise PathPlanningError(error_msg)
         
-        # 检查起点是否为障碍物，如果是则找到最近的可通行区域
-        original_start = start
-        if grid[start[1], start[0]] == 1:
-            logger.warning(f"起点位于障碍物上: {start}，尝试找到最近的可通行区域")
-            nearest_walkable = self._FindNearestWalkable(grid, start, max_radius=15)
-            if nearest_walkable is None:
-                error_msg = f"起点位于障碍物上且无法找到可通行区域: {start}"
-                logger.error(error_msg)
-                raise PathPlanningError(error_msg)
-            start = nearest_walkable
-            logger.info(f"起点已调整: {original_start} -> {start}")
+        # 使用公共helper修正起点和终点
+        original_start, original_goal = start, goal
+        adjusted = _adjust_start_goal_for_obstacle_astar(start, goal, grid, max_radius=15)
+        if adjusted is None:
+            error_msg = f"起点或终点位于障碍物上且无法找到可通行区域: start={start}, goal={goal}"
+            logger.error(error_msg)
+            raise PathPlanningError(error_msg)
         
-        # 检查终点是否为障碍物
-        if grid[goal[1], goal[0]] == 1:
-            logger.warning(f"终点位于障碍物上: {goal}，尝试找到最近的可通行区域")
-            nearest_walkable = self._FindNearestWalkable(grid, goal, max_radius=15)
-            if nearest_walkable is None:
-                error_msg = f"终点位于障碍物上且无法找到可通行区域: {goal}"
-                logger.error(error_msg)
-                raise PathPlanningError(error_msg)
-            goal = nearest_walkable
-            logger.info(f"终点已调整: {goal}")
+        new_start, new_goal = adjusted
+        if new_start != original_start:
+            logger.warning(f"起点位于障碍物上: {original_start}，尝试找到最近的可通行区域")
+            logger.info(f"起点已调整: {original_start} -> {new_start}")
+            start = new_start
+        
+        if new_goal != original_goal:
+            logger.warning(f"终点位于障碍物上: {original_goal}，尝试找到最近的可通行区域")
+            logger.info(f"终点已调整: {original_goal} -> {new_goal}")
+            goal = new_goal
         
         # 如果起点就是终点
         if start == goal:
-            logger.debug(f"[A*] 起点和终点相同，返回单点路径")
+            logger.debug("[A*] 起点和终点相同，返回单点路径")
             return [start]
         
         # 优先队列：(f_score, g_score, current, came_from)
@@ -215,25 +173,6 @@ class AStarPlanner():
                     path.append(pos)
                 path.reverse()
                 logger.info(f"[A*] 路径规划成功: 路径长度={len(path)}, 探索节点数={nodes_explored}")
-                return path
-        
-        # 优先队列：(f_score, g_score, current, came_from)
-        open_set = [(0, 0, start, None)]
-        came_from = {}
-        g_score = {start: 0}
-        
-        while open_set:
-            _, current_g, current, came_from_pos = heapq.heappop(open_set)
-            
-            # 到达终点
-            if current == goal:
-                # 重建路径
-                path = [goal]
-                pos = current
-                while pos in came_from:
-                    pos = came_from[pos]
-                    path.append(pos)
-                path.reverse()
                 return path
             
             # 探索邻居
@@ -314,10 +253,142 @@ class AStarPlanner():
 Coord = Tuple[int, int]  # (x, y)
 
 
+def _find_nearest_free(
+    grid: np.ndarray,
+    pos: Tuple[int, int],
+    max_radius: int,
+    free_predicate: Callable[[float], bool],
+) -> Optional[Tuple[int, int]]:
+    """
+    使用BFS找到最近的可通行点（通用helper）
+    
+    Args:
+        grid: 栅格地图（可以是obstacle_map或cost_map）
+        pos: 初始位置 (x, y)
+        max_radius: 最大搜索半径（栅格单位）
+        free_predicate: 判断某个格子是否可通行的函数，输入为grid[y, x]的值
+    
+    Returns:
+        找到的可通行点 (x, y)，找不到则返回 None
+    """
+    h, w = grid.shape
+    x, y = pos
+    
+    # 检查边界
+    if x < 0 or x >= w or y < 0 or y >= h:
+        return None
+    
+    # 如果当前位置就是可通行的
+    if free_predicate(grid[y, x]):
+        return pos
+    
+    # BFS搜索（4邻域）
+    queue = deque([(x, y, 0)])
+    visited = {(x, y)}
+    directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    
+    while queue:
+        cx, cy, dist = queue.popleft()
+        
+        # 超过最大半径
+        if dist >= max_radius:
+            continue
+        
+        # 检查四个方向
+        for dx, dy in directions:
+            nx, ny = cx + dx, cy + dy
+            
+            # 检查边界
+            if nx < 0 or nx >= w or ny < 0 or ny >= h:
+                continue
+            
+            # 如果已经访问过
+            if (nx, ny) in visited:
+                continue
+            
+            visited.add((nx, ny))
+            
+            # 如果找到可通行区域
+            if free_predicate(grid[ny, nx]):
+                logger.debug(f"找到最近可通行区域: ({nx}, {ny}), 距离: {dist + 1}")
+                return (nx, ny)
+            
+            # 继续搜索
+            queue.append((nx, ny, dist + 1))
+    
+    logger.warning(f"在半径 {max_radius} 内未找到可通行区域")
+    return None
+
+
+def _adjust_start_goal_for_cost_astar(
+    start: Coord,
+    goal: Coord,
+    cost_map: np.ndarray,
+    max_radius: int = 12,
+) -> Optional[Tuple[Coord, Coord]]:
+    """
+    为cost_map A*修正起点和终点
+    
+    Args:
+        start: 原始起点 (x, y)
+        goal: 原始终点 (x, y)
+        cost_map: cost_map数组，障碍为np.inf
+        max_radius: 最大搜索半径
+    
+    Returns:
+        修正后的(start, goal)，如果修正失败则返回None
+    """
+    def is_free_cost(v: float) -> bool:
+        return np.isfinite(v)
+    
+    new_start = _find_nearest_free(cost_map, start, max_radius, is_free_cost)
+    if new_start is None:
+        return None
+    
+    new_goal = _find_nearest_free(cost_map, goal, max_radius, is_free_cost)
+    if new_goal is None:
+        return None
+    
+    return (new_start, new_goal)
+
+
+def _adjust_start_goal_for_obstacle_astar(
+    start: Coord,
+    goal: Coord,
+    obstacle_map: np.ndarray,
+    max_radius: int = 15,
+) -> Optional[Tuple[Coord, Coord]]:
+    """
+    为obstacle_map A*修正起点和终点
+    
+    Args:
+        start: 原始起点 (x, y)
+        goal: 原始终点 (x, y)
+        obstacle_map: obstacle_map数组，0=可通行，1=障碍
+        max_radius: 最大搜索半径
+    
+    Returns:
+        修正后的(start, goal)，如果修正失败则返回None
+    """
+    def is_free_obstacle(v: float) -> bool:
+        return v == 0
+    
+    new_start = _find_nearest_free(obstacle_map, start, max_radius, is_free_obstacle)
+    if new_start is None:
+        return None
+    
+    new_goal = _find_nearest_free(obstacle_map, goal, max_radius, is_free_obstacle)
+    if new_goal is None:
+        return None
+    
+    return (new_start, new_goal)
+
+
 def astar_with_cost(
     cost_map: np.ndarray,
     start: Coord,
     goal: Coord,
+    max_adjust_radius: int = 12,
 ) -> List[Coord]:
     """
     在 cost_map 上做 A*:
@@ -327,10 +398,33 @@ def astar_with_cost(
         cost_map: HxW float32数组，移动代价（障碍为np.inf）
         start: 起点坐标 (x, y)
         goal: 终点坐标 (x, y)
+        max_adjust_radius: 起点/终点修正的最大搜索半径
 
     Returns:
         path: [(x, y), ...]，从 start 到 goal，找不到则 []
     """
+    # 预处理：修正起点和终点
+    adjusted = _adjust_start_goal_for_cost_astar(start, goal, cost_map, max_adjust_radius)
+    if adjusted is None:
+        logger.warning(
+            f"cost_map A*: 起点/终点附近找不到可通行区域，规划失败。"
+            f"start={start}, goal={goal}, max_radius={max_adjust_radius}"
+        )
+        return []
+    
+    new_start, new_goal = adjusted
+    original_start, original_goal = start, goal
+    
+    # 记录修正信息
+    if new_start != original_start:
+        logger.info(f"cost_map A*: 起点 {original_start} 在障碍上，调整为 {new_start}")
+    if new_goal != original_goal:
+        logger.info(f"cost_map A*: 终点 {original_goal} 在障碍上，调整为 {new_goal}")
+    
+    # 使用修正后的起点和终点
+    start = new_start
+    goal = new_goal
+    
     h, w = cost_map.shape
     sx, sy = start
     gx, gy = goal

@@ -38,7 +38,6 @@ class MoveExecutor:
     def __init__(
         self,
         smoothing_alpha: float = 0.3,
-        forward_deadzone: float = 0.12,
         turn_deadzone: float = 0.12,
         min_hold_time_ms: float = 100.0,
         forward_hysteresis_on: float = 0.35,
@@ -53,7 +52,6 @@ class MoveExecutor:
         self._smoothing_alpha: float = max(0.0, min(1.0, smoothing_alpha))
 
         # 调参阈值：小于这个值就认为是 0
-        self._forward_deadzone = forward_deadzone
         self._turn_deadzone = turn_deadzone
 
         # 滞回参数

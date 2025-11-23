@@ -19,7 +19,6 @@ class MovementService:
         large_angle_threshold_deg: float = 60.0,
         large_angle_speed_reduction: float = 0.5,
         smoothing_alpha: float = 0.3,
-        forward_deadzone: float = 0.12,
         turn_deadzone: float = 0.12,
         min_hold_time_ms: float = 100.0,
         forward_hysteresis_on: float = 0.35,
@@ -37,7 +36,6 @@ class MovementService:
         )
         self.executor = MoveExecutor(
             smoothing_alpha=smoothing_alpha,
-            forward_deadzone=forward_deadzone,
             turn_deadzone=turn_deadzone,
             min_hold_time_ms=min_hold_time_ms,
             forward_hysteresis_on=forward_hysteresis_on,

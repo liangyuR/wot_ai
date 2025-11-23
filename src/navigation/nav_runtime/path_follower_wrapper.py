@@ -20,7 +20,6 @@ class PathFollowerWrapper:
     def __init__(
         self,
         deviation_tolerance: float,
-        target_point_offset: int,
         goal_arrival_threshold: float,
         max_lateral_error: float = 80.0,
         lookahead_distance: float = 60.0,
@@ -29,7 +28,6 @@ class PathFollowerWrapper:
         """
         Args:
             deviation_tolerance: 路径偏离容忍度（px）
-            target_point_offset: 前瞻点偏移量（索引，向后兼容）
             goal_arrival_threshold: 认为"到达终点"的距离阈值（px）
             max_lateral_error: 最大横向误差，定义corridor宽度（px）
             lookahead_distance: 前瞻距离，用于计算胡萝卜点（px）
@@ -37,7 +35,6 @@ class PathFollowerWrapper:
         """
         self._follower = PathFollower()
         self._dev_tol = deviation_tolerance
-        self._offset = max(0, target_point_offset)  # 向后兼容
         self._goal_th = goal_arrival_threshold
         self._max_lateral_error = max_lateral_error
         self._lookahead_dist = lookahead_distance

@@ -48,7 +48,7 @@ class MinimapAnchorDetector:
         # h, w = frame.shape[:2]
         # roi_w, roi_h = 1200, 1200
         # start_x = max(0, w - roi_w)
-        # start_y = max(0, h - roi_h)
+        # start_y = max(0,wddw h - roi_h)
         # roi = frame[start_y:h, start_x:w]
         roi = frame
 

@@ -31,6 +31,14 @@ class PathPlanningCore:
         self._curv_th_deg = curvature_threshold_deg
         self._check_curv = check_curvature
         self._enable_los = enable_los_post_smoothing
+        
+        # cost_map A* 统计计数器
+        self._cost_astar_success_count: int = 0
+        self._cost_astar_fallback_count: int = 0
+        self._cost_astar_adjust_fail_count: int = 0  # 修正失败计数
+        self._cost_astar_search_fail_count: int = 0  # 搜索失败计数
+        self._cost_astar_total_nodes: int = 0
+        self._plan_count: int = 0
 
     def plan(self, map_model: MapModel, req: PlanRequest) -> PlanResult:
         """在给定地图上做一次路径规划（栅格坐标）。"""
@@ -43,11 +51,47 @@ class PathPlanningCore:
         try:
             # 1) 优先尝试 cost_map A*
             path = None
+            fallback_reason = None
             if cost_map is not None:
                 path = astar_with_cost(cost_map, start, goal)
                 if not path:
-                    logger.warning("cost_map A* 规划失败，回退到传统 A*")
+                    # 检查失败原因（通过日志判断，或修改astar_with_cost返回更多信息）
+                    # 这里我们通过检查astar_with_cost的日志来判断
+                    # 实际上，astar_with_cost在修正失败时会记录特定日志
+                    # 为了更准确，我们可以通过检查是否在障碍上来判断
+                    import numpy as np
+                    h, w = cost_map.shape
+                    sx, sy = start
+                    gx, gy = goal
+                    
+                    # 检查是否是因为修正失败（起点/终点在障碍上且无法修正）
+                    start_blocked = (0 <= sx < w and 0 <= sy < h and not np.isfinite(cost_map[sy, sx]))
+                    goal_blocked = (0 <= gx < w and 0 <= gy < h and not np.isfinite(cost_map[gy, gx]))
+                    
+                    if start_blocked or goal_blocked:
+                        # 尝试修正，如果修正失败则认为是修正失败
+                        from src.navigation.path_planner.astar_planner import _adjust_start_goal_for_cost_astar
+                        adjusted = _adjust_start_goal_for_cost_astar(start, goal, cost_map, max_radius=12)
+                        if adjusted is None:
+                            self._cost_astar_adjust_fail_count += 1
+                            fallback_reason = "起点/终点修正失败"
+                            logger.warning(f"cost_map A* 规划失败（{fallback_reason}），回退到传统 A*")
+                        else:
+                            self._cost_astar_search_fail_count += 1
+                            fallback_reason = "搜索无解"
+                            logger.warning(f"cost_map A* 规划失败（{fallback_reason}），回退到传统 A*")
+                    else:
+                        self._cost_astar_search_fail_count += 1
+                        fallback_reason = "搜索无解"
+                        logger.warning(f"cost_map A* 规划失败（{fallback_reason}），回退到传统 A*")
+                    
+                    self._cost_astar_fallback_count += 1
                     path = None
+                else:
+                    # cost_map A* 成功
+                    self._cost_astar_success_count += 1
+                    # 注意：astar_with_cost内部已经记录了节点数，这里我们无法直接获取
+                    # 如果需要精确统计，需要修改astar_with_cost的返回值
 
             # 2) Fallback 到传统 A*
             if not path:
@@ -55,6 +99,19 @@ class PathPlanningCore:
 
             if not path:
                 return PlanResult(ok=False, path=[], reason="A* 规划失败")
+
+            # 更新规划计数并定期打印统计
+            self._plan_count += 1
+            if self._plan_count % 10 == 0:
+                total_attempts = self._cost_astar_success_count + self._cost_astar_fallback_count
+                if total_attempts > 0:
+                    success_rate = self._cost_astar_success_count / total_attempts * 100
+                    logger.info(
+                        f"cost_map A* 统计 (最近{total_attempts}次尝试): "
+                        f"成功率={success_rate:.1f}% ({self._cost_astar_success_count}/{total_attempts}), "
+                        f"修正失败={self._cost_astar_adjust_fail_count}, "
+                        f"搜索失败={self._cost_astar_search_fail_count}"
+                    )
 
             # 3) 后处理平滑
             if self._post_method == "catmull_rom":

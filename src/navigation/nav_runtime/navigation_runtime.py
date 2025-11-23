@@ -72,7 +72,6 @@ class NavigationRuntime:
             large_angle_threshold_deg=self.cfg.control.large_angle_threshold_deg,
             large_angle_speed_reduction=self.cfg.control.large_angle_speed_reduction,
             smoothing_alpha=self.cfg.control.smoothing_alpha,
-            forward_deadzone=self.cfg.control.forward_deadzone,
             turn_deadzone=self.cfg.control.turn_deadzone,
             min_hold_time_ms=self.cfg.control.min_hold_time_ms,
             forward_hysteresis_on=self.cfg.control.forward_hysteresis_on,
@@ -81,7 +80,6 @@ class NavigationRuntime:
 
         self.path_follower_wrapper = PathFollowerWrapper(
             deviation_tolerance=self.cfg.control.path_deviation_tolerance,
-            target_point_offset=self.cfg.control.target_point_offset,
             goal_arrival_threshold=self.cfg.control.goal_arrival_threshold,
             max_lateral_error=self.cfg.control.max_lateral_error,
             lookahead_distance=self.cfg.control.lookahead_distance,
@@ -402,7 +400,7 @@ if __name__ == "__main__":
             logger.info("NavigationRuntime 已在运行，忽略 F9")
             return
         rt = NavigationRuntime()
-        if rt.start(map_name="埃里-哈罗夫"):
+        if rt.start(map_name="胜利之门"):
             runtime_holder["rt"] = rt
             logger.info("F9: NavigationRuntime 已启动")
         else:

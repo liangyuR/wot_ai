@@ -155,12 +155,19 @@ class ControlConfig(BaseModel):
     """控制配置"""
     move_speed: float = Field(..., description="移动速度")
     rotation_smooth: float = Field(..., description="旋转平滑度")
-    target_point_offset: int = Field(..., description="目标点偏移量")
     path_deviation_tolerance: float = Field(..., description="路径偏离容忍度（像素）")
     goal_arrival_threshold: float = Field(..., description="终点到达阈值（像素）")
     stuck_threshold: float = Field(..., description="卡顿检测阈值（像素）")
     stuck_frames_threshold: int = Field(..., description="连续卡顿帧数阈值")
-    
+
+    @field_validator('stuck_frames_threshold')
+    @classmethod
+    def validate_stuck_frames_threshold(cls, v: int) -> int:
+        """验证连续卡顿帧数阈值"""
+        if v <= 0:
+            raise ValueError(f"连续卡顿帧数阈值必须大于0: {v}")
+        return v
+
     # MovementController 参数
     angle_dead_zone_deg: float = Field(3.0, description="角度死区（度）")
     angle_slow_turn_deg: float = Field(15.0, description="角度慢转阈值（度）")
@@ -173,7 +180,6 @@ class ControlConfig(BaseModel):
     
     # MoveExecutor 参数
     smoothing_alpha: float = Field(0.3, description="平滑滤波系数")
-    forward_deadzone: float = Field(0.12, description="前进死区")
     turn_deadzone: float = Field(0.12, description="转向死区")
     min_hold_time_ms: float = Field(100.0, description="最小按键保持时间（毫秒）")
     forward_hysteresis_on: float = Field(0.35, description="前进滞回开启阈值")
@@ -188,14 +194,6 @@ class ControlConfig(BaseModel):
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
         """验证正浮点数"""
-        if v <= 0:
-            raise ValueError(f"值必须大于0: {v}")
-        return v
-    
-    @field_validator('target_point_offset', 'stuck_frames_threshold')
-    @classmethod
-    def validate_positive_int(cls, v: int) -> int:
-        """验证正整数"""
         if v <= 0:
             raise ValueError(f"值必须大于0: {v}")
         return v
