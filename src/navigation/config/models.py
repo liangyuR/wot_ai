@@ -66,6 +66,40 @@ class MinimapConfig(BaseModel):
         return v
 
 
+class AngleDetectionConfig(BaseModel):
+    """角度检测配置"""
+    smoothing_alpha: float = Field(0.25, description="角度平滑系数 (0.0-1.0)")
+    max_step_deg: float = Field(45.0, description="单帧最大角度变化（度）")
+    min_area_ratio: float = Field(0.2, description="轮廓面积最小比例")
+    max_area_ratio: float = Field(0.9, description="轮廓面积最大比例")
+    min_aspect_ratio: float = Field(0.3, description="外接矩形最小宽高比")
+    max_aspect_ratio: float = Field(3.0, description="外接矩形最大宽高比")
+    
+    @field_validator('smoothing_alpha')
+    @classmethod
+    def validate_smoothing_alpha(cls, v: float) -> float:
+        """验证平滑系数范围"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"平滑系数必须在0.0-1.0之间: {v}")
+        return v
+    
+    @field_validator('max_step_deg', 'min_area_ratio', 'max_area_ratio', 'min_aspect_ratio', 'max_aspect_ratio')
+    @classmethod
+    def validate_positive_float(cls, v: float) -> float:
+        """验证正浮点数"""
+        if v <= 0:
+            raise ValueError(f"值必须大于0: {v}")
+        return v
+    
+    @field_validator('min_area_ratio', 'max_area_ratio')
+    @classmethod
+    def validate_area_ratio_range(cls, v: float) -> float:
+        """验证面积比例范围"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"面积比例必须在0.0-1.0之间: {v}")
+        return v
+
+
 class MaskConfig(BaseModel):
     """掩码配置"""
     filename_format: str = Field(
@@ -215,6 +249,7 @@ class NavigationConfig(BaseModel):
     grid: GridConfig = Field(..., description="栅格配置")
     path_planning: PathPlanningConfig = Field(..., description="路径规划配置")
     control: ControlConfig = Field(..., description="控制配置")
+    angle_detection: Optional[AngleDetectionConfig] = Field(None, description="角度检测配置（可选）")
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     
     @field_validator('monitor_index')

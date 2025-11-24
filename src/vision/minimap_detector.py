@@ -33,7 +33,15 @@ class MinimapDetectionResult:
 class AngleSmoother:
     """角度平滑器：平滑角度变化，避免抖动"""
     
-    def __init__(self):
+    def __init__(self, alpha: float = 0.25, max_step_deg: float = 45.0):
+        """初始化角度平滑器
+        
+        Args:
+            alpha: 平滑系数，0 < alpha <= 1，值越小越平滑但响应越慢
+            max_step_deg: 单帧最大允许变化角度（度），超过此值会被限幅
+        """
+        self.alpha_ = max(0.0, min(1.0, alpha))
+        self.max_step_deg_ = max(0.0, max_step_deg)
         self.angle_: Optional[float] = None
         self.valid_: bool = False
     
@@ -56,7 +64,13 @@ class AngleSmoother:
         
         # 计算角度差（处理跨越0°/360°边界的情况）
         diff = (raw_angle - self.angle_ + 540) % 360 - 180
-        self.angle_ = (self.angle_ + diff) % 360.0
+        
+        # 限幅：单帧最大变化角度
+        if abs(diff) > self.max_step_deg_:
+            diff = self.max_step_deg_ if diff > 0 else -self.max_step_deg_
+        
+        # 平滑：使用 alpha 系数进行一阶低通滤波
+        self.angle_ = (self.angle_ + self.alpha_ * diff) % 360.0
         
         return self.angle_
     
@@ -79,6 +93,12 @@ class MinimapDetector:
         model_path: str,
         conf_threshold: float = 0.25,
         iou_threshold: float = 0.25,
+        smoothing_alpha: float = 0.25,
+        max_step_deg: float = 45.0,
+        min_area_ratio: float = 0.2,
+        max_area_ratio: float = 0.9,
+        min_aspect_ratio: float = 0.3,
+        max_aspect_ratio: float = 3.0,
     ):
         if not model_path:
             raise ValueError("model_path 不能为空")
@@ -87,7 +107,18 @@ class MinimapDetector:
         self.conf_threshold_ = conf_threshold
         self.iou_threshold_ = iou_threshold
         self.class_name_to_id_: Dict[str, int] = {}
-        self.angle_smoother_ = AngleSmoother()  # 角度平滑器
+        
+        # 角度平滑器参数
+        self.angle_smoother_ = AngleSmoother(
+            alpha=smoothing_alpha,
+            max_step_deg=max_step_deg,
+        )
+        
+        # 轮廓过滤参数
+        self.min_area_ratio_ = min_area_ratio
+        self.max_area_ratio_ = max_area_ratio
+        self.min_aspect_ratio_ = min_aspect_ratio
+        self.max_aspect_ratio_ = max_aspect_ratio
 
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
@@ -418,8 +449,27 @@ class MinimapDetector:
         epsilon = 0.02 * cv2.arcLength(largest_contour, True)
         approx = cv2.approxPolyDP(largest_contour, epsilon, True)
         
-        if len(approx) != 4:
+        if len(approx) < 4:
             return None
+        
+        # 6. 轮廓质量过滤
+        # 计算轮廓面积和 bbox 面积
+        # contour_area = cv2.contourArea(largest_contour)
+        # bbox_area = (x2_clipped - x1_clipped) * (y2_clipped - y1_clipped)
+        # if bbox_area <= 0:
+        #     return None
+        
+        # area_ratio = contour_area / bbox_area
+        # if area_ratio < self.min_area_ratio_ or area_ratio > self.max_area_ratio_:
+        #     return None
+        
+        # # 检查外接矩形宽高比
+        # x, y, w, h = cv2.boundingRect(largest_contour)
+        # if h <= 0:
+        #     return None
+        # aspect_ratio = w / h
+        # if aspect_ratio < self.min_aspect_ratio_ or aspect_ratio > self.max_aspect_ratio_:
+        #     return None
         
         # 返回 4 个顶点坐标（用于后续计算角度）
         vertices = approx.reshape(-1, 2)

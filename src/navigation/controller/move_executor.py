@@ -97,11 +97,11 @@ class MoveExecutor:
                 self._last_turn_change = now
 
         # 调试日志
-        logger.debug(
-            f"cmd: fwd={cmd.forward:.3f}, turn={cmd.turn:.3f} | "
-            f"smooth: fwd={self._smooth_forward:.3f}, turn={self._smooth_turn:.3f} | "
-            f"state: fwd={self._state.forward}, turn={self._state.turn}"
-        )
+        # logger.debug(
+        #     f"cmd: fwd={cmd.forward:.3f}, turn={cmd.turn:.3f} | "
+        #     f"smooth: fwd={self._smooth_forward:.3f}, turn={self._smooth_turn:.3f} | "
+        #     f"state: fwd={self._state.forward}, turn={self._state.turn}"
+        # )
 
     def stop_all(self) -> None:
         """释放所有移动相关按键，并清空内部状态"""
@@ -128,7 +128,7 @@ class MoveExecutor:
         elif direction == -1:
             self.key_press_manager.press_backward()
 
-        logger.debug(f"update_forward: {self._state.forward} -> {direction}")
+        # logger.debug(f"update_forward: {self._state.forward} -> {direction}")
         self._state.forward = direction
 
     # -------- internal helpers: left/right --------

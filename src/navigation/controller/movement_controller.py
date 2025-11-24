@@ -120,11 +120,11 @@ class MovementController:
         forward_cmd *= angle_factor
 
         # 调试日志
-        logger.debug(
-            f"decide: dist={dist:.1f}, angle_err={math.degrees(abs_diff):.1f}deg | "
-            f"dist_factor={dist_factor:.3f}, angle_factor={angle_factor:.3f} | "
-            f"forward_cmd={forward_cmd:.3f}, turn_cmd={turn_cmd:.3f}"
-        )
+        # logger.debug(
+        #     f"decide: dist={dist:.1f}, angle_err={math.degrees(abs_diff):.1f}deg | "
+        #     f"dist_factor={dist_factor:.3f}, angle_factor={angle_factor:.3f} | "
+        #     f"forward_cmd={forward_cmd:.3f}, turn_cmd={turn_cmd:.3f}"
+        # )
 
         return MovementCommand(forward=forward_cmd, turn=turn_cmd, brake=False)
 

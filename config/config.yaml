@@ -15,8 +15,8 @@ minimap:
 
 # 掩码配置（可选）
 mask:
-  inflation_radius_px: 1  # 障碍膨胀半径（像素）
-  cost_alpha: 1  # 代价图权重
+  inflation_radius_px: 2  # 障碍膨胀半径（像素）
+  cost_alpha: 2  # 代价图权重
 
 # 栅格配置
 grid:
@@ -38,10 +38,10 @@ path_planning:
 control:
   move_speed: 1.0  # 移动速度
   rotation_smooth: 0.3  # 旋转平滑度
-  goal_arrival_threshold: 30.0  # 终点到达阈值（像素）
-  path_deviation_tolerance: 60.0  # 路径偏离容忍度（像素）
-  stuck_threshold: 5.0  # 卡顿检测阈值（像素）
-  stuck_frames_threshold: 10  # 连续卡顿帧数阈值 必须大于 0
+  goal_arrival_threshold: 15.0  # 终点到达阈值（像素）
+  path_deviation_tolerance: 2.5  # 路径偏离容忍度（像素）
+  stuck_threshold: 15.0  # 卡顿检测阈值（像素）
+  stuck_frames_threshold: 600  # 连续卡顿帧数阈值 必须大于 0
   
   # MovementController 参数
   angle_dead_zone_deg: 3.0  # 角度死区（度）
@@ -64,6 +64,15 @@ control:
   max_lateral_error: 80.0  # 最大横向误差（像素）
   lookahead_distance: 60.0  # 前瞻距离（像素）
   waypoint_switch_radius: 20.0  # Waypoint切换半径（像素）
+
+# 角度检测配置（可选）
+angle_detection:
+  smoothing_alpha: 1.0  # 角度平滑系数 (0.0-1.0)
+  max_step_deg: 90.0     # 单帧最大角度变化（度）
+  min_area_ratio: 0.2    # 轮廓面积最小比例
+  max_area_ratio: 0.9    # 轮廓面积最大比例
+  min_aspect_ratio: 0.3  # 外接矩形最小宽高比
+  max_aspect_ratio: 3.0  # 外接矩形最大宽高比
 
 # 车辆配置
 vehicle:
