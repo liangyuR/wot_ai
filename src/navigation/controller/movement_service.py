@@ -15,6 +15,14 @@ class MovementService:
         distance_stop_threshold: float = 5.0,
         slow_down_distance: float = 30.0,
         max_forward_speed: float = 1.0,
+        min_forward_factor: float = 0.3,
+        large_angle_threshold_deg: float = 60.0,
+        large_angle_speed_reduction: float = 0.5,
+        smoothing_alpha: float = 0.3,
+        turn_deadzone: float = 0.12,
+        min_hold_time_ms: float = 100.0,
+        forward_hysteresis_on: float = 0.35,
+        forward_hysteresis_off: float = 0.08,
     ) -> None:
         self.controller = MovementController(
             angle_dead_zone_deg=angle_dead_zone_deg,
@@ -22,8 +30,17 @@ class MovementService:
             distance_stop_threshold=distance_stop_threshold,
             slow_down_distance=slow_down_distance,
             max_forward_speed=max_forward_speed,
+            min_forward_factor=min_forward_factor,
+            large_angle_threshold_deg=large_angle_threshold_deg,
+            large_angle_speed_reduction=large_angle_speed_reduction,
         )
-        self.executor = MoveExecutor()
+        self.executor = MoveExecutor(
+            smoothing_alpha=smoothing_alpha,
+            turn_deadzone=turn_deadzone,
+            min_hold_time_ms=min_hold_time_ms,
+            forward_hysteresis_on=forward_hysteresis_on,
+            forward_hysteresis_off=forward_hysteresis_off,
+        )
 
     # ---- runtime 调用的主要接口 ----
 

@@ -277,7 +277,6 @@ def find_pid_by_process_name(name: str = "WorldOfTanks.exe") -> int | None:
     name = name.lower()
     for p in psutil.process_iter(["name", "pid"]):
         try:
-            logger.info(f"PID: {p.info['pid']} - Name: {p.info['name']}")
             if p.info["name"] and p.info["name"].lower() == name:
                 return p.info["pid"]
         except (psutil.NoSuchProcess, psutil.AccessDenied):

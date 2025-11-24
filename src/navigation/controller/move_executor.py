@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import time
 from loguru import logger
 from src.navigation.controller.keyboard_manager import KeyPressManager
 
@@ -34,13 +35,33 @@ class MoveExecutor:
     - 提供统一的 stop_all 接口
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        smoothing_alpha: float = 0.3,
+        turn_deadzone: float = 0.12,
+        min_hold_time_ms: float = 100.0,
+        forward_hysteresis_on: float = 0.35,
+        forward_hysteresis_off: float = 0.08,
+    ) -> None:
         self.key_press_manager = KeyPressManager()
         self._state = _KeyState()
 
+        # 平滑滤波参数
+        self._smooth_forward: float = 0.0
+        self._smooth_turn: float = 0.0
+        self._smoothing_alpha: float = max(0.0, min(1.0, smoothing_alpha))
+
         # 调参阈值：小于这个值就认为是 0
-        self._forward_deadzone = 0.2
-        self._turn_deadzone = 0.2
+        self._turn_deadzone = turn_deadzone
+
+        # 滞回参数
+        self._forward_hysteresis_on = forward_hysteresis_on
+        self._forward_hysteresis_off = forward_hysteresis_off
+
+        # 最小按键保持时间（秒）
+        self._min_hold_time = min_hold_time_ms / 1000.0
+        self._last_forward_change: float = 0.0
+        self._last_turn_change: float = 0.0
 
     # -------- public API (给 movement_controller 调用) --------
 
@@ -53,21 +74,43 @@ class MoveExecutor:
             self.stop_all()
             return
 
-        target_forward = self._quantize_axis(cmd.forward, self._forward_deadzone)
-        target_turn = self._quantize_axis(cmd.turn, self._turn_deadzone)
+        # 一阶指数平滑滤波
+        self._smooth_forward += self._smoothing_alpha * (cmd.forward - self._smooth_forward)
+        self._smooth_turn += self._smoothing_alpha * (cmd.turn - self._smooth_turn)
 
-        # 前后方向
+        # 使用平滑后的值进行量化
+        target_forward = self._quantize_forward_with_hysteresis(self._smooth_forward)
+        target_turn = self._quantize_axis(self._smooth_turn, self._turn_deadzone)
+
+        # 前后方向（带最小保持时间检查）
         if target_forward != self._state.forward:
-            self._update_forward(target_forward)
+            now = time.perf_counter()
+            if now - self._last_forward_change >= self._min_hold_time:
+                self._update_forward(target_forward)
+                self._last_forward_change = now
 
-        # 左右方向
+        # 左右方向（带最小保持时间检查）
         if target_turn != self._state.turn:
-            self._update_turn(target_turn)
+            now = time.perf_counter()
+            if now - self._last_turn_change >= self._min_hold_time:
+                self._update_turn(target_turn)
+                self._last_turn_change = now
+
+        # 调试日志
+        # logger.debug(
+        #     f"cmd: fwd={cmd.forward:.3f}, turn={cmd.turn:.3f} | "
+        #     f"smooth: fwd={self._smooth_forward:.3f}, turn={self._smooth_turn:.3f} | "
+        #     f"state: fwd={self._state.forward}, turn={self._state.turn}"
+        # )
 
     def stop_all(self) -> None:
         """释放所有移动相关按键，并清空内部状态"""
         self.key_press_manager.stop_all()
         self._state = _KeyState()
+        self._smooth_forward = 0.0
+        self._smooth_turn = 0.0
+        self._last_forward_change = 0.0
+        self._last_turn_change = 0.0
 
     # -------- internal helpers: forward/backward --------
 
@@ -85,7 +128,7 @@ class MoveExecutor:
         elif direction == -1:
             self.key_press_manager.press_backward()
 
-        logger.debug(f"update_forward: {self._state.forward} -> {direction}")
+        # logger.debug(f"update_forward: {self._state.forward} -> {direction}")
         self._state.forward = direction
 
     # -------- internal helpers: left/right --------
@@ -106,6 +149,29 @@ class MoveExecutor:
         self._state.turn = direction
 
     # -------- utility --------
+
+    def _quantize_forward_with_hysteresis(self, value: float) -> int:
+        """前进方向带滞回的量化：
+
+        - 当前状态为0：value > on_thr → 1，value < -on_thr → -1
+        - 当前状态为1：value < off_thr → 0，否则保持1
+        - 当前状态为-1：value > -off_thr → 0，否则保持-1
+        """
+        cur = self._state.forward
+        if cur == 0:
+            if value > self._forward_hysteresis_on:
+                return 1
+            if value < -self._forward_hysteresis_on:
+                return -1
+            return 0
+        elif cur == 1:
+            if value < self._forward_hysteresis_off:
+                return 0
+            return 1
+        else:  # cur == -1
+            if value > -self._forward_hysteresis_off:
+                return 0
+            return -1
 
     @staticmethod
     def _quantize_axis(value: float, deadzone: float) -> int:

@@ -173,11 +173,26 @@ class NavigationInstance:
             
             # 1. 初始化YOLO检测器
             logger.info(f"初始化YOLO检测器: {self.config_.model.path}")
-            self.minimap_detector_ = MinimapDetector(
-                model_path=self.config_.model.path,
-                conf_threshold=self.config_.model.conf_threshold,
-                iou_threshold=self.config_.model.iou_threshold,
-            )
+            angle_cfg = self.config_.angle_detection
+            if angle_cfg is not None:
+                self.minimap_detector_ = MinimapDetector(
+                    model_path=self.config_.model.path,
+                    conf_threshold=self.config_.model.conf_threshold,
+                    iou_threshold=self.config_.model.iou_threshold,
+                    smoothing_alpha=angle_cfg.smoothing_alpha,
+                    max_step_deg=angle_cfg.max_step_deg,
+                    min_area_ratio=angle_cfg.min_area_ratio,
+                    max_area_ratio=angle_cfg.max_area_ratio,
+                    min_aspect_ratio=angle_cfg.min_aspect_ratio,
+                    max_aspect_ratio=angle_cfg.max_aspect_ratio,
+                )
+            else:
+                # 向后兼容：如果没有配置，使用默认值
+                self.minimap_detector_ = MinimapDetector(
+                    model_path=self.config_.model.path,
+                    conf_threshold=self.config_.model.conf_threshold,
+                    iou_threshold=self.config_.model.iou_threshold,
+                )
             
             if not self.minimap_detector_.LoadModel():
                 logger.error("YOLO模型加载失败")

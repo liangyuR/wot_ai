@@ -55,57 +55,111 @@ class DetectionEngine:
     # 模型加载 & 预热
     # ------------------------------------------------------------------
     def LoadModel(self) -> bool:
-        """加载 YOLO 模型
-
-        Returns:
-            是否加载成功
-        """
         if self.model_ is not None:
             return True
-
+    
         try:
             model_path_obj = Path(self.model_path_)
             if not model_path_obj.exists():
                 logger.error(f"模型文件不存在: {model_path_obj}")
                 return False
-
-            logger.info(f"加载 YOLO 模型: {model_path_obj.resolve()}" )
+    
+            logger.info(f"加载 YOLO 模型: {model_path_obj.resolve()}")
             model = YOLO(str(model_path_obj))
-
-            # 设备选择
-            device = self._select_device()
-            if device is not None:
-                model.to(device)
-                self.actual_device_ = str(device)
+    
+            # ===== 设备选择：优先用 cuda:0 =====
+            if self.device_ == "auto":
+                if torch.cuda.is_available():
+                    device = "cuda:0"
+                else:
+                    device = "cpu"
             else:
-                self.actual_device_ = "cpu"
-
-            # FP16
-            if self.use_half_ and self._can_use_half():
+                device = self.device_
+    
+            logger.info(f"DetectionEngine 期望使用 device={device}")
+            model.to(device)
+            self.actual_device_ = str(device)
+    
+            # ===== 开 half() =====
+            self._use_fp16_runtime_ = False
+            if self._can_use_half():
                 try:
                     if hasattr(model, "model") and hasattr(model.model, "half"):
-                        # model.model.half()
-                        logger.info("YOLO 模型已切换为 FP16")
-                    else:
-                        logger.warning("当前 YOLO 版本不支持 half()，已跳过 FP16 设置")
-                except Exception as e:  # pragma: no cover - 环境相关
-                    logger.warning(f"设置 FP16 失败，使用 FP32 继续运行: {e}")
-
+                        model.model.half()
+                        self._use_fp16_runtime_ = True
+                        logger.info("YOLO 模型已切换为 FP16 (half precision)")
+                except Exception as e:
+                    logger.warning(f"设置 FP16 失败，退回 FP32: {e}")
+    
             self.model_ = model
-            # 检查实际设备并记录
-            if hasattr(model, 'device'):
-                actual_device_str = str(model.device) if hasattr(model.device, '__str__') else str(model.device)
+    
+            # 打印实际 device
+            if hasattr(model, "device"):
+                actual_device_str = str(model.device)
             else:
                 actual_device_str = self.actual_device_
-            
-            logger.info(f"模型加载成功，device={actual_device_str}")
+    
+            logger.info(f"模型加载成功，实际 device={actual_device_str}, use_half={self._use_fp16_runtime_}")
             if "cpu" in actual_device_str.lower():
-                logger.warning("⚠️ YOLO模型运行在CPU上，性能会显著下降（预期80-200ms vs GPU的3-6ms）")
+                logger.warning("⚠️ YOLO模型实际运行在CPU上，性能会显著下降")
+    
             return True
-        except Exception as e:  # pragma: no cover - 防御性
+        except Exception as e:
             logger.error(f"加载模型失败: {e}")
             self.model_ = None
             return False
+    # def LoadModel(self) -> bool:
+    #     """加载 YOLO 模型
+
+    #     Returns:
+    #         是否加载成功
+    #     """
+    #     if self.model_ is not None:
+    #         return True
+
+    #     try:
+    #         model_path_obj = Path(self.model_path_)
+    #         if not model_path_obj.exists():
+    #             logger.error(f"模型文件不存在: {model_path_obj}")
+    #             return False
+
+    #         logger.info(f"加载 YOLO 模型: {model_path_obj.resolve()}" )
+    #         model = YOLO(str(model_path_obj))
+
+    #         # 设备选择
+    #         device = self._select_device()
+    #         if device is not None:
+    #             model.to(device)
+    #             self.actual_device_ = str(device)
+    #         else:
+    #             self.actual_device_ = "cpu"
+
+    #         # FP16
+    #         if self.use_half_ and self._can_use_half():
+    #             try:
+    #                 if hasattr(model, "model") and hasattr(model.model, "half"):
+    #                     # model.model.half()
+    #                     logger.info("YOLO 模型已切换为 FP16")
+    #                 else:
+    #                     logger.warning("当前 YOLO 版本不支持 half()，已跳过 FP16 设置")
+    #             except Exception as e:  # pragma: no cover - 环境相关
+    #                 logger.warning(f"设置 FP16 失败，使用 FP32 继续运行: {e}")
+
+    #         self.model_ = model
+    #         # 检查实际设备并记录
+    #         if hasattr(model, 'device'):
+    #             actual_device_str = str(model.device) if hasattr(model.device, '__str__') else str(model.device)
+    #         else:
+    #             actual_device_str = self.actual_device_
+            
+    #         logger.info(f"模型加载成功，device={actual_device_str}")
+    #         if "cpu" in actual_device_str.lower():
+    #             logger.warning("⚠️ YOLO模型运行在CPU上，性能会显著下降（预期80-200ms vs GPU的3-6ms）")
+    #         return True
+    #     except Exception as e:  # pragma: no cover - 防御性
+    #         logger.error(f"加载模型失败: {e}")
+    #         self.model_ = None
+    #         return False
 
     def Warmup(self, img_size: Tuple[int, int] = (640, 640)) -> None:
         """模型预热：跑一帧空白图，避免首帧延迟

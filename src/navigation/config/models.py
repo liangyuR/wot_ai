@@ -66,6 +66,40 @@ class MinimapConfig(BaseModel):
         return v
 
 
+class AngleDetectionConfig(BaseModel):
+    """角度检测配置"""
+    smoothing_alpha: float = Field(0.25, description="角度平滑系数 (0.0-1.0)")
+    max_step_deg: float = Field(45.0, description="单帧最大角度变化（度）")
+    min_area_ratio: float = Field(0.2, description="轮廓面积最小比例")
+    max_area_ratio: float = Field(0.9, description="轮廓面积最大比例")
+    min_aspect_ratio: float = Field(0.3, description="外接矩形最小宽高比")
+    max_aspect_ratio: float = Field(3.0, description="外接矩形最大宽高比")
+    
+    @field_validator('smoothing_alpha')
+    @classmethod
+    def validate_smoothing_alpha(cls, v: float) -> float:
+        """验证平滑系数范围"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"平滑系数必须在0.0-1.0之间: {v}")
+        return v
+    
+    @field_validator('max_step_deg', 'min_area_ratio', 'max_area_ratio', 'min_aspect_ratio', 'max_aspect_ratio')
+    @classmethod
+    def validate_positive_float(cls, v: float) -> float:
+        """验证正浮点数"""
+        if v <= 0:
+            raise ValueError(f"值必须大于0: {v}")
+        return v
+    
+    @field_validator('min_area_ratio', 'max_area_ratio')
+    @classmethod
+    def validate_area_ratio_range(cls, v: float) -> float:
+        """验证面积比例范围"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"面积比例必须在0.0-1.0之间: {v}")
+        return v
+
+
 class MaskConfig(BaseModel):
     """掩码配置"""
     filename_format: str = Field(
@@ -155,11 +189,40 @@ class ControlConfig(BaseModel):
     """控制配置"""
     move_speed: float = Field(..., description="移动速度")
     rotation_smooth: float = Field(..., description="旋转平滑度")
-    target_point_offset: int = Field(..., description="目标点偏移量")
     path_deviation_tolerance: float = Field(..., description="路径偏离容忍度（像素）")
     goal_arrival_threshold: float = Field(..., description="终点到达阈值（像素）")
     stuck_threshold: float = Field(..., description="卡顿检测阈值（像素）")
     stuck_frames_threshold: int = Field(..., description="连续卡顿帧数阈值")
+
+    @field_validator('stuck_frames_threshold')
+    @classmethod
+    def validate_stuck_frames_threshold(cls, v: int) -> int:
+        """验证连续卡顿帧数阈值"""
+        if v <= 0:
+            raise ValueError(f"连续卡顿帧数阈值必须大于0: {v}")
+        return v
+
+    # MovementController 参数
+    angle_dead_zone_deg: float = Field(3.0, description="角度死区（度）")
+    angle_slow_turn_deg: float = Field(15.0, description="角度慢转阈值（度）")
+    distance_stop_threshold: float = Field(5.0, description="距离停止阈值（像素）")
+    slow_down_distance: float = Field(30.0, description="开始减速距离（像素）")
+    max_forward_speed: float = Field(1.0, description="最大前进速度")
+    min_forward_factor: float = Field(0.3, description="最小前进因子")
+    large_angle_threshold_deg: float = Field(60.0, description="大角度阈值（度）")
+    large_angle_speed_reduction: float = Field(0.5, description="大角度速度衰减系数")
+    
+    # MoveExecutor 参数
+    smoothing_alpha: float = Field(0.3, description="平滑滤波系数")
+    turn_deadzone: float = Field(0.12, description="转向死区")
+    min_hold_time_ms: float = Field(100.0, description="最小按键保持时间（毫秒）")
+    forward_hysteresis_on: float = Field(0.35, description="前进滞回开启阈值")
+    forward_hysteresis_off: float = Field(0.08, description="前进滞回关闭阈值")
+    
+    # PathFollower 参数
+    max_lateral_error: float = Field(80.0, description="最大横向误差（像素）")
+    lookahead_distance: float = Field(60.0, description="前瞻距离（像素）")
+    waypoint_switch_radius: float = Field(20.0, description="Waypoint切换半径（像素）")
     
     @field_validator('move_speed', 'rotation_smooth')
     @classmethod
@@ -169,12 +232,12 @@ class ControlConfig(BaseModel):
             raise ValueError(f"值必须大于0: {v}")
         return v
     
-    @field_validator('target_point_offset', 'stuck_frames_threshold')
+    @field_validator('smoothing_alpha', 'min_forward_factor', 'large_angle_speed_reduction')
     @classmethod
-    def validate_positive_int(cls, v: int) -> int:
-        """验证正整数"""
-        if v <= 0:
-            raise ValueError(f"值必须大于0: {v}")
+    def validate_range_0_1(cls, v: float) -> float:
+        """验证0-1范围"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"值必须在0.0-1.0之间: {v}")
         return v
 
 
@@ -186,6 +249,7 @@ class NavigationConfig(BaseModel):
     grid: GridConfig = Field(..., description="栅格配置")
     path_planning: PathPlanningConfig = Field(..., description="路径规划配置")
     control: ControlConfig = Field(..., description="控制配置")
+    angle_detection: Optional[AngleDetectionConfig] = Field(None, description="角度检测配置（可选）")
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     
     @field_validator('monitor_index')

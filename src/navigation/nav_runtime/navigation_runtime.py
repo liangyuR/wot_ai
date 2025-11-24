@@ -56,18 +56,53 @@ class NavigationRuntime:
         self.data_hub = DataHub()
 
         # 小地图检测
-        self.minimap_detector = MinimapDetector(self.cfg.model.path, self.cfg.model.conf_threshold, self.cfg.model.iou_threshold)
+        angle_cfg = self.cfg.angle_detection
+        if angle_cfg is not None:
+            self.minimap_detector = MinimapDetector(
+                model_path=self.cfg.model.path,
+                conf_threshold=self.cfg.model.conf_threshold,
+                iou_threshold=self.cfg.model.iou_threshold,
+                smoothing_alpha=angle_cfg.smoothing_alpha,
+                max_step_deg=angle_cfg.max_step_deg,
+                min_area_ratio=angle_cfg.min_area_ratio,
+                max_area_ratio=angle_cfg.max_area_ratio,
+                min_aspect_ratio=angle_cfg.min_aspect_ratio,
+                max_aspect_ratio=angle_cfg.max_aspect_ratio,
+            )
+        else:
+            # 向后兼容：如果没有配置，使用默认值
+            self.minimap_detector = MinimapDetector(
+                model_path=self.cfg.model.path,
+                conf_threshold=self.cfg.model.conf_threshold,
+                iou_threshold=self.cfg.model.iou_threshold,
+            )
         self.minimap_anchor_detector = MinimapAnchorDetector()
         self.minimap_name_detector = MapNameDetector()
         self.minimap_region: Optional[dict] = None
 
         # 控制与跟随
-        self.move = MovementService()
+        self.move = MovementService(
+            angle_dead_zone_deg=self.cfg.control.angle_dead_zone_deg,
+            angle_slow_turn_deg=self.cfg.control.angle_slow_turn_deg,
+            distance_stop_threshold=self.cfg.control.distance_stop_threshold,
+            slow_down_distance=self.cfg.control.slow_down_distance,
+            max_forward_speed=self.cfg.control.max_forward_speed,
+            min_forward_factor=self.cfg.control.min_forward_factor,
+            large_angle_threshold_deg=self.cfg.control.large_angle_threshold_deg,
+            large_angle_speed_reduction=self.cfg.control.large_angle_speed_reduction,
+            smoothing_alpha=self.cfg.control.smoothing_alpha,
+            turn_deadzone=self.cfg.control.turn_deadzone,
+            min_hold_time_ms=self.cfg.control.min_hold_time_ms,
+            forward_hysteresis_on=self.cfg.control.forward_hysteresis_on,
+            forward_hysteresis_off=self.cfg.control.forward_hysteresis_off,
+        )
 
         self.path_follower_wrapper = PathFollowerWrapper(
             deviation_tolerance=self.cfg.control.path_deviation_tolerance,
-            target_point_offset=self.cfg.control.target_point_offset,
             goal_arrival_threshold=self.cfg.control.goal_arrival_threshold,
+            max_lateral_error=self.cfg.control.max_lateral_error,
+            lookahead_distance=self.cfg.control.lookahead_distance,
+            waypoint_switch_radius=self.cfg.control.waypoint_switch_radius,
         )
 
         # 卡顿检测（用配置参数初始化）
@@ -384,7 +419,7 @@ if __name__ == "__main__":
             logger.info("NavigationRuntime 已在运行，忽略 F9")
             return
         rt = NavigationRuntime()
-        if rt.start(map_name="埃里-哈罗夫"):
+        if rt.start(map_name="鲁别克"):
             runtime_holder["rt"] = rt
             logger.info("F9: NavigationRuntime 已启动")
         else:

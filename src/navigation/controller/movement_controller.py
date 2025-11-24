@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from loguru import logger
 from src.navigation.controller.move_executor import MovementCommand
 from src.navigation.controller.move_executor import MoveExecutor
 
@@ -18,15 +19,21 @@ class MovementController:
         distance_stop_threshold: float = 5.0,
         slow_down_distance: float = 30.0,
         max_forward_speed: float = 1.0,
+        min_forward_factor: float = 0.3,
+        large_angle_threshold_deg: float = 60.0,
+        large_angle_speed_reduction: float = 0.5,
     ) -> None:
         """初始化控制参数。
 
         Args:
             angle_dead_zone_deg: 朝向误差小于该角度时认为对准，转向输出趋近于 0
-            angle_slow_turn_deg: 误差大于该角度时优先转向，前进速度线性衰减至 0
+            angle_slow_turn_deg: 误差大于该角度时优先转向，前进速度线性衰减
             distance_stop_threshold: 距离目标小于该值时停止前进
             slow_down_distance: 开始减速的距离（大于 stop_threshold）
             max_forward_speed: 最大前进速度（映射到 MovementCommand.forward，通常在 [0, 1]）
+            min_forward_factor: 最小前进因子，确保大角度时仍能保持一定前进速度
+            large_angle_threshold_deg: 大角度阈值，超过此角度时进行额外的速度衰减
+            large_angle_speed_reduction: 大角度时的速度衰减系数
         """
         if slow_down_distance < distance_stop_threshold:
             slow_down_distance = distance_stop_threshold
@@ -36,6 +43,9 @@ class MovementController:
         self.dist_stop = distance_stop_threshold
         self.dist_slow = slow_down_distance
         self.max_forward_speed = max(0.0, max_forward_speed)
+        self.min_forward_factor = max(0.0, min(1.0, min_forward_factor))
+        self.large_angle_threshold = math.radians(large_angle_threshold_deg)
+        self.large_angle_speed_reduction = max(0.0, min(1.0, large_angle_speed_reduction))
 
     @staticmethod
     def _norm_angle(angle: float) -> float:
@@ -84,8 +94,8 @@ class MovementController:
             turn_cmd = max(-1.0, min(1.0, turn_cmd))
 
         # 2) 计算前进速度：
-        #   - 距离越近越慢
-        #   - 角度误差越大越慢，超出 angle_slow_turn 时逐渐接近 0
+        #   - 主要基于距离因子
+        #   - 角度误差影响较小，仅在极大角度时进行额外衰减
         # 距离因子
         if dist >= self.dist_slow:
             dist_factor = 1.0
@@ -94,14 +104,27 @@ class MovementController:
             dist_factor = (dist - self.dist_stop) / max(1e-3, self.dist_slow - self.dist_stop)
             dist_factor = max(0.0, min(1.0, dist_factor))
 
-        # 角度因子
-        if abs_diff >= self.angle_slow_turn:
-            angle_factor = 0.0
-        else:
-            angle_factor = 1.0 - abs_diff / self.angle_slow_turn
-            angle_factor = max(0.0, min(1.0, angle_factor))
+        # 角度因子：不再直接清零，而是线性衰减到最小值
+        angle_factor = 1.0 - abs_diff / self.angle_slow_turn
+        angle_factor = max(self.min_forward_factor, angle_factor)
+        angle_factor = min(1.0, angle_factor)
 
-        forward_cmd = self.max_forward_speed * dist_factor * angle_factor
+        # 基础前进速度主要基于距离
+        forward_cmd = self.max_forward_speed * dist_factor
+
+        # 仅在极大角度误差时进行额外的乘性衰减
+        if abs_diff > self.large_angle_threshold:
+            forward_cmd *= self.large_angle_speed_reduction
+
+        # 应用角度因子（但不会完全停止）
+        forward_cmd *= angle_factor
+
+        # 调试日志
+        # logger.debug(
+        #     f"decide: dist={dist:.1f}, angle_err={math.degrees(abs_diff):.1f}deg | "
+        #     f"dist_factor={dist_factor:.3f}, angle_factor={angle_factor:.3f} | "
+        #     f"forward_cmd={forward_cmd:.3f}, turn_cmd={turn_cmd:.3f}"
+        # )
 
         return MovementCommand(forward=forward_cmd, turn=turn_cmd, brake=False)
 

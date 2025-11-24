@@ -45,11 +45,10 @@ path_planning:
 control:
   move_speed: 1.0  # 移动速度
   rotation_smooth: 0.3  # 旋转平滑度
-  target_point_offset: 20  # 目标点偏移量
   path_deviation_tolerance: 60.0  # 路径偏离容忍度（像素）
   goal_arrival_threshold: 30.0  # 终点到达阈值（像素）
   stuck_threshold: 5.0  # 卡顿检测阈值（像素）
-  stuck_frames_threshold: 10  # 连续卡顿帧数阈值
+  stuck_frames_threshold: 10  # 连续卡顿帧数阈值 必须大于0
 
 # UI配置
 ui:
