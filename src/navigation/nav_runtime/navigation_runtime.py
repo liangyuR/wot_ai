@@ -119,7 +119,7 @@ class NavigationRuntime:
     # ============================================================
     # 外部接口
     # ============================================================
-    def start(self, map_name: str) -> bool:
+    def start(self, map_name: Optional[str] = None) -> bool:
         """启动导航 Runtime"""
         if self._running:
             logger.warning("NavigationRuntime 已在运行")
@@ -142,16 +142,27 @@ class NavigationRuntime:
         logger.info(f"检测到小地图区域: {self.minimap_region}")
 
         # 检测当前地图名称，读取 mask 图片
+        # V1
+        # if not map_name:
+        #     map_name_frame = ScreenAction().screenshot_with_key_hold('b')
+        #     if map_name_frame is None:
+        #         logger.error("无法截取地图名称界面")
+        #         return False
+        #     map_name = self.minimap_name_detector.detect(map_name_frame)
+        #     if not map_name:
+        #         logger.error("无法识别地图名称")
+        #         return False
+        #     logger.info(f"当前地图名称: {map_name}")
+        # V2
         if not map_name:
-            map_name_frame = ScreenAction().screenshot_with_key_hold('b')
-            if map_name_frame is None:
-                logger.error("无法截取地图名称界面")
-                return False
-            map_name = self.minimap_name_detector.detect(map_name_frame)
+            from src.utils.key_controller import KeyController
+            key_controller = KeyController()
+            key_controller.press('b')
+            map_name = self.minimap_name_detector.detect()
             if not map_name:
                 logger.error("无法识别地图名称")
-                return False
             logger.info(f"当前地图名称: {map_name}")
+            key_controller.release('b')
 
         if not self.planner_service.load_map(map_name, (self.minimap_region["width"], self.minimap_region["height"])):
             logger.error("无法加载地图")
@@ -419,7 +430,7 @@ if __name__ == "__main__":
             logger.info("NavigationRuntime 已在运行，忽略 F9")
             return
         rt = NavigationRuntime()
-        if rt.start(map_name="鲁别克"):
+        if rt.start(map_name="北欧峡湾"):
             runtime_holder["rt"] = rt
             logger.info("F9: NavigationRuntime 已启动")
         else:

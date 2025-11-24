@@ -35,5 +35,6 @@ if __name__ == "__main__":
     time.sleep(1)
     key_controller.tap('d')
     time.sleep(1)
-    key_controller.tap('w')
+    from pynput.keyboard import Key
+    key_controller.tap(Key.esc)
     time.sleep(1)

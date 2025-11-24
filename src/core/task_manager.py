@@ -10,16 +10,13 @@ import time
 import subprocess
 from datetime import datetime
 from loguru import logger
-
 from .battle_task import BattleTask
-from src.navigation.config.models import NavigationConfig
 
 class TaskManager:
     """任务管理器"""
     
     def __init__(
         self,
-        ai_config: NavigationConfig,
         run_hours: int = 4,
         auto_stop: bool = False,
         auto_shutdown: bool = False,
@@ -28,12 +25,10 @@ class TaskManager:
         初始化任务管理器
         
         Args:
-            ai_config: NavigationConfig配置对象
             run_hours: 运行时长限制（小时）
             auto_stop: 达到时长后自动停止
             auto_shutdown: 达到时长后自动关机（需要管理员权限）
         """
-        self.ai_config_ = ai_config
         self.run_hours_ = run_hours
         self.auto_stop_ = auto_stop
         self.auto_shutdown_ = auto_shutdown
@@ -56,7 +51,7 @@ class TaskManager:
                     break
                 
                 # 创建战斗任务
-                task = BattleTask(self.ai_config_)
+                task = BattleTask()
                 
                 # 启动事件驱动循环
                 if not task.start():

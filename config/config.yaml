@@ -39,7 +39,7 @@ control:
   move_speed: 1.0  # 移动速度
   rotation_smooth: 0.3  # 旋转平滑度
   goal_arrival_threshold: 15.0  # 终点到达阈值（像素）
-  path_deviation_tolerance: 2.5  # 路径偏离容忍度（像素）
+  path_deviation_tolerance: 5  # 路径偏离容忍度（像素）
   stuck_threshold: 15.0  # 卡顿检测阈值（像素）
   stuck_frames_threshold: 600  # 连续卡顿帧数阈值 必须大于 0
   

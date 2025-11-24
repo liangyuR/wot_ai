@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Union
 
 from loguru import logger
 import numpy as np
+import time
 
 class TemplateMatcher:
     """
@@ -25,6 +26,8 @@ class TemplateMatcher:
         import pyautogui
         center = self.match_template(template, confidence=confidence, region=region, frame=frame)
         if center is not None:
+            pyautogui.click(center[0], center[1])
+            time.sleep(0.5)
             pyautogui.click(center[0], center[1])
             return center
         return None
