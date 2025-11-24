@@ -1,5 +1,6 @@
 from src.navigation.controller.movement_controller import MovementController
 from src.navigation.controller.move_executor import MoveExecutor, MovementCommand
+from src.navigation.nav_runtime.path_follower_wrapper import FollowResult
 
 class MovementService:
     """运动控制层 Facade
@@ -18,6 +19,17 @@ class MovementService:
         min_forward_factor: float = 0.3,
         large_angle_threshold_deg: float = 60.0,
         large_angle_speed_reduction: float = 0.5,
+        corridor_ref_width: float = 40.0,
+        k_lat_normal: float = 0.3,
+        k_lat_edge: float = 0.5,
+        k_lat_recenter: float = 0.8,
+        straight_angle_enter_deg: float = 6.0,
+        straight_angle_exit_deg: float = 10.0,
+        straight_lat_enter: float = 25.0,
+        straight_lat_exit: float = 35.0,
+        edge_speed_reduction: float = 0.85,
+        recenter_speed_reduction: float = 0.6,
+        debug_log_interval: int = 30,
         smoothing_alpha: float = 0.3,
         turn_deadzone: float = 0.12,
         min_hold_time_ms: float = 100.0,
@@ -33,6 +45,17 @@ class MovementService:
             min_forward_factor=min_forward_factor,
             large_angle_threshold_deg=large_angle_threshold_deg,
             large_angle_speed_reduction=large_angle_speed_reduction,
+            corridor_ref_width=corridor_ref_width,
+            k_lat_normal=k_lat_normal,
+            k_lat_edge=k_lat_edge,
+            k_lat_recenter=k_lat_recenter,
+            straight_angle_enter_deg=straight_angle_enter_deg,
+            straight_angle_exit_deg=straight_angle_exit_deg,
+            straight_lat_enter=straight_lat_enter,
+            straight_lat_exit=straight_lat_exit,
+            edge_speed_reduction=edge_speed_reduction,
+            recenter_speed_reduction=recenter_speed_reduction,
+            debug_log_interval=debug_log_interval,
         )
         self.executor = MoveExecutor(
             smoothing_alpha=smoothing_alpha,
@@ -47,18 +70,15 @@ class MovementService:
     def goto(
         self,
         *,
-        target_pos: tuple[float, float],
+        follow_result: FollowResult,
         current_pos: tuple[float, float],
         heading: float,
     ) -> None:
-        """朝向 target_pos 运动一帧。
-
-        由 runtime 在固定 tick 里反复调用，相当于旧版的 self.move.goto(...)
-        """
-        cmd = self.controller.decide(
+        """根据 PathFollower 状态执行运动一帧。"""
+        cmd = self.controller.decide_with_follow_result(
             current_pos=current_pos,
             heading=heading,
-            target_pos=target_pos,
+            follow=follow_result,
         )
         self.executor.apply_command(cmd)
 

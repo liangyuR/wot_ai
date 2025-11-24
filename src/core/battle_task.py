@@ -44,7 +44,8 @@ class BattleTask:
         self.template_matcher_ = TemplateMatcher()
         self.map_name_detector_ = MapNameDetector()
         self.key_controller_ = KeyController()
-        self.navigation_runtime_ = NavigationRuntime()
+        self.navigation_runtime_ = None
+        self.navigation_thread_ = None
 
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
@@ -150,7 +151,10 @@ class BattleTask:
         if self.garage_handled_:
             return
         logger.info("检测到车库状态，开始选择车辆...")
-        
+
+        self.end_handled_ = False
+        self.battle_handled_ = False
+
         # 选择车辆
         if not self.select_tank():
             logger.error("选择车辆失败，将在下次循环重试")
@@ -174,10 +178,15 @@ class BattleTask:
         """
         if self.battle_handled_:
             return
+
+        self.end_handled_ = False
+        self.garage_handled_ = False
+
         logger.info("检测到战斗状态，开始启动导航...")
         # 等待一段时间让游戏稳定
         time.sleep(10.0)
         # 启动导航线程
+        self.navigation_runtime_ = NavigationRuntime()
         self.navigation_thread_ = threading.Thread(target=self.navigation_runtime_.start, daemon=True)
         self.navigation_thread_.start()
         # 标记已处理
@@ -194,11 +203,13 @@ class BattleTask:
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
         # 停止导航AI运行循环
+        if self.navigation_runtime_ is not None:
+            self.navigation_runtime_.stop()
+        self.navigation_runtime_ = None
+
         if self.navigation_thread_ and self.navigation_thread_.is_alive():
             self.navigation_thread_.join(timeout=3.0)
-
-        # 重置战斗状态标志，为下一局做准备
-        self.battle_handled_ = False
+        self.navigation_thread_ = None
 
         # 关闭结算页面并返回车库
         if not self.enter_garage():
@@ -207,6 +218,10 @@ class BattleTask:
         
         # 标记已处理
         self.end_handled_ = True
+
+        # 重置战斗状态标志，为下一局做准备
+        self.battle_handled_ = False
+        self.garage_handled_ = False
         logger.info("结束状态处理完成")
     
     def select_tank(self) -> bool:

@@ -56,13 +56,13 @@ control:
   # MoveExecutor 参数
   smoothing_alpha: 0.3  # 平滑滤波系数
   turn_deadzone: 0.12  # 转向死区
-  min_hold_time_ms: 100.0  # 最小按键保持时间（毫秒）
+  min_hold_time_ms: 10.0  # 最小按键保持时间（毫秒）
   forward_hysteresis_on: 0.35  # 前进滞回开启阈值
   forward_hysteresis_off: 0.08  # 前进滞回关闭阈值
   
   # PathFollower 参数
-  max_lateral_error: 80.0  # 最大横向误差（像素）
-  lookahead_distance: 60.0  # 前瞻距离（像素）
+  max_lateral_error: 30.0  # 最大横向误差（像素）
+  lookahead_distance: 30.0  # 前瞻距离（像素）
   waypoint_switch_radius: 20.0  # Waypoint切换半径（像素）
 
 # 角度检测配置（可选）
@@ -82,6 +82,7 @@ vehicle:
 ui:
   overlay_fps: 30  # 覆盖层FPS
   overlay_alpha: 180  # 覆盖层透明度 (0-255)
+  enable: false  # 是否启用调试视图
 
 # 屏幕捕获配置
 monitor_index: 1  # 屏幕捕获监视器索引

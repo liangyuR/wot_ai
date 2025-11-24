@@ -211,6 +211,17 @@ class ControlConfig(BaseModel):
     min_forward_factor: float = Field(0.3, description="最小前进因子")
     large_angle_threshold_deg: float = Field(60.0, description="大角度阈值（度）")
     large_angle_speed_reduction: float = Field(0.5, description="大角度速度衰减系数")
+    corridor_ref_width: float = Field(40.0, description="横向误差归一化宽度（像素）")
+    k_lat_normal: float = Field(0.3, description="走廊内横向增益")
+    k_lat_edge: float = Field(0.5, description="走廊边缘横向增益")
+    k_lat_recenter: float = Field(0.8, description="纠偏模式横向增益")
+    straight_angle_enter_deg: float = Field(6.0, description="直行模式进入角度阈值（度）")
+    straight_angle_exit_deg: float = Field(10.0, description="直行模式退出角度阈值（度）")
+    straight_lat_enter: float = Field(25.0, description="直行模式进入横向阈值（像素）")
+    straight_lat_exit: float = Field(35.0, description="直行模式退出横向阈值（像素）")
+    edge_speed_reduction: float = Field(0.85, description="走廊边缘速度缩放")
+    recenter_speed_reduction: float = Field(0.6, description="纠偏模式速度缩放")
+    debug_log_interval: int = Field(30, description="控制日志输出间隔（帧）")
     
     # MoveExecutor 参数
     smoothing_alpha: float = Field(0.3, description="平滑滤波系数")
@@ -224,7 +235,7 @@ class ControlConfig(BaseModel):
     lookahead_distance: float = Field(60.0, description="前瞻距离（像素）")
     waypoint_switch_radius: float = Field(20.0, description="Waypoint切换半径（像素）")
     
-    @field_validator('move_speed', 'rotation_smooth')
+    @field_validator('move_speed', 'rotation_smooth', 'corridor_ref_width', 'straight_lat_enter', 'straight_lat_exit')
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
         """验证正浮点数"""
@@ -232,13 +243,27 @@ class ControlConfig(BaseModel):
             raise ValueError(f"值必须大于0: {v}")
         return v
     
-    @field_validator('smoothing_alpha', 'min_forward_factor', 'large_angle_speed_reduction')
+    @field_validator('smoothing_alpha', 'min_forward_factor', 'large_angle_speed_reduction', 'edge_speed_reduction', 'recenter_speed_reduction')
     @classmethod
     def validate_range_0_1(cls, v: float) -> float:
         """验证0-1范围"""
         if not 0.0 <= v <= 1.0:
             raise ValueError(f"值必须在0.0-1.0之间: {v}")
         return v
+    
+    @field_validator('debug_log_interval')
+    @classmethod
+    def validate_debug_interval(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"debug_log_interval 必须大于0: {v}")
+        return v
+
+
+class UiConfig(BaseModel):
+    """UI配置"""
+    overlay_fps: int = Field(30, description="覆盖层FPS")
+    overlay_alpha: int = Field(180, description="覆盖层透明度 (0-255)")
+    enable: bool = Field(False, description="是否启用调试视图")
 
 
 class NavigationConfig(BaseModel):
@@ -251,6 +276,7 @@ class NavigationConfig(BaseModel):
     control: ControlConfig = Field(..., description="控制配置")
     angle_detection: Optional[AngleDetectionConfig] = Field(None, description="角度检测配置（可选）")
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
+    ui: UiConfig = Field(..., description="UI配置")
     
     @field_validator('monitor_index')
     @classmethod
