@@ -61,9 +61,9 @@ control:
   forward_hysteresis_off: 0.08  # 前进滞回关闭阈值
   
   # PathFollower 参数
-  max_lateral_error: 30.0  # 最大横向误差（像素）
-  lookahead_distance: 30.0  # 前瞻距离（像素）
-  waypoint_switch_radius: 20.0  # Waypoint切换半径（像素）
+  max_lateral_error: 15.0  # 最大横向误差（像素）
+  lookahead_distance: 15.0  # 前瞻距离（像素）
+  waypoint_switch_radius: 10.0  # Waypoint切换半径（像素）
 
 # 角度检测配置（可选）
 angle_detection:

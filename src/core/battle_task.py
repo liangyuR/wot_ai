@@ -130,6 +130,8 @@ class BattleTask:
                     self._handle_battle_state()
                 elif current_state == GameState.IN_END:
                     self._handle_end_state()
+                elif current_state == GameState.IN_RESULT_PAGE:
+                    self._handle_result_page_state()
                 elif current_state == GameState.UNKNOWN:
                     pass
                 
@@ -223,6 +225,15 @@ class BattleTask:
         self.battle_handled_ = False
         self.garage_handled_ = False
         logger.info("结束状态处理完成")
+    
+    def _handle_result_page_state(self) -> None:
+        """
+        处理结果页面状态：返回车库
+        """
+        logger.info("检测到结果页面状态，返回车库...")
+        self.key_controller_.tap(Key.esc)
+        logger.info("结果页面状态处理完成")
+
     
     def select_tank(self) -> bool:
         """
