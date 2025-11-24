@@ -37,7 +37,12 @@
             "program": "src/vision/minimap_detector.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "args": "D:\\project\\wot_ai\\utest\\minimap_bak.png"
+            "args": [
+                "C:/Users/11601/project/wot_ai/utest/Snipaste_2025-11-24_15-32-16.png",
+                "--model_path", "C:/Users/11601/project/wot_ai/resource/model/best_m_detect.pt",
+                "--fps", "30.0",
+                "--frames", "200",
+            ]
         },
         {
             "name": "小地图锚点检测器调试",
@@ -110,6 +115,14 @@
             "type": "debugpy",
             "request": "launch",
             "program": "src/navigation/service/capture_service.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "KeyController 调试",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "src/utils/key_controller.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         }

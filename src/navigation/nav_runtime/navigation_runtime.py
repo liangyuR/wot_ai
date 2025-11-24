@@ -47,7 +47,10 @@ class NavigationRuntime:
 
         # 组件
         self.capture = CaptureService(self.cfg.monitor_index)
-        self.view = DpgNavDebugView(title="WOT Nav Debug")
+        if self.cfg.ui.enable:
+            self.view = DpgNavDebugView()
+        else:
+            self.view = None
 
         # 路径规划
         self.planner_service = PathPlanningService(self.cfg)
@@ -90,6 +93,17 @@ class NavigationRuntime:
             min_forward_factor=self.cfg.control.min_forward_factor,
             large_angle_threshold_deg=self.cfg.control.large_angle_threshold_deg,
             large_angle_speed_reduction=self.cfg.control.large_angle_speed_reduction,
+            corridor_ref_width=self.cfg.control.corridor_ref_width,
+            k_lat_normal=self.cfg.control.k_lat_normal,
+            k_lat_edge=self.cfg.control.k_lat_edge,
+            k_lat_recenter=self.cfg.control.k_lat_recenter,
+            straight_angle_enter_deg=self.cfg.control.straight_angle_enter_deg,
+            straight_angle_exit_deg=self.cfg.control.straight_angle_exit_deg,
+            straight_lat_enter=self.cfg.control.straight_lat_enter,
+            straight_lat_exit=self.cfg.control.straight_lat_exit,
+            edge_speed_reduction=self.cfg.control.edge_speed_reduction,
+            recenter_speed_reduction=self.cfg.control.recenter_speed_reduction,
+            debug_log_interval=self.cfg.control.debug_log_interval,
             smoothing_alpha=self.cfg.control.smoothing_alpha,
             turn_deadzone=self.cfg.control.turn_deadzone,
             min_hold_time_ms=self.cfg.control.min_hold_time_ms,
@@ -119,7 +133,7 @@ class NavigationRuntime:
     # ============================================================
     # 外部接口
     # ============================================================
-    def start(self, map_name: str) -> bool:
+    def start(self, map_name: Optional[str] = None) -> bool:
         """启动导航 Runtime"""
         if self._running:
             logger.warning("NavigationRuntime 已在运行")
@@ -142,23 +156,35 @@ class NavigationRuntime:
         logger.info(f"检测到小地图区域: {self.minimap_region}")
 
         # 检测当前地图名称，读取 mask 图片
+        # V1
+        # if not map_name:
+        #     map_name_frame = ScreenAction().screenshot_with_key_hold('b')
+        #     if map_name_frame is None:
+        #         logger.error("无法截取地图名称界面")
+        #         return False
+        #     map_name = self.minimap_name_detector.detect(map_name_frame)
+        #     if not map_name:
+        #         logger.error("无法识别地图名称")
+        #         return False
+        #     logger.info(f"当前地图名称: {map_name}")
+        # V2
         if not map_name:
-            map_name_frame = ScreenAction().screenshot_with_key_hold('b')
-            if map_name_frame is None:
-                logger.error("无法截取地图名称界面")
-                return False
-            map_name = self.minimap_name_detector.detect(map_name_frame)
+            from src.utils.key_controller import KeyController
+            key_controller = KeyController()
+            key_controller.press('b')
+            map_name = self.minimap_name_detector.detect()
             if not map_name:
                 logger.error("无法识别地图名称")
-                return False
             logger.info(f"当前地图名称: {map_name}")
+            key_controller.release('b')
 
         if not self.planner_service.load_map(map_name, (self.minimap_region["width"], self.minimap_region["height"])):
             logger.error("无法加载地图")
             return False
         logger.info(f"地图{map_name}加载成功")
 
-        self.view.set_grid_mask(self.planner_service.get_grid_mask())
+        if self.view is not None:
+            self.view.set_grid_mask(self.planner_service.get_grid_mask())
 
         self._running = True
 
@@ -168,7 +194,8 @@ class NavigationRuntime:
         self._det_thread.start()
         self._ctrl_thread.start()
 
-        self.view.run()
+        if self.view is not None:
+            self.view.run()
 
         logger.info("NavigationRuntime 已启动（检测 + 控制）")
         return True
@@ -219,8 +246,9 @@ class NavigationRuntime:
                 if frame is None:
                     time.sleep(0.001)
                     continue
-
-                self.view.update_minimap_frame(frame)
+                
+                if self.view is not None:
+                    self.view.update_minimap_frame(frame)
 
                 det = self.minimap_detector.Detect(frame)
                 if det is None or getattr(det, "self_pos", None) is None:
@@ -323,18 +351,18 @@ class NavigationRuntime:
                 logger.info(f"新路径规划节点数：{len(world_path)}")
 
             # 4) 路径跟随：计算下一控制目标
-            (
-                target_world,
-                dev,
-                dist_goal,
-                goal_reached,
-                new_idx,
-                used_target_idx,
-            ) = self.path_follower_wrapper.follow(
+            follow_result = self.path_follower_wrapper.follow(
                 current_pos=pos,
                 path_world=current_path_world,
                 current_target_idx=current_target_idx,
             )
+
+            target_world = follow_result.target_world
+            dev = follow_result.distance_to_path
+            dist_goal = follow_result.distance_to_goal
+            goal_reached = follow_result.goal_reached
+            new_idx = follow_result.current_idx
+            used_target_idx = follow_result.target_idx_used
 
             current_target_idx = new_idx
 
@@ -388,7 +416,7 @@ class NavigationRuntime:
 
             # 7) 控制执行
             self.move.goto(
-                target_pos=target_world,
+                follow_result=follow_result,
                 current_pos=pos,
                 heading=heading,
             )
@@ -419,7 +447,7 @@ if __name__ == "__main__":
             logger.info("NavigationRuntime 已在运行，忽略 F9")
             return
         rt = NavigationRuntime()
-        if rt.start(map_name="鲁别克"):
+        if rt.start(map_name="北欧峡湾"):
             runtime_holder["rt"] = rt
             logger.info("F9: NavigationRuntime 已启动")
         else:

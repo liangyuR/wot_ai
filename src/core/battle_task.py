@@ -12,23 +12,21 @@ from typing import Optional
 from loguru import logger
 
 from src.core.state_machine import StateMachine, GameState
-from src.core.ai_controller import AIController
 from src.core.tank_selector import TankSelector, TankTemplate
-from src.navigation.config.models import NavigationConfig
 from src.vision.map_name_detector import MapNameDetector
-from src.listeners.pynput_listener import PynputInputListener
-from src.navigation.service.control_service import KeyBoardManager
 from src.utils.template_matcher import TemplateMatcher
+from src.utils.key_controller import KeyController
+from src.navigation.nav_runtime.navigation_runtime import NavigationRuntime
+from pynput.keyboard import Key
 
 class BattleTask:
     """战斗任务（事件驱动模式）"""
     
     def __init__(
         self,
-        ai_config: NavigationConfig,
         selection_retry_interval: float = 10.0,
         selection_timeout: float = 120.0,
-        state_check_interval: float = 5
+        state_check_interval: float = 3
     ):
         """
         初始化战斗任务
@@ -43,10 +41,11 @@ class BattleTask:
         """
         self.tank_selector_ = TankSelector()
         self.state_machine_ = StateMachine()
-        self.ai_config_ = ai_config
-        self.ai_controller_ = AIController()
         self.template_matcher_ = TemplateMatcher()
         self.map_name_detector_ = MapNameDetector()
+        self.key_controller_ = KeyController()
+        self.navigation_runtime_ = None
+        self.navigation_thread_ = None
 
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
@@ -64,14 +63,6 @@ class BattleTask:
         
         # 选中的车辆
         self.selected_tank_: Optional[TankTemplate] = None
-        
-        # # 热键监听器
-        # self.input_listener_: Optional[PynputInputListener] = None
-        # self.input_listener_ = PynputInputListener()
-        # self.input_listener_.SetHotkeyCallback("f9", self._on_f9_pressed)
-        # self.input_listener_.SetHotkeyCallback("f10", self._on_f10_pressed)
-        # self.input_listener_.Start()
-        # logger.info("热键监听器已启动 (F9: 启动, F10: 停止)")
     
     def start(self) -> bool:
         """
@@ -111,9 +102,8 @@ class BattleTask:
         self.running_ = False
         
         # 停止导航AI
-        if self.ai_controller_.is_running():
-            logger.info("停止导航AI...")
-            self.ai_controller_.stop()
+        if self.navigation_thread_ and self.navigation_thread_.is_alive():
+            self.navigation_thread_.join(timeout=3.0)
         
         # 等待事件循环线程结束
         if self.event_thread_ and self.event_thread_.is_alive():
@@ -140,8 +130,6 @@ class BattleTask:
                     self._handle_battle_state()
                 elif current_state == GameState.IN_END:
                     self._handle_end_state()
-                elif current_state == GameState.IN_RESULT_PAGE:
-                    self._handle_result_page_state()
                 elif current_state == GameState.UNKNOWN:
                     pass
                 
@@ -162,17 +150,11 @@ class BattleTask:
         """
         if self.garage_handled_:
             return
-        
         logger.info("检测到车库状态，开始选择车辆...")
-        
-        # 如果导航AI未初始化，在第一次进入车库时初始化（使用默认地图）
-        if not self.ai_controller_.is_initialized():
-            logger.info("导航AI未初始化，在车库状态进行初始化...")
-            if not self.ai_controller_.start(self.ai_config_, "default", start_loop=False):
-                logger.error("导航AI初始化失败")
-                return
-            logger.info("导航AI初始化完成（YOLO模型已加载）")
-        
+
+        self.end_handled_ = False
+        self.battle_handled_ = False
+
         # 选择车辆
         if not self.select_tank():
             logger.error("选择车辆失败，将在下次循环重试")
@@ -196,37 +178,17 @@ class BattleTask:
         """
         if self.battle_handled_:
             return
-        
-        logger.info("检测到战斗状态，开始识别地图并启动导航AI...")
-        
+
+        self.end_handled_ = False
+        self.garage_handled_ = False
+
+        logger.info("检测到战斗状态，开始启动导航...")
         # 等待一段时间让游戏稳定
         time.sleep(10.0)
-        
-        # 识别地图名称
-        map_name = self.map_name_detector_.detect()
-        if not map_name:
-            logger.warning("地图名称识别失败，使用默认地图")
-            map_name = "default"
-        else:
-            logger.info(f"识别到地图: {map_name}")
-        
-        # 如果导航AI已初始化，更新掩码
-        if self.ai_controller_.is_initialized():
-            logger.info("导航AI已初始化，更新掩码...")
-            if not self.ai_controller_.update_mask(map_name):
-                logger.warning("掩码更新失败，继续使用当前掩码")
-            else:
-                logger.info("掩码更新成功")
-        
-        # 启动导航AI运行循环
-        if not self.ai_controller_.is_running():
-            if not self.ai_controller_.start(self.ai_config_, map_name):
-                logger.error("导航AI启动失败")
-                return
-            logger.info("导航AI运行循环已启动")
-        else:
-            logger.debug("导航AI已在运行")
-        
+        # 启动导航线程
+        self.navigation_runtime_ = NavigationRuntime()
+        self.navigation_thread_ = threading.Thread(target=self.navigation_runtime_.start, daemon=True)
+        self.navigation_thread_.start()
         # 标记已处理
         self.battle_handled_ = True
         logger.info("战斗状态处理完成")
@@ -240,13 +202,14 @@ class BattleTask:
         
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
-        # 停止导航AI运行循环（保留初始化状态）
-        if self.ai_controller_.is_running():
-            self.ai_controller_.stop()
-            logger.info("导航AI运行循环已停止（保留初始化状态）")
-        
-        # 重置战斗状态标志，为下一局做准备
-        self.battle_handled_ = False
+        # 停止导航AI运行循环
+        if self.navigation_runtime_ is not None:
+            self.navigation_runtime_.stop()
+        self.navigation_runtime_ = None
+
+        if self.navigation_thread_ and self.navigation_thread_.is_alive():
+            self.navigation_thread_.join(timeout=3.0)
+        self.navigation_thread_ = None
 
         # 关闭结算页面并返回车库
         if not self.enter_garage():
@@ -255,31 +218,11 @@ class BattleTask:
         
         # 标记已处理
         self.end_handled_ = True
-        logger.info("结束状态处理完成")
-    
-    def _handle_result_page_state(self) -> None:
-        """
-        处理结算页面状态：关闭结算页面并返回车库
-        """
-        if self.result_page_handled_:
-            return
-        
-        logger.info("检测到结算页面状态，开始返回车库...")
-        
-        # 关闭结算页面并返回车库
-        if not self.enter_garage():
-            logger.error("返回车库失败，将在下次循环重试")
-            return
-        
-        # 重置所有状态标志，准备下一局
-        self.garage_handled_ = False
+
+        # 重置战斗状态标志，为下一局做准备
         self.battle_handled_ = False
-        self.end_handled_ = False
-        self.result_page_handled_ = False
-        
-        # 标记已处理
-        self.result_page_handled_ = True
-        logger.info("结算页面状态处理完成，已返回车库")
+        self.garage_handled_ = False
+        logger.info("结束状态处理完成")
     
     def select_tank(self) -> bool:
         """
@@ -337,7 +280,7 @@ class BattleTask:
     
     def enter_garage(self) -> bool:
         """
-        退出结算界面，返回车库
+        返回车库
         
         Returns:
             是否成功
@@ -347,39 +290,28 @@ class BattleTask:
         # 1. 当前在结算页面
         success = self.template_matcher_.match_template("space_jump.png", confidence=0.85)
         if success is not None:
-            KeyBoardManager().TapKey("esc")
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
             return True
         
         # 2.当被击毁时，点击"返回车库"按钮
         # press esc
-        KeyBoardManager().TapKey("esc")
+        success = self.template_matcher_.match_template("pingjia.png", confidence=0.85)
+        if success is not None:
+            logger.info("被击毁状态，需要按下 ESC 然后点击返回车库按钮")
+            self.key_controller_.tap(Key.esc)
+            time.sleep(3.0)
+            success = self.template_matcher_.click_template("return_garage.png", confidence=0.85)
+            if success is None:
+                logger.error("未找到返回车库按钮")
+                return False
 
-        # 点击"返回车库"按钮
-        success = self.template_matcher_.click_template("garage_button.png", confidence=0.85)
-        if success is None:
-            logger.error("未找到返回车库按钮")
-            return False
-        
-        time.sleep(5.0)  # 等待返回车库
+            success = self.template_matcher_.click_template("leave_confirmation.png", confidence=0.85)
+            if success is None:
+                logger.error("未找到离开确认按钮")
+                return False
 
-        logger.info("已点击返回车库按钮")
         return True
-    
-    def _on_f9_pressed(self) -> None:
-        """F9 热键回调：启动事件驱动"""
-        if not self.running_:
-            logger.info("F9 热键：启动事件驱动循环")
-            self.start()
-        else:
-            logger.info("F9 热键：事件驱动循环已在运行")
-    
-    def _on_f10_pressed(self) -> None:
-        """F10 热键回调：停止事件驱动和导航AI"""
-        if self.running_:
-            logger.info("F10 热键：停止事件驱动循环")
-            self.stop()
-        else:
-            logger.info("F10 热键：事件驱动循环未运行")
     
     def is_running(self) -> bool:
         """
@@ -393,5 +325,3 @@ class BattleTask:
     def __del__(self):
         """析构函数：确保资源清理"""
         self.stop()
-        if self.input_listener_:
-            self.input_listener_.Stop()

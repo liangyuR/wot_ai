@@ -11,11 +11,9 @@ from loguru import logger
 import cv2
 from time import sleep
 
-from src.core.battle_task import BattleTask
 from src.core.task_manager import TaskManager
 from src.core.tank_selector import TankSelector
-from src.core.ai_controller import AIController
-from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath, GetProgramDir
+from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath
 from src.navigation.config.loader import load_config
 from src.navigation.config.models import NavigationConfig
 from src.vision.map_name_detector import MapNameDetector
@@ -227,12 +225,8 @@ class MainWindow:
             logger.warning("任务已在运行")
             return
 
-        # 准备AI配置
-        ai_config = self._get_ai_config()
-        
         # 创建TaskManager
         self.task_manager_ = TaskManager(
-            ai_config=ai_config,
             run_hours=int(self.run_hours.get()),
             auto_stop=self.auto_stop.get(),
             auto_shutdown=self.auto_shutdown.get(),
@@ -435,8 +429,6 @@ class MainWindow:
             self.debug_state_machine_ = StateMachine()
             self.debug_map_detector_ = MapNameDetector()
             self.debug_tank_selector_ = TankSelector()
-            self.debug_ai_controller_ = AIController()
-            self.debug_ai_config_ = self._get_ai_config()
             logger.info("调试组件初始化完成")
         except Exception as e:
             logger.error(f"调试组件初始化失败: {e}")

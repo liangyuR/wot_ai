@@ -35,7 +35,7 @@ class StateMachine:
     
     def __init__(
         self,
-        confirmation_frames: int = 3,
+        confirmation_frames: int = 1,
     ):
         """
         初始化状态机

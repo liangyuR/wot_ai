@@ -18,7 +18,7 @@ import numpy as np
 from loguru import logger
 import cv2
 
-from .detection_engine import DetectionEngine
+from src.vision.detection_engine import DetectionEngine
 
 
 @dataclass
@@ -555,41 +555,134 @@ class MinimapDetector:
         """重置检测器状态"""
         self.angle_smoother_.Reset()
 
-if __name__ == "__main__":
-    import argparse
-    import sys
-    parser = argparse.ArgumentParser(
-        description="测试 MinimapDetector 检测功能",
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "image_path",
-        type=str,
-        help="图片文件路径（小地图截图）"
-    )
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default="best.pt",
-        help="检测模型路径 (默认: best.pt)"
-    )
-    args = parser.parse_args()
-
-    image_path = args.image_path
-    model_path = args.model_path
+def run_benchmark(
+    image_path: str,
+    model_path: str,
+    target_fps: float,
+    max_frames: Optional[int] = None,
+    show_visualization: bool = False,
+) -> None:
+    # 读取图片
     frame = cv2.imread(image_path)
     if frame is None:
         print(f"无法读取图片: {image_path}")
         sys.exit(1)
 
+    # 创建检测器
     detector = MinimapDetector(model_path=model_path)
     if not detector.LoadModel():
         print("模型加载失败")
         sys.exit(1)
-    result = detector.Detect(frame)
-    print("检测结果:", result)
 
-    vis_img = detector._visualize_results(frame, result)
-    cv2.imshow("MinimapDetector Vis", vis_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # 预热一次
+    _ = detector.Detect(frame)
+
+    interval = 1.0 / target_fps if target_fps > 0 else 0.0
+    print(f"开始性能测试: target_fps={target_fps}, interval={interval*1000:.2f} ms, max_frames={max_frames}")
+
+    times_ms = []
+    frame_count = 0
+    start_all = time.time()
+
+    try:
+        while True:
+            t0 = time.time()
+            result = detector.Detect(frame)
+            t1 = time.time()
+
+            infer_ms = (t1 - t0) * 1000.0
+            times_ms.append(infer_ms)
+            frame_count += 1
+
+            if show_visualization:
+                vis_img = detector._visualize_results(frame, result)
+                cv2.imshow("MinimapDetector Vis", vis_img)
+                # 非阻塞刷新一下窗口
+                cv2.waitKey(1)
+
+            # 维持目标 FPS（简单 sleep）
+            if interval > 0:
+                elapsed = t1 - t0
+                sleep_time = interval - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+            if max_frames is not None and frame_count >= max_frames:
+                break
+
+    except KeyboardInterrupt:
+        print("\n收到中断信号，结束测试……")
+
+    end_all = time.time()
+
+    if show_visualization:
+        cv2.destroyAllWindows()
+
+    if not times_ms:
+        print("没有成功运行任何帧")
+        return
+
+    total_time = end_all - start_all
+    avg_ms = sum(times_ms) / len(times_ms)
+    min_ms = min(times_ms)
+    max_ms = max(times_ms)
+    effective_fps = frame_count / total_time if total_time > 0 else 0.0
+
+    print("\n===== MinimapDetector 性能统计 =====")
+    print(f"总帧数: {frame_count}")
+    print(f"总耗时: {total_time*1000:.2f} ms")
+    print(f"平均推理耗时: {avg_ms:.2f} ms")
+    print(f"最小推理耗时: {min_ms:.2f} ms")
+    print(f"最大推理耗时: {max_ms:.2f} ms")
+    print(f"目标 FPS: {target_fps}")
+    print(f"实际 FPS: {effective_fps:.2f}")
+
+
+if __name__ == "__main__":
+    import argparse
+    import time
+    import sys
+    parser = argparse.ArgumentParser(
+        description="测试 MinimapDetector 检测性能",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "image_path",
+        type=str,
+        help="图片文件路径（小地图截图）",
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default="best.pt",
+        help="检测模型路径 (默认: best.pt)",
+    )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=10.0,
+        help="目标测试 FPS，决定循环节奏 (默认: 10)",
+    )
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=200,
+        help="最大测试帧数，None 表示无限循环直到 Ctrl+C (默认: 200)",
+    )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="是否实时显示可视化结果（会稍微影响性能）",
+    )
+
+    args = parser.parse_args()
+
+    max_frames = args.frames if args.frames > 0 else None
+
+    run_benchmark(
+        image_path=args.image_path,
+        model_path=args.model_path,
+        target_fps=args.fps,
+        max_frames=max_frames,
+        show_visualization=False,
+    )
