@@ -11,7 +11,6 @@ import heapq
 
 # 第三方库导入
 import numpy as np
-from ..common.exceptions import PathPlanningError
 from loguru import logger
 
 class AStarPlanner():
@@ -64,7 +63,6 @@ class AStarPlanner():
         
         Raises:
             ValueError: 输入参数无效
-            PathPlanningError: 路径规划失败
         """
         if grid is None or grid.size == 0:
             raise ValueError("grid不能为空")
@@ -80,12 +78,10 @@ class AStarPlanner():
                 path = self.SmoothPath(path, self.smooth_weight_)
             
             return path
-        except PathPlanningError:
-            raise
         except Exception as e:
             error_msg = f"路径规划异常: {e}"
             logger.error(error_msg)
-            raise PathPlanningError(error_msg) from e
+            raise ValueError(error_msg) from e
     
     def _FindNearestWalkable(self, grid: np.ndarray, pos: Tuple[int, int], max_radius: int = 10) -> Optional[Tuple[int, int]]:
         """
@@ -125,7 +121,6 @@ class AStarPlanner():
             goal[0] < 0 or goal[0] >= width or goal[1] < 0 or goal[1] >= height):
             error_msg = f"起点或终点超出地图范围: start={start}, goal={goal}, grid_size=({width}, {height})"
             logger.warning(error_msg)
-            raise PathPlanningError(error_msg)
         
         # 使用公共helper修正起点和终点
         original_start, original_goal = start, goal
@@ -133,7 +128,6 @@ class AStarPlanner():
         if adjusted is None:
             error_msg = f"起点或终点位于障碍物上且无法找到可通行区域: start={start}, goal={goal}"
             logger.error(error_msg)
-            raise PathPlanningError(error_msg)
         
         new_start, new_goal = adjusted
         if new_start != original_start:
@@ -203,7 +197,6 @@ class AStarPlanner():
         # 无法到达终点
         error_msg = f"无法找到从起点到终点的路径: start={start}, goal={goal}, 探索节点数={nodes_explored}"
         logger.warning(error_msg)
-        raise PathPlanningError(error_msg)
     
     def Heuristic(self, a: Tuple[int, int], b: Tuple[int, int]) -> float:
         """
