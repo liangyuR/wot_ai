@@ -9,6 +9,7 @@ from loguru import logger
 from src.vision.detection_engine import DetectionEngine
 from src.navigation.config.loader import load_config
 from src.utils.global_path import GetConfigPath
+import cv2
 
 
 @dataclass

@@ -97,10 +97,12 @@ class AttackModule:
                 logger.exception(f"AttackModule: mouse.move_relative 失败: {e}")
 
         # 6) 射击决策：只认“真实目标”存在的情况下才考虑开火
+        reticle_radius = reticle.radius if reticle is not None else None
         fire_decision: FireDecision = self.fire.update(
             dt=dt,
             has_target=has_real_target,
             aim_cmd=aim_cmd,
+            reticle_radius=reticle_radius
         )
 
         # 7) 执行开火
