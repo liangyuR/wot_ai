@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from loguru import logger
 
-from src.navigation.core.path_follower import PathFollower
-
-
 @dataclass
 class FollowResult:
     """Path follower output shared with MovementController."""
@@ -55,7 +52,6 @@ class PathFollowerWrapper:
             waypoint_switch_radius: Waypoint切换半径（px）
             recenter_forward_offset: recenter 模式沿切线前推距离（px）
         """
-        self._follower = PathFollower()
         self._dev_tol = deviation_tolerance
         self._goal_th = goal_arrival_threshold
         self._max_lateral_error = max_lateral_error
@@ -100,7 +96,7 @@ class PathFollowerWrapper:
 
         # 1. 最近路径点
         search_start = max(0, current_target_idx - 5)
-        idx, nearest_pt, deviation = self._follower.find_nearest_point(
+        idx, nearest_pt, deviation = self.find_nearest_point(
             current_pos, path_world, search_start
         )
 
@@ -290,3 +286,80 @@ class PathFollowerWrapper:
             nearest_pt[1] + tangent[1] * self._recenter_forward_offset,
         )
         return target_world, idx
+
+        
+    def find_nearest_point(
+        self,
+        current_pos: Tuple[float, float],
+        path_world: List[Tuple[float, float]],
+        start_idx: int = 0
+    ) -> Tuple[int, Tuple[float, float], float]:
+        """
+        找到路径上距离当前位置最近的点（路径跟随逻辑）
+        
+        Args:
+            current_pos: 当前位置 (x, y)（世界坐标）
+            path_world: 路径点列表 [(x, y), ...]（世界坐标）
+            start_idx: 搜索起始索引，避免回溯
+        
+        Returns:
+            (nearest_idx, nearest_point, distance): 最近点的索引、坐标和距离
+        """
+        if not path_world or len(path_world) == 0:
+            return (0, current_pos, float('inf'))
+        
+        min_dist = float('inf')
+        nearest_idx = start_idx
+        nearest_point = path_world[start_idx] if start_idx < len(path_world) else path_world[0]
+        
+        # 从start_idx开始搜索，避免回溯
+        for i in range(start_idx, len(path_world)):
+            point = path_world[i]
+            dist = math.sqrt(
+                (point[0] - current_pos[0]) ** 2 + 
+                (point[1] - current_pos[1]) ** 2
+            )
+            
+            if dist < min_dist:
+                min_dist = dist
+                nearest_idx = i
+                nearest_point = point
+        
+        # 也检查线段上的最近点（更精确）
+        for i in range(start_idx, len(path_world) - 1):
+            p1 = path_world[i]
+            p2 = path_world[i + 1]
+            
+            # 计算到线段的最近点
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            line_len_sq = dx * dx + dy * dy
+            
+            if line_len_sq < 1e-6:
+                continue
+            
+            # 计算投影参数t
+            t = ((current_pos[0] - p1[0]) * dx + (current_pos[1] - p1[1]) * dy) / line_len_sq
+            t = max(0.0, min(1.0, t))  # 限制在线段内
+            
+            # 投影点
+            proj_x = p1[0] + t * dx
+            proj_y = p1[1] + t * dy
+            proj_point = (proj_x, proj_y)
+            
+            # 计算距离
+            dist = math.sqrt(
+                (proj_point[0] - current_pos[0]) ** 2 + 
+                (proj_point[1] - current_pos[1]) ** 2
+            )
+            
+            if dist < min_dist:
+                min_dist = dist
+                # 如果投影点更接近p2，使用下一个索引
+                if t > 0.5:
+                    nearest_idx = min(i + 1, len(path_world) - 1)
+                else:
+                    nearest_idx = i
+                nearest_point = proj_point
+        
+        return (nearest_idx, nearest_point, min_dist)
