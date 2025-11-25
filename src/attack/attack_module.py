@@ -10,7 +10,7 @@ from loguru import logger
 from src.attack.main_view_detector import (
     MainViewDetector,
     ScreenTarget,
-    AimReticle,   
+    # AimReticle,   
     HpBarDet,     # 预瞄用
 )
 from src.attack.target_selector import AttackTargetSelector
@@ -43,7 +43,6 @@ class AttackModule:
         self.aim = AimController()
         self.fire = FireController()
         self.mouse = MouseExecutor()
-
         self.stats = AttackStats()
 
     # ------------------------------------------------------------------ #
@@ -210,13 +209,8 @@ class AttackModule:
 if __name__ == "__main__":
     import threading
     import time
-
     from src.navigation.service.capture_service import CaptureService
-    from src.attack.main_view_detector import MainViewDetector
-    from src.attack.target_selector import AttackTargetSelector
-    from src.attack.aim_controller import AimController
-    from src.attack.fire_controller import FireController
-
+    
     # 1. 初始化截图服务，绑定到 WOT 窗口
     capture_service = CaptureService()
     ok = capture_service.grab_window_by_name("WorldOfTanks")

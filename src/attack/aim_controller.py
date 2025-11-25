@@ -7,6 +7,7 @@ from loguru import logger
 
 # 按你的工程结构修改导入路径
 from src.attack.main_view_detector import ScreenTarget
+from src.navigation.service.capture_service import CaptureService
 
 
 @dataclass
@@ -33,7 +34,7 @@ class AimController:
 
     def __init__(
         self,
-        screen_center: Tuple[int, int],
+        center_pos: Optional[Tuple[int, int]] = None,
         kp: float = 0.18,
         max_step_px: int = 30,
         dead_zone_px: int = 5,
@@ -41,13 +42,22 @@ class AimController:
         """初始化 AimController。
 
         Args:
-            screen_center: 屏幕中心像素坐标 (cx, cy)
+            center_pos: 屏幕中心像素坐标 (cx, cy)
             kp: 比例系数，将目标偏差转换为鼠标移动量
             max_step_px: 单帧最大鼠标移动像素（防止甩枪）
             dead_zone_px: 死区半径，偏差小于该值时认为已经对准
         """
 
-        self.screen_center = screen_center
+        if center_pos is None:
+            capture_service = CaptureService()
+            frame = capture_service.grab_window_by_name("WorldOfTanks")
+            if frame is None:
+                raise ValueError("无法抓取窗口，可能没找到窗口或者被保护了")
+            h, w = frame.shape[:2]
+            self.screen_center = (w // 2, h // 2)
+        else:
+            self.screen_center = center_pos
+            
         self.kp = float(kp)
         self.max_step_px = max(1, int(max_step_px))
         self.dead_zone_px = max(1, int(dead_zone_px))
@@ -115,11 +125,10 @@ class AimController:
 # ---------------------------------------------------------------------- #
 # Demo: 用假数据测试 AimController 输出
 # ---------------------------------------------------------------------- #
-
 if __name__ == "__main__":
     # 假设 1280x720，屏幕中心：
     screen_center = (1280 // 2, 720 // 2)
-    aim = AimController(screen_center=screen_center, kp=0.18, max_step_px=30, dead_zone_px=5)
+    aim = AimController(center_pos=screen_center, kp=0.18, max_step_px=30, dead_zone_px=5)
 
     # 造几个假目标中心测试
     fake_targets = [
