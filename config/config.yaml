@@ -5,6 +5,8 @@
 # YOLO模型配置
 model:
   path: "resource/model/best_m_detect.pt"  # YOLO模型文件路径（必需）
+  hpbar_path: "resource/model/hpbar_detect.pt"
+  tank_path: "resource/model/tank_detect.pt"
   conf_threshold: 0.65  # 置信度阈值 (0.0-1.0)
   iou_threshold: 0.55  # IoU阈值 (0.0-1.0)
 

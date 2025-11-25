@@ -14,6 +14,8 @@ from pathlib import Path
 class ModelConfig(BaseModel):
     """YOLO模型配置"""
     path: str = Field(..., description="YOLO模型文件路径")
+    hpbar_path: str = Field(..., description="血条检测模型文件路径")
+    tank_path: str = Field(..., description="坦克检测模型文件路径")
     conf_threshold: float = Field(..., description="置信度阈值")
     iou_threshold: float = Field(..., description="IoU阈值")
     
