@@ -35,7 +35,7 @@ class StateMachine:
     
     def __init__(
         self,
-        confirmation_frames: int = 1,
+        confirmation_frames: int = 2,
     ):
         """
         初始化状态机
@@ -49,7 +49,7 @@ class StateMachine:
         
         self.confirmation_frames_ = confirmation_frames
         self.current_state_ = GameState.UNKNOWN
-        self.state_history_ = []  # 状态历史记录
+        self.state_history_ = []
         self.last_update_time_ = 0.0
         self.template_matcher_ = TemplateMatcher()
         self.screen_action_ = ScreenAction()
@@ -57,10 +57,10 @@ class StateMachine:
         # 状态模板映射
         self.state_templates_ = {
             GameState.IN_GARAGE: "in_garage.png",
-            GameState.IN_END: "pingjia.png",
+            GameState.IN_END: "pingjia.png", # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
             GameState.IN_BATTLE: "in_battle.png",
-            # 每一局结束后，都会出现评价模板（无论胜利/失败/平局），那么当评价模板出现时，则可以判定游戏结束
-            GameState.IN_RESULT_PAGE: "space_jump.png", # 在胜利/失败结算页面（偶尔可能不会直接回到车库）
+            GameState.IN_RESULT_PAGE: "result_page.png", # 在胜利/失败后的结算页面
+            # TODO(@ly) 勋章获取页面没有hack
         }
         self._initialized = True
     
