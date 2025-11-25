@@ -35,15 +35,23 @@ class AimReticle:
     score: float
 
 
+@dataclass
+class HpBarDet:
+    """敌方血条检测结果（用于预瞄）。"""
+
+    bbox: Tuple[int, int, int, int]
+    score: float
+
+
 class MainViewDetector:
-    """使用 YOLO 模型检测主视野中的目标 + 瞄准圈。
+    """使用 YOLO 模型检测主视野中的目标 + 瞄准圈 + 敌方血条。
 
     职责：
     - 调用 YOLO 模型推理
-    - 解析输出为 ScreenTarget 列表
+    - 解析输出为 ScreenTarget 列表（敌方坦克）
     - 解析瞄准指示圈 AimReticle
-    - 做基础过滤（置信度阈值、屏幕边缘过滤等）
-    - 不负责“选哪个目标”，那是上层 AttackTargetSelector 的工作
+    - 提供敌方血条 HpBarDet 列表（供预瞄使用）
+    - 不负责“选哪个目标”，那是上层 AttackTargetSelector / 预瞄逻辑的工作
     """
 
     # 约定 hpbar/aim_reticle 模型中的类别 id
@@ -74,33 +82,41 @@ class MainViewDetector:
     # ------------------------------------------------------------------ #
     # 对外主接口
     # ------------------------------------------------------------------ #
-    def detect(self, frame_bgr: np.ndarray) -> tuple[List[ScreenTarget], Optional[AimReticle]]:
-        """在主视野 frame 中检测所有“可攻击目标”和瞄准圈。
+    def detect(
+        self,
+        frame_bgr: np.ndarray,
+    ) -> tuple[List[ScreenTarget], Optional[AimReticle], List[HpBarDet]]:
+        """在主视野 frame 中检测所有“可攻击目标”、瞄准圈和敌方血条。
 
         返回：
-            targets: ScreenTarget 列表（已做血条-车身关联，只保留敌方）
-            reticle: AimReticle 或 None（瞄准圈位置和置信度）
+            targets:   ScreenTarget 列表（已做血条-车身关联，只保留敌方坦克）
+            reticle:   AimReticle 或 None（瞄准圈位置和置信度）
+            hp_bars:   敌方血条列表（即使没有车身也会返回，可用于预瞄）
         """
         targets: List[ScreenTarget] = []
         reticle: Optional[AimReticle] = None
+        hp_bars: List[HpBarDet] = []
 
         if frame_bgr is None or frame_bgr.size == 0:
             logger.warning("MainViewDetector.detect: frame 为空")
-            return targets, reticle
+            return targets, reticle, hp_bars
 
         # 1) 运行两个 YOLO 模型
         tank_dets = self._run_tank_detector(frame_bgr)
         ui_dets = self._run_hpbar_and_reticle_detector(frame_bgr)
 
-        # 2) 做血条 -> 车身关联（只有同时有 tank 和 敌方血条 时才有目标）
-        if tank_dets and ui_dets:
+        # 2) 敌方血条列表（无论是否能关联到车身，都返回给上层做预瞄）
+        hp_bars = self._extract_enemy_hpbars(ui_dets)
+
+        # 3) 做血条 -> 车身关联（只有同时有 tank 和 敌方血条 时才有目标）
+        if tank_dets and hp_bars:
             targets = self._associate_hpbar_and_tank(tank_dets, ui_dets)
 
-        # 3) 解析瞄准圈（即使当前没有可攻击目标，也可能有瞄准圈）
+        # 4) 解析瞄准圈（即使当前没有可攻击目标，也可能有瞄准圈）
         if ui_dets:
             reticle = self._parse_reticle(ui_dets)
 
-        return targets, reticle
+        return targets, reticle, hp_bars
 
     # ------------------------------------------------------------------ #
     # YOLO 推理封装
@@ -166,6 +182,19 @@ class MainViewDetector:
         return dets
 
     # ------------------------------------------------------------------ #
+    # 敌方血条提取（供预瞄使用）
+    # ------------------------------------------------------------------ #
+    def _extract_enemy_hpbars(self, ui_dets: Sequence[dict]) -> List[HpBarDet]:
+        """从 UI 检测结果中提取敌方血条列表。"""
+        bars: List[HpBarDet] = []
+        for d in ui_dets:
+            if d.get("cls_id", -1) != self.CLS_ENEMY_HPBAR:
+                continue
+            x1, y1, x2, y2 = d["bbox"]
+            bars.append(HpBarDet(bbox=(x1, y1, x2, y2), score=float(d["score"])))
+        return bars
+
+    # ------------------------------------------------------------------ #
     # 瞄准圈解析
     # ------------------------------------------------------------------ #
     def _parse_reticle(self, ui_dets: List[dict]) -> Optional[AimReticle]:
@@ -186,7 +215,7 @@ class MainViewDetector:
         cy = (y1 + y2) // 2
         radius = max(x2 - x1, y2 - y1) // 2
 
-        return AimReticle(center=(cx, cy), radius=radius, score=best["score"])
+        return AimReticle(center=(cx, cy), radius=radius, score=float(best["score"]))
 
     # ------------------------------------------------------------------ #
     # 血条 - 车身关联
@@ -248,8 +277,8 @@ class MainViewDetector:
             tcx = (tx1 + tx2) // 2
             tcy = (ty1 + ty2) // 2
 
-            score = min(best_tank["score"], hp["score"])
-            cls_id = best_tank["cls_id"]  # 这里认为车身类别才是主类别
+            score = min(float(best_tank["score"]), float(hp["score"]))
+            cls_id = int(best_tank["cls_id"])  # 这里认为车身类别才是主类别
 
             # 粗略估算一下“距离”：比如用 bbox 高度的倒数
             est_distance = self._estimate_distance_from_bbox(best_tank["bbox"])
@@ -347,20 +376,43 @@ def _draw_reticle_on_image(img: np.ndarray, reticle: Optional[AimReticle]) -> np
     return vis
 
 
+def _draw_hpbars_on_image(img: np.ndarray, hp_bars: List[HpBarDet]) -> np.ndarray:
+    """在图像上绘制敌方血条 bbox（用于调试预瞄）。"""
+    if img is None or not hp_bars:
+        return img
+
+    import cv2
+
+    vis = img.copy()
+    for hp in hp_bars:
+        x1, y1, x2, y2 = hp.bbox
+        cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 0, 255), 1)
+        cv2.putText(
+            vis,
+            f"hp {hp.score:.2f}",
+            (x1, max(0, y1 - 3)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            (0, 0, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    return vis
+
+
 if __name__ == "__main__":
     import cv2
     import glob
     import os
     import argparse
 
-    parser = argparse.ArgumentParser(description="MainViewDetector Demo")
-    parser.add_argument("--image_dir", type=str, default="src/attack/vision/test_images", help="测试图片目录")
+    parser = argparse.ArgumentParser(description="MainViewDetector demo")
+    parser.add_argument("--img_dir", type=str, default="src/attack/vision/test_images", help="图片目录")
     args = parser.parse_args()
 
     detector = MainViewDetector()
 
-    # TODO: 按你的项目实际路径修改此目录
-    img_dir = args.image_dir
+    img_dir = args.img_dir
     patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"]
 
     img_paths: list[str] = []
@@ -379,7 +431,7 @@ if __name__ == "__main__":
             logger.error(f"无法读取图片: {img_path}")
             continue
 
-        targets, reticle = detector.detect(img)
+        targets, reticle, hp_bars = detector.detect(img)
 
         # 打印检测到的目标信息
         if not targets:
@@ -387,18 +439,31 @@ if __name__ == "__main__":
         else:
             for t in targets:
                 logger.info(
-                    f"target bbox={t.bbox}, center={t.center}, score={t.score:.3f}, est_dist={t.est_distance}",
+                    "target bbox=%s, center=%s, score=%.3f, est_dist=%s",
+                    t.bbox,
+                    t.center,
+                    t.score,
+                    t.est_distance,
                 )
 
         if reticle is None:
             logger.info("未检测到瞄准圈")
         else:
             logger.info(
-                f"reticle center={reticle.center}, radius={reticle.radius}, score={reticle.score:.3f}",
+                "reticle center=%s, radius=%d, score=%.3f",
+                reticle.center,
+                reticle.radius,
+                reticle.score,
             )
+
+        if not hp_bars:
+            logger.info("未检测到敌方血条")
+        else:
+            logger.info("检测到 %d 个敌方血条", len(hp_bars))
 
         vis = _draw_targets_on_image(img, targets)
         vis = _draw_reticle_on_image(vis, reticle)
+        vis = _draw_hpbars_on_image(vis, hp_bars)
 
         win_name = os.path.basename(img_path)
         cv2.imshow(win_name, vis)
