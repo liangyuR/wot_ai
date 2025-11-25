@@ -66,7 +66,8 @@ class AttackModule:
         screen_center = (w // 2, h // 2)
 
         # 1) 视觉检测：主视野敌人列表
-        targets = self.detector.detect(frame_bgr)
+        targets, reticle = self.detector.detect(frame_bgr)
+        # TODO(@ly) 瞄准圈暂时没有用到
 
         # 2) 目标选择
         best: Optional[ScreenTarget] = self.selector.update(targets, screen_center)
