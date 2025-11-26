@@ -317,7 +317,7 @@ def _adjust_start_goal_for_cost_astar(
     start: Coord,
     goal: Coord,
     cost_map: np.ndarray,
-    max_radius: int = 12,
+    max_radius: int = 36,
 ) -> Optional[Tuple[Coord, Coord]]:
     """
     为cost_map A*修正起点和终点

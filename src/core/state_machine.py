@@ -35,7 +35,7 @@ class StateMachine:
     
     def __init__(
         self,
-        confirmation_frames: int = 2,
+        confirmation_frames: int = 1,
     ):
         """
         初始化状态机
@@ -159,7 +159,7 @@ class StateMachine:
         
         for state, templates in self.state_templates_.items():
             for template_name in (templates if isinstance(templates, list) else [templates]):
-                if self.template_matcher_.match_template(template_name, confidence=0.85):
+                if self.template_matcher_.match_template(template_name, confidence=0.80):
                     logger.debug(f"检测到状态: {state.value} (模板: {template_name})")
                     return state
 

@@ -22,7 +22,7 @@ mask:
 
 # 栅格配置
 grid:
-  size: [256, 256]  # 栅格尺寸 [width, height]
+  size: [512, 512]  # 栅格尺寸 [width, height]
 
 # 路径规划配置
 path_planning:
@@ -43,13 +43,13 @@ control:
   goal_arrival_threshold: 15.0  # 终点到达阈值（像素）
   path_deviation_tolerance: 5  # 路径偏离容忍度（像素）
   stuck_threshold: 10.0  # 卡顿检测阈值（像素）
-  stuck_frames_threshold: 120  # 连续卡顿帧数阈值 必须大于 0
+  stuck_frames_threshold: 300  # 连续卡顿帧数阈值 必须大于 0
   
   # MovementController 参数
-  angle_dead_zone_deg: 3.0  # 角度死区（度）
-  angle_slow_turn_deg: 12.0  # 角度慢转阈值（度）
+  angle_dead_zone_deg: 5.0  # 角度死区（度）
+  angle_slow_turn_deg: 20.0  # 角度慢转阈值（度）
   distance_stop_threshold: 6.0  # 距离停止阈值（像素）
-  slow_down_distance: 40.0  # 开始减速距离（像素）
+  slow_down_distance: 30.0  # 开始减速距离（像素）
   max_forward_speed: 1.0  # 最大前进速度
   min_forward_factor: 0.3  # 最小前进因子
   large_angle_threshold_deg: 40.0  # 大角度阈值（度）
@@ -58,7 +58,7 @@ control:
   # MoveExecutor 参数
   smoothing_alpha: 0.4  # 平滑滤波系数
   turn_deadzone: 0.06  # 转向死区
-  min_hold_time_ms: 25.0  # 最小按键保持时间（毫秒）
+  min_hold_time_ms: 0.0  # 最小按键保持时间（毫秒）
   forward_hysteresis_on: 0.35  # 前进滞回开启阈值
   forward_hysteresis_off: 0.08  # 前进滞回关闭阈值
   
@@ -69,8 +69,8 @@ control:
 
 # 角度检测配置（可选）
 angle_detection:
-  smoothing_alpha: 1.0  # 角度平滑系数 (0.0-1.0)
-  max_step_deg: 90.0     # 单帧最大角度变化（度）
+  smoothing_alpha: 0.6  # 角度平滑系数 (0.0-1.0)
+  max_step_deg: 45.0     # 单帧最大角度变化（度）
   min_area_ratio: 0.2    # 轮廓面积最小比例
   max_area_ratio: 0.9    # 轮廓面积最大比例
   min_aspect_ratio: 0.3  # 外接矩形最小宽高比
