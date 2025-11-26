@@ -54,10 +54,18 @@ class PathFollowerWrapper:
         """
         self._dev_tol = deviation_tolerance
         self._goal_th = goal_arrival_threshold
+        
         self._max_lateral_error = max_lateral_error
         self._inner_corridor = (
             inner_corridor if inner_corridor is not None else deviation_tolerance * 3.0
         )
+        if self._inner_corridor >= self._max_lateral_error:
+            logger.warning(
+                "inner_corridor(%.1f) >= max_lateral_error(%.1f)，corridor_edge 区间将消失，自动收缩 inner_corridor",
+                self._inner_corridor, self._max_lateral_error,
+            )
+            self._inner_corridor = self._max_lateral_error * 0.7
+
         self._edge_lookahead_scale = max(0.1, min(edge_lookahead_scale, 1.0))
         self._lookahead_dist = lookahead_distance
         self._waypoint_switch_radius = waypoint_switch_radius
@@ -309,8 +317,10 @@ class PathFollowerWrapper:
             return (0, current_pos, float('inf'))
         
         min_dist = float('inf')
+        n = len(path_world)
+        start_idx = max(0, min(start_idx, n - 1))
         nearest_idx = start_idx
-        nearest_point = path_world[start_idx] if start_idx < len(path_world) else path_world[0]
+        nearest_point = path_world[start_idx]
         
         # 从start_idx开始搜索，避免回溯
         for i in range(start_idx, len(path_world)):

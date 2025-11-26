@@ -24,7 +24,7 @@ class MovementController:
         min_forward_factor: float = 0.3,
         large_angle_threshold_deg: float = 60.0,
         large_angle_speed_reduction: float = 0.5,
-        corridor_ref_width: float = 40.0,
+        corridor_ref_width: float = 40.0, # max_lateral_error
         k_lat_normal: float = 0.3,
         k_lat_edge: float = 0.5,
         k_lat_recenter: float = 0.8,

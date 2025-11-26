@@ -43,8 +43,6 @@ path_planning:
 
 # 控制配置
 control:
-  move_speed: 1.0  # 移动速度
-  rotation_smooth: 0.3  # 旋转平滑度
   path_deviation_tolerance: 60.0  # 路径偏离容忍度（像素）
   goal_arrival_threshold: 30.0  # 终点到达阈值（像素）
   stuck_threshold: 5.0  # 卡顿检测阈值（像素）

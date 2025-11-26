@@ -274,8 +274,7 @@ class NavigationRuntime:
         logger.info("控制线程启动")
 
         # 控制线程 FPS
-        # ctrl_fps = getattr(self.cfg.performance, "control_fps", 20)
-        ctrl_fps = 20
+        ctrl_fps = 40
         ctrl_fps = max(1, int(ctrl_fps))
         interval = 1.0 / ctrl_fps
 

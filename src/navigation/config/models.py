@@ -187,8 +187,6 @@ class PathPlanningConfig(BaseModel):
 
 class ControlConfig(BaseModel):
     """控制配置"""
-    move_speed: float = Field(..., description="移动速度")
-    rotation_smooth: float = Field(..., description="旋转平滑度")
     path_deviation_tolerance: float = Field(..., description="路径偏离容忍度（像素）")
     goal_arrival_threshold: float = Field(..., description="终点到达阈值（像素）")
     stuck_threshold: float = Field(..., description="卡顿检测阈值（像素）")
@@ -235,7 +233,7 @@ class ControlConfig(BaseModel):
     lookahead_distance: float = Field(60.0, description="前瞻距离（像素）")
     waypoint_switch_radius: float = Field(20.0, description="Waypoint切换半径（像素）")
     
-    @field_validator('move_speed', 'rotation_smooth', 'corridor_ref_width', 'straight_lat_enter', 'straight_lat_exit')
+    @field_validator('corridor_ref_width', 'straight_lat_enter', 'straight_lat_exit')
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
         """验证正浮点数"""
