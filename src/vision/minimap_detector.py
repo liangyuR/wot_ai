@@ -194,7 +194,20 @@ class MinimapDetector:
             iou_threshold=self.iou_threshold_,
             max_det=10  # 优化：只需要检测2个目标（self_arrow和enemy_flag）
         )
+        logger.info(f"yolo_results: {yolo_results}")
         yolo_elapsed = time.time() - yolo_start
+
+        if hasattr(yolo_results, "keypoints") and yolo_results.keypoints is not None:
+            keypoints_data = yolo_results.keypoints
+            # 如果keypoints_data是numpy，需要转为torch，否则直接使用
+            if not isinstance(keypoints_data, torch.Tensor):
+                keypoints_data = torch.from_numpy(keypoints_data)
+            # 假设原始帧尺寸可用
+            orig_shape = frame.shape[:2] if frame is not None else (480, 640)
+            keypoints_obj = Keypoints(keypoints_data, orig_shape)
+            logger.debug(f"Keypoints xy shape: {keypoints_obj.xy.shape}")
+            logger.debug(f"Keypoints confidence: {keypoints_obj.conf}")
+            keypoints_cpu = keypoints_obj.cpu()  # 可将关键点移至CPU
         
         if not yolo_results:
             logger.error("MinimapDetector: 检测结果为空")
@@ -636,5 +649,5 @@ if __name__ == "__main__":
         model_path=args.model_path,
         target_fps=args.fps,
         max_frames=max_frames,
-        show_visualization=False,
+        show_visualization=True,
     )

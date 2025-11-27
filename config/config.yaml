@@ -4,7 +4,7 @@
 
 # YOLO模型配置
 model:
-  path: "resource/model/best_m_detect.pt"  # YOLO模型文件路径（必需）
+  path: "resource/model/map_detect_pose.pt"  # YOLO模型文件路径（必需）
   conf_threshold: 0.65  # 置信度阈值 (0.0-1.0)
   iou_threshold: 0.55  # IoU阈值 (0.0-1.0)
 

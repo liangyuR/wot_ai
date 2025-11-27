@@ -38,8 +38,8 @@
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": [
-                "C:/Users/11601/project/wot_ai/utest/Snipaste_2025-11-24_15-32-16.png",
-                "--model_path", "C:/Users/11601/project/wot_ai/resource/model/best_m_detect.pt",
+                "C:\\Users\\11601\\OneDrive\\Desktop\\Snipaste_2025-11-27_23-29-08.png",
+                "--model_path", "D:/projects/wot_ai/resource/model/map_detect_pose.pt",
                 "--fps", "30.0",
                 "--frames", "200",
             ]
