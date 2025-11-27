@@ -55,7 +55,7 @@ class AngleSmoother:
             平滑后的角度（度）或 None
         """
         if raw_angle is None:
-            return self.angle_ if self.valid_ else None
+            return None
         
         if not self.valid_:
             self.angle_ = raw_angle
@@ -69,8 +69,20 @@ class AngleSmoother:
         if abs(diff) > self.max_step_deg_:
             diff = self.max_step_deg_ if diff > 0 else -self.max_step_deg_
         
-        # 平滑：使用 alpha 系数进行一阶低通滤波
-        self.angle_ = (self.angle_ + self.alpha_ * diff) % 360.0
+        # === 自适应 alpha：抖动小就抑制，大幅转向就加快响应 ===
+        abs_diff = abs(diff)
+        # 你可以把这些阈值配到 config 里，我先写死一版
+        if abs_diff < 2.0:
+            # 极小变化，当成噪声，减弱更新
+            effective_alpha = self.alpha_ * 0.4
+        elif abs_diff < 10.0:
+            # 正常缓慢转向，用原始 alpha
+            effective_alpha = self.alpha_
+        else:
+            # 大幅转向，放大 alpha，加快跟踪
+            effective_alpha = min(1.0, self.alpha_ * 2.0)
+
+        self.angle_ = (self.angle_ + effective_alpha * diff) % 360.0
         
         return self.angle_
     
@@ -248,25 +260,6 @@ class MinimapDetector:
                     "confidence": conf,
                     "bbox": (x1, y1, x2, y2),
                 }
-                
-                # 如果有 mask，也添加
-                if result.masks is not None and hasattr(result.masks, "data") and i < result.masks.data.shape[0]:
-                    try:
-                        mask_tensor = result.masks.data[i]
-                        mask_np = mask_tensor.cpu().numpy().astype(np.float32)
-                        # 调整到原始尺寸
-                        orig_h, orig_w = result.orig_shape
-                        if mask_np.shape != (orig_h, orig_w):
-                            mask_np = cv2.resize(
-                                mask_np,
-                                (orig_w, orig_h),
-                                interpolation=cv2.INTER_NEAREST
-                            )
-                        mask_np = (mask_np > 0.5).astype(np.uint8)
-                        det_dict["mask"] = mask_np
-                    except Exception as e:
-                        logger.warning(f"提取 mask 失败（索引 {i}）: {e}")
-                
                 detections.append(det_dict)
         
         return detections
@@ -327,48 +320,7 @@ class MinimapDetector:
             cv2.putText(vis_img, "Enemy", (ex+12, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
         return vis_img
-        
-    # -----------------------------------------------------------
-    def _extract_angle_geometric(
-        self,
-        detections: List[Dict],
-        frame_bgr: np.ndarray,
-    ) -> Optional[float]:
-        """使用几何方法提取箭头角度。
 
-        Args:
-            detections: YOLO检测结果字典列表
-            frame_bgr: 完整帧的BGR图像
-
-        Returns:
-            角度（度），失败返回None
-        """
-        if self.orientation_estimator_ is None:
-            return None
-
-        class_id = self._get_class_id_by_name("self_arrow")
-        if class_id is None:
-            return None
-
-        # 找到 self_arrow 的检测结果（取置信度最高的）
-        target_det = None
-        best_conf = -1.0
-        for det in detections:
-            if int(det.get("cls", -1)) == int(class_id):
-                conf = det.get("confidence", 0.0)
-                if conf > best_conf:
-                    best_conf = conf
-                    target_det = det
-
-        if target_det is None:
-            return None
-
-        bbox = target_det.get("bbox")
-        if bbox is None or len(bbox) != 4:
-            return None
-
-        # 调用几何朝向估计器
-        return self.orientation_estimator_.estimate_from_bbox(frame_bgr, bbox)
 
     def _extract_center(self, detections: List[Dict], class_name: str) -> Optional[Tuple[float, float]]:
         """从检测列表中筛选某个类别，并取最高置信度的中心点
@@ -463,7 +415,7 @@ class MinimapDetector:
         # if area_ratio < self.min_area_ratio_ or area_ratio > self.max_area_ratio_:
         #     return None
         
-        # # 检查外接矩形宽高比
+        # 检查外接矩形宽高比
         # x, y, w, h = cv2.boundingRect(largest_contour)
         # if h <= 0:
         #     return None

@@ -43,7 +43,7 @@ control:                       # 运动控制及状态检测参数
   # === 状态与基本判定 ===
   goal_arrival_threshold: 15.0                # 判定到达目标区域的像素距离阈值，15px适合路宽12~15px的场景
   path_deviation_tolerance: 3                 # 路径偏离容忍度(px)，决定内走廊宽度范围
-  stuck_threshold: 12.0                       # 坐标移动小于该值视作卡顿(单帧/多帧)
+  stuck_threshold: 5.0                        # 坐标移动小于该值视作卡顿(单帧/多帧)
   stuck_frames_threshold: 180                 # 连续多少帧内满足卡顿条件才判定为真正“卡死”(20Hz下约9秒)
   debug_log_interval: 30                      # 控制日志输出间隔（帧）
 
@@ -62,16 +62,16 @@ control:                       # 运动控制及状态检测参数
   recenter_speed_reduction: 0.6               # 纠偏模式速度缩放
 
   # 直行模式判定（区分角度/横向阈值）
-  straight_angle_enter_deg: 3                 # 直行模式进入角度阈值（度）
-  straight_angle_exit_deg: 5                  # 直行模式退出角度阈值（度）
-  straight_lat_enter: 3                       # 直行模式进入横向阈值（像素）
-  straight_lat_exit: 7                        # 直行模式退出横向阈值（像素）
+  straight_angle_enter_deg: 2                 # 直行模式进入角度阈值（度）
+  straight_angle_exit_deg: 4                  # 直行模式退出角度阈值（度）
+  straight_lat_enter: 2                       # 直行模式进入横向阈值（像素）
+  straight_lat_exit: 5                        # 直行模式退出横向阈值（像素）
 
   # === MoveExecutor ===
   # 指令平滑/滞回（主）
-  smoothing_alpha: 0.4                        # 平滑滤波系数，与主 smoothing_alpha 对齐即可，先进先用
+  smoothing_alpha: 0.5                        # 平滑滤波系数，与主 smoothing_alpha 对齐即可，先进先用
   turn_deadzone: 0.06                         # 转向死区，大于此值才输出转向
-  min_hold_time_ms: 12.0                     # 最小按键保持时间（毫秒），小于该值按一次也有效
+  min_hold_time_ms: 6.0                     # 最小按键保持时间（毫秒），小于该值按一次也有效
   forward_hysteresis_on: 0.35                 # 前进开启滞回阈值，建议与主值保持一致
   forward_hysteresis_off: 0.08                # 前进关闭滞回阈值，抑制抖动
 
@@ -82,8 +82,8 @@ control:                       # 运动控制及状态检测参数
 
 
 angle_detection:               # 小地图角度检测限制
-  smoothing_alpha: 0.7                          # 角度检测平滑系数(0=全历史, 1=全新值)
-  max_step_deg: 60.0                            # 单帧允许的最大角度跳变限制(°)
+  smoothing_alpha: 0.9                          # 角度检测平滑系数(0=全历史, 1=全新值)
+  max_step_deg: 50.0                            # 单帧允许的最大角度跳变限制(°)
   min_area_ratio: 0.2                           # 检测区域需占小地图面积的最小比例
   max_area_ratio: 0.9                           # 检测区域允许的最大面积比例
   min_aspect_ratio: 0.3                         # 箭头最小宽高比（排除细长异常）
@@ -97,7 +97,7 @@ vehicle:
 ui:
   overlay_fps: 30  # 覆盖层FPS
   overlay_alpha: 180  # 覆盖层透明度 (0-255)
-  enable: false  # 是否启用调试视图
+  enable: true  # 是否启用调试视图
 
 # 屏幕捕获配置
 monitor_index: 1  # 屏幕捕获监视器索引
