@@ -13,11 +13,12 @@ from pathlib import Path
 
 class ModelConfig(BaseModel):
     """YOLO模型配置"""
-    path: str = Field(..., description="YOLO模型文件路径")
+    base_path: str = Field(..., description="基地模型文件路径")
+    arrow_path: str = Field(..., description="箭头模型文件路径")
     conf_threshold: float = Field(..., description="置信度阈值")
     iou_threshold: float = Field(..., description="IoU阈值")
     
-    @field_validator('path')
+    @field_validator('base_path', 'arrow_path')
     @classmethod
     def validate_path(cls, v: str) -> str:
         """验证模型路径是否存在"""

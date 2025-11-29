@@ -62,7 +62,8 @@ class NavigationRuntime:
         angle_cfg = self.cfg.angle_detection
         if angle_cfg is not None:
             self.minimap_detector = MinimapDetector(
-                model_path_base=self.cfg.model.path,
+                model_path_base=self.cfg.model.base_path,
+                model_path_arrow=self.cfg.model.arrow_path,
                 conf_threshold=self.cfg.model.conf_threshold,
                 iou_threshold=self.cfg.model.iou_threshold,
                 smoothing_alpha=angle_cfg.smoothing_alpha,
@@ -75,7 +76,8 @@ class NavigationRuntime:
         else:
             # 向后兼容：如果没有配置，使用默认值
             self.minimap_detector = MinimapDetector(
-                model_path_base=self.cfg.model.path,
+                model_path_base=self.cfg.model.base_path,
+                model_path_arrow=self.cfg.model.arrow_path,
                 conf_threshold=self.cfg.model.conf_threshold,
                 iou_threshold=self.cfg.model.iou_threshold,
             )
@@ -144,6 +146,7 @@ class NavigationRuntime:
             return False
 
         # 先检测一次小地图位置，并写入 minimap_region
+        # first_frame = self.capture.grab_window_by_name("WorldOfTanks.exe")
         first_frame = self.capture.grab()
         if first_frame is None:
             logger.error("首次抓取屏幕失败，无法检测小地图")
@@ -304,7 +307,7 @@ class NavigationRuntime:
             t0 = time.perf_counter()
 
             # 1) 读取最新检测结果
-            det = self.data_hub.get_latest_detection(max_age=0.5)
+            det = self.data_hub.get_latest_detection(max_age=1.0)
             if det is None or getattr(det, "self_pos", None) is None:
                 self.move.stop()
                 time.sleep(interval)

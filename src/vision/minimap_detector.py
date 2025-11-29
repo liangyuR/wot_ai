@@ -181,33 +181,22 @@ class MinimapDetector:
         """
         return self.class_name_to_id_.get(class_name)
 
-    # -----------------------------------------------------------
+
+       # -----------------------------------------------------------
     def Detect(self, frame: np.ndarray) -> MinimapDetectionResult:
-        """
-        检测小地图中的关键元素
-
-        Args:
-            frame: 小地图 BGR 图像
-            debug: 是否显示调试可视化
-
-        Returns:
-            MinimapDetectionResult
-        """
         if frame is None or frame.size == 0:
             logger.error("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
-        # 检测基地位置（enemy_flag）
-        # 基地位置不会移动，检测到后可以缓存，后续帧跳过检测以提高性能
+        # 基地位置（只需检测一次后缓存）
         if self.base_position is not None:
-            # 已缓存基地位置，跳过检测
             raw_detections = []
         else:
             base_result = self.base_engine_.Detect(
-                frame, 
-                confidence_threshold=self.conf_threshold_, 
+                frame,
+                confidence_threshold=self.conf_threshold_,
                 iou_threshold=self.iou_threshold_,
-                max_det=10  # base_engine 主要用于检测 enemy_flag
+                max_det=10
             )
             logger.debug(f"base_engine 检测结果: {base_result}")
 
@@ -219,110 +208,75 @@ class MinimapDetector:
                 self._update_class_mapping(base_result)
                 self._class_mapping_initialized = True
 
-            # 解析 Results 对象为字典列表
             raw_detections = self._parse_results(base_result)
-            
-            # 提取 enemy_flag 的中心位置并缓存
             self.base_position = self._extract_center(raw_detections, "enemy_flag")
             if self.base_position is not None:
                 logger.debug(f"检测到 enemy_flag 位置并缓存: {self.base_position}")
             else:
                 logger.warning("MinimapDetector: 未能在检测结果中找到 enemy_flag")
 
-        # 检测箭头
+        # 箭头（关键点模型）
         arrow_result = self.arrow_engine_.Detect(
             frame,
             confidence_threshold=self.conf_threshold_,
             iou_threshold=self.iou_threshold_,
-            max_det=1,  # 只需要检测1个目标（self_arrow）
+            max_det=10,
         )
-        
-        # arrow_result 是 Results 对象列表，需要先检查是否为空
+
         if not arrow_result or len(arrow_result) == 0:
             logger.warning("MinimapDetector: 箭头检测结果为空")
             return MinimapDetectionResult(None, None, None, raw_detections)
-        
-        # 获取第一个检测结果的 keypoints
+
         first_result = arrow_result[0]
         if not hasattr(first_result, "keypoints") or first_result.keypoints is None:
             logger.warning("MinimapDetector: 箭头检测结果中没有 keypoints")
             return MinimapDetectionResult(None, None, None, raw_detections)
 
-        import os
-        plotted = first_result.plot()  # 返回绘制好结果的 BGR 图像
-        out_dir = "C:/Users/11601/project/wot_ai/resource/run/"
-        os.makedirs(out_dir, exist_ok=True)
-        # 按已存在文件数量递增命名
-        base_name = "arrow"
-        ext = ".png"
-        i = 1
-        while True:
-            out_path = os.path.join(out_dir, f"{base_name}{i}{ext}")
-            if not os.path.exists(out_path):
-                break
-            i += 1
-        cv2.imwrite(out_path, plotted)
-        
+        # 可视化 dump（可选，保留）
+        # import os
+        # plotted = first_result.plot()
+        # out_dir = "C:/Users/11601/project/wot_ai/resource/run/"
+        # os.makedirs(out_dir, exist_ok=True)w
+        # base_name = "arrow"
+        # ext = ".png"
+        # i = 1
+        # while True:
+        #     out_path = os.path.join(out_dir, f"{base_name}{i}{ext}")
+        #     if not os.path.exists(out_path):
+        #         break
+        #     i += 1
+        # cv2.imwrite(out_path, plotted)
+
         keypoints = first_result.keypoints
         if keypoints.xy is None or len(keypoints.xy) == 0:
             logger.warning("MinimapDetector: keypoints 坐标为空")
             return MinimapDetectionResult(None, None, None, raw_detections)
 
-        xy = keypoints.xy  # shape: (N, K, 2)，N为检测框数量，K为关键点数量
-
-        # 验证 xy 数组的有效性
+        xy = keypoints.xy  # (N, K, 2)
         if len(xy) == 0:
             logger.warning("MinimapDetector: keypoints.xy 数组为空")
             return MinimapDetectionResult(None, None, None, raw_detections)
-        
-        # 只取第一个检测结果
-        coords = xy[0]  # shape: (K, 2)
-        
-        # 验证 coords 数组的有效性
+
+        coords = xy[0]
         if coords is None or len(coords) == 0:
             logger.warning("MinimapDetector: coords 数组为空")
             return MinimapDetectionResult(None, None, None, raw_detections)
-        
-        # 解析箭头关键点：
-        # - coords[0] 是 head（箭头头部中心）
-        # - coords[1] 是 tail（箭头尾部中心）
-        # - 角度从 tail 指向 head（尾部指向头部），表示箭头朝向
-        # - 中心位置是 head 和 tail 的中点
+
+        # === 角度计算（图像坐标系；关键点顺序：0=head, 1=tail） ===
         if coords.shape[0] >= 2:
             try:
-                # 提取关键点坐标，确保转换为标量
-                head = coords[0]  # 箭头头部中心，shape: (2,)
-                tail = coords[1]  # 箭头尾部中心，shape: (2,)
-                
-                # 转换为 Python 标量，避免 numpy 类型问题
-                head_x = float(head[0])
-                head_y = float(head[1])
-                tail_x = float(tail[0])
-                tail_y = float(tail[1])
-                
-                # 验证坐标有效性（检查 NaN 和 inf）
-                if not (np.isfinite(head_x) and np.isfinite(head_y) and 
-                        np.isfinite(tail_x) and np.isfinite(tail_y)):
+                head_x, head_y = float(coords[0][0]), float(coords[0][1])
+                tail_x, tail_y = float(coords[1][0]), float(coords[1][1])
+                if not (np.isfinite(head_x) and np.isfinite(head_y) and np.isfinite(tail_x) and np.isfinite(tail_y)):
                     logger.warning("MinimapDetector: 关键点坐标包含 NaN 或 inf")
                     self_pos = None
                     self_angle = None
                 else:
-                    # 计算中心位置（head 和 tail 的中点）
                     self_pos = ((head_x + tail_x) / 2, (head_y + tail_y) / 2)
-                    
-                    # 计算角度：从 tail 指向 head 的方向
-                    # dx = head_x - tail_x 表示从 tail 到 head 的 x 方向
-                    # dy = head_y - tail_y 表示从 tail 到 head 的 y 方向
-                    # 由于图像坐标系 y 轴向下，需要取反 dy 来转换为数学坐标系
                     dx = head_x - tail_x
                     dy = head_y - tail_y
-                    
-                    # 检查 dx 和 dy 是否都为 0（避免除零或无效角度）
-                    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
-                        logger.warning("MinimapDetector: head 和 tail 位置相同，无法计算角度")
-                        self_angle = None
-                    else:
-                        self_angle = float(np.degrees(np.arctan2(-dy, dx)) % 360)
+                    # 关键修正：不再对 dy 取反，直接按图像坐标求角度
+                    self_angle = float(np.degrees(np.arctan2(dy, dx)) % 360)
             except (IndexError, TypeError, ValueError) as e:
                 logger.error(f"MinimapDetector: 解析关键点时发生异常: {e}")
                 self_pos = None
@@ -332,7 +286,6 @@ class MinimapDetector:
             self_pos = None
             self_angle = None
 
-        # enemy_flag_pos 从缓存的基地位置获得
         enemy_flag_pos = self.base_position
 
         result = MinimapDetectionResult(
