@@ -62,7 +62,7 @@ class NavigationRuntime:
         angle_cfg = self.cfg.angle_detection
         if angle_cfg is not None:
             self.minimap_detector = MinimapDetector(
-                model_path=self.cfg.model.path,
+                model_path_base=self.cfg.model.path,
                 conf_threshold=self.cfg.model.conf_threshold,
                 iou_threshold=self.cfg.model.iou_threshold,
                 smoothing_alpha=angle_cfg.smoothing_alpha,
@@ -75,7 +75,7 @@ class NavigationRuntime:
         else:
             # 向后兼容：如果没有配置，使用默认值
             self.minimap_detector = MinimapDetector(
-                model_path=self.cfg.model.path,
+                model_path_base=self.cfg.model.path,
                 conf_threshold=self.cfg.model.conf_threshold,
                 iou_threshold=self.cfg.model.iou_threshold,
             )

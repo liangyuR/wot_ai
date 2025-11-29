@@ -102,7 +102,8 @@ class MinimapDetector:
 
     def __init__(
         self,
-        model_path: str,
+        model_path_base: str,
+        model_path_arrow: str,
         conf_threshold: float = 0.25,
         iou_threshold: float = 0.25,
         smoothing_alpha: float = 0.25,
@@ -112,10 +113,16 @@ class MinimapDetector:
         min_aspect_ratio: float = 0.3,
         max_aspect_ratio: float = 3.0,
     ):
-        if not model_path:
+        if not model_path_base:
             raise ValueError("model_path 不能为空")
+        if not model_path_arrow:
+            raise ValueError("model_path_arrow 不能为空")
 
-        self.engine_ = DetectionEngine(model_path)
+        # 基地检测模块
+        self.base_engine_ = DetectionEngine(model_path_base)
+        # 箭头检测模块
+        self.arrow_engine_ = DetectionEngine(model_path_arrow)
+
         self.conf_threshold_ = conf_threshold
         self.iou_threshold_ = iou_threshold
         self.class_name_to_id_: Dict[str, int] = {}
@@ -132,10 +139,17 @@ class MinimapDetector:
         self.min_aspect_ratio_ = min_aspect_ratio
         self.max_aspect_ratio_ = max_aspect_ratio
 
+        # 基地位置缓存，初始化为 None，只有成功检测到 enemy_flag 后才设置
+        self.base_position: Optional[Tuple[float, float]] = None
+
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
         """加载模型并初始化类别名称映射"""
-        if not self.engine_.LoadModel():
+        if not self.base_engine_.LoadModel():
+            logger.error("MinimapDetector: 模型加载失败")
+            return False
+
+        if not self.arrow_engine_.LoadModel():
             logger.error("MinimapDetector: 模型加载失败")
             return False
 
@@ -179,71 +193,154 @@ class MinimapDetector:
         Returns:
             MinimapDetectionResult
         """
-        import time
-        total_start = time.time()
-        
         if frame is None or frame.size == 0:
             logger.error("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
-        # 调用检测引擎，返回 YOLO Results 对象（列表）
-        yolo_start = time.time()
-        yolo_results = self.engine_.Detect(
-            frame, 
-            confidence_threshold=self.conf_threshold_, 
+        # 检测基地位置（enemy_flag）
+        # 基地位置不会移动，检测到后可以缓存，后续帧跳过检测以提高性能
+        if self.base_position is not None:
+            # 已缓存基地位置，跳过检测
+            raw_detections = []
+        else:
+            base_result = self.base_engine_.Detect(
+                frame, 
+                confidence_threshold=self.conf_threshold_, 
+                iou_threshold=self.iou_threshold_,
+                max_det=10  # base_engine 主要用于检测 enemy_flag
+            )
+            logger.debug(f"base_engine 检测结果: {base_result}")
+
+            if not base_result:
+                logger.error("MinimapDetector: base_engine 检测结果为空，无法获取 enemy_flag 位置")
+                return MinimapDetectionResult(None, None, None, [])
+
+            if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
+                self._update_class_mapping(base_result)
+                self._class_mapping_initialized = True
+
+            # 解析 Results 对象为字典列表
+            raw_detections = self._parse_results(base_result)
+            
+            # 提取 enemy_flag 的中心位置并缓存
+            self.base_position = self._extract_center(raw_detections, "enemy_flag")
+            if self.base_position is not None:
+                logger.debug(f"检测到 enemy_flag 位置并缓存: {self.base_position}")
+            else:
+                logger.warning("MinimapDetector: 未能在检测结果中找到 enemy_flag")
+
+        # 检测箭头
+        arrow_result = self.arrow_engine_.Detect(
+            frame,
+            confidence_threshold=self.conf_threshold_,
             iou_threshold=self.iou_threshold_,
-            max_det=10  # 优化：只需要检测2个目标（self_arrow和enemy_flag）
+            max_det=1,  # 只需要检测1个目标（self_arrow）
         )
-        logger.info(f"yolo_results: {yolo_results}")
-        yolo_elapsed = time.time() - yolo_start
-
-        if hasattr(yolo_results, "keypoints") and yolo_results.keypoints is not None:
-            keypoints_data = yolo_results.keypoints
-            # 如果keypoints_data是numpy，需要转为torch，否则直接使用
-            if not isinstance(keypoints_data, torch.Tensor):
-                keypoints_data = torch.from_numpy(keypoints_data)
-            # 假设原始帧尺寸可用
-            orig_shape = frame.shape[:2] if frame is not None else (480, 640)
-            keypoints_obj = Keypoints(keypoints_data, orig_shape)
-            logger.debug(f"Keypoints xy shape: {keypoints_obj.xy.shape}")
-            logger.debug(f"Keypoints confidence: {keypoints_obj.conf}")
-            keypoints_cpu = keypoints_obj.cpu()  # 可将关键点移至CPU
         
-        if not yolo_results:
-            logger.error("MinimapDetector: 检测结果为空")
-            return MinimapDetectionResult(None, None, None, [])
-
-        if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
-            self._update_class_mapping(yolo_results)
-            self._class_mapping_initialized = True
-
-        # 解析 Results 对象为字典列表
-        parse_start = time.time()
-        raw_detections = self._parse_results(yolo_results)
-        parse_elapsed = time.time() - parse_start
-
-        # 位置提取（使用类别名称）
-        pos_start = time.time()
-        self_pos = self._extract_center(raw_detections, "self_arrow")
-        enemy_flag_pos = self._extract_center(raw_detections, "enemy_flag")
-        pos_elapsed = time.time() - pos_start
+        # arrow_result 是 Results 对象列表，需要先检查是否为空
+        if not arrow_result or len(arrow_result) == 0:
+            logger.warning("MinimapDetector: 箭头检测结果为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
         
-        # 角度提取
-        angle_start = time.time()
-        self_angle = self._extract_angle(frame, raw_detections, "self_arrow")
-        angle_elapsed = time.time() - angle_start
+        # 获取第一个检测结果的 keypoints
+        first_result = arrow_result[0]
+        if not hasattr(first_result, "keypoints") or first_result.keypoints is None:
+            logger.warning("MinimapDetector: 箭头检测结果中没有 keypoints")
+            return MinimapDetectionResult(None, None, None, raw_detections)
 
-        result = MinimapDetectionResult(self_pos, self_angle, enemy_flag_pos, raw_detections)
+        import os
+        plotted = first_result.plot()  # 返回绘制好结果的 BGR 图像
+        out_dir = "C:/Users/11601/project/wot_ai/resource/run/"
+        os.makedirs(out_dir, exist_ok=True)
+        # 按已存在文件数量递增命名
+        base_name = "arrow"
+        ext = ".png"
+        i = 1
+        while True:
+            out_path = os.path.join(out_dir, f"{base_name}{i}{ext}")
+            if not os.path.exists(out_path):
+                break
+            i += 1
+        cv2.imwrite(out_path, plotted)
         
-        # 性能监控：记录各步骤耗时
-        total_elapsed = time.time() - total_start
-        if yolo_elapsed > 0.05:  # YOLO超过50ms
-            logger.warning(f"[性能] YOLO推理耗时: {yolo_elapsed*1000:.1f}ms")
-        if angle_elapsed > 0.01:  # 角度提取超过10ms
-            logger.debug(f"[性能] 角度提取耗时: {angle_elapsed*1000:.1f}ms")
-        if total_elapsed > 0.1:  # 总耗时超过100ms
-            logger.warning(f"[性能] 检测总耗时: {total_elapsed*1000:.1f}ms (YOLO:{yolo_elapsed*1000:.1f}ms, 解析:{parse_elapsed*1000:.1f}ms, 位置:{pos_elapsed*1000:.1f}ms, 角度:{angle_elapsed*1000:.1f}ms)")
+        keypoints = first_result.keypoints
+        if keypoints.xy is None or len(keypoints.xy) == 0:
+            logger.warning("MinimapDetector: keypoints 坐标为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
 
+        xy = keypoints.xy  # shape: (N, K, 2)，N为检测框数量，K为关键点数量
+
+        # 验证 xy 数组的有效性
+        if len(xy) == 0:
+            logger.warning("MinimapDetector: keypoints.xy 数组为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
+        
+        # 只取第一个检测结果
+        coords = xy[0]  # shape: (K, 2)
+        
+        # 验证 coords 数组的有效性
+        if coords is None or len(coords) == 0:
+            logger.warning("MinimapDetector: coords 数组为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
+        
+        # 解析箭头关键点：
+        # - coords[0] 是 head（箭头头部中心）
+        # - coords[1] 是 tail（箭头尾部中心）
+        # - 角度从 tail 指向 head（尾部指向头部），表示箭头朝向
+        # - 中心位置是 head 和 tail 的中点
+        if coords.shape[0] >= 2:
+            try:
+                # 提取关键点坐标，确保转换为标量
+                head = coords[0]  # 箭头头部中心，shape: (2,)
+                tail = coords[1]  # 箭头尾部中心，shape: (2,)
+                
+                # 转换为 Python 标量，避免 numpy 类型问题
+                head_x = float(head[0])
+                head_y = float(head[1])
+                tail_x = float(tail[0])
+                tail_y = float(tail[1])
+                
+                # 验证坐标有效性（检查 NaN 和 inf）
+                if not (np.isfinite(head_x) and np.isfinite(head_y) and 
+                        np.isfinite(tail_x) and np.isfinite(tail_y)):
+                    logger.warning("MinimapDetector: 关键点坐标包含 NaN 或 inf")
+                    self_pos = None
+                    self_angle = None
+                else:
+                    # 计算中心位置（head 和 tail 的中点）
+                    self_pos = ((head_x + tail_x) / 2, (head_y + tail_y) / 2)
+                    
+                    # 计算角度：从 tail 指向 head 的方向
+                    # dx = head_x - tail_x 表示从 tail 到 head 的 x 方向
+                    # dy = head_y - tail_y 表示从 tail 到 head 的 y 方向
+                    # 由于图像坐标系 y 轴向下，需要取反 dy 来转换为数学坐标系
+                    dx = head_x - tail_x
+                    dy = head_y - tail_y
+                    
+                    # 检查 dx 和 dy 是否都为 0（避免除零或无效角度）
+                    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+                        logger.warning("MinimapDetector: head 和 tail 位置相同，无法计算角度")
+                        self_angle = None
+                    else:
+                        self_angle = float(np.degrees(np.arctan2(-dy, dx)) % 360)
+            except (IndexError, TypeError, ValueError) as e:
+                logger.error(f"MinimapDetector: 解析关键点时发生异常: {e}")
+                self_pos = None
+                self_angle = None
+        else:
+            logger.warning("MinimapDetector: keypoints 少于2个")
+            self_pos = None
+            self_angle = None
+
+        # enemy_flag_pos 从缓存的基地位置获得
+        enemy_flag_pos = self.base_position
+
+        result = MinimapDetectionResult(
+            self_pos=self_pos,
+            self_angle=self_angle,
+            enemy_flag_pos=enemy_flag_pos,
+            raw_detections=raw_detections,
+        )
         return result
 
     def _parse_results(self, yolo_results) -> List[Dict]:
@@ -519,10 +616,12 @@ class MinimapDetector:
     def Reset(self):
         """重置检测器状态"""
         self.angle_smoother_.Reset()
+        self.base_position = None
 
 def run_benchmark(
     image_path: str,
-    model_path: str,
+    model_path_base: str,
+    model_path_arrow: str,
     target_fps: float,
     max_frames: Optional[int] = None,
     show_visualization: bool = False,
@@ -534,7 +633,7 @@ def run_benchmark(
         sys.exit(1)
 
     # 创建检测器
-    detector = MinimapDetector(model_path=model_path)
+    detector = MinimapDetector(model_path_base=model_path_base, model_path_arrow=model_path_arrow)
     if not detector.LoadModel():
         print("模型加载失败")
         sys.exit(1)
@@ -617,7 +716,13 @@ if __name__ == "__main__":
         help="图片文件路径（小地图截图）",
     )
     parser.add_argument(
-        "--model_path",
+        "--model_path_base",
+        type=str,
+        default="best.pt",
+        help="检测模型路径 (默认: best.pt)",
+    )
+    parser.add_argument(
+        "--model_path_arrow",
         type=str,
         default="best.pt",
         help="检测模型路径 (默认: best.pt)",
@@ -646,7 +751,8 @@ if __name__ == "__main__":
 
     run_benchmark(
         image_path=args.image_path,
-        model_path=args.model_path,
+        model_path_base=args.model_path_base,
+        model_path_arrow=args.model_path_arrow,
         target_fps=args.fps,
         max_frames=max_frames,
         show_visualization=True,
