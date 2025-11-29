@@ -117,7 +117,7 @@ class DpgNavDebugView(NavDebugView):
     def __init__(
         self,
         title: str = "Nav Debug",
-        window_size: Tuple[int, int] = (960, 540),
+        window_size: Tuple[int, int] = (960, 720),
         enable: bool = True,
         grid_to_minimap_h: Optional[np.ndarray] = None,   # 新增: homography
     ) -> None:

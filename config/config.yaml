@@ -4,9 +4,10 @@
 
 # YOLO模型配置
 model:
-  path: "resource/model/map_detect_pose.pt"  # YOLO模型文件路径（必需）
-  conf_threshold: 0.65  # 置信度阈值 (0.0-1.0)
-  iou_threshold: 0.55  # IoU阈值 (0.0-1.0)
+  base_path: "resource/model/map_detect_base.pt"  # YOLO模型文件路径（必需）
+  arrow_path: "resource/model/map_detect_arrow.pt"  # YOLO模型文件路径（必需）
+  conf_threshold: 0.1  # 置信度阈值 (0.0-1.0)
+  iou_threshold: 0.1  # IoU阈值 (0.0-1.0)
 
 # 小地图配置
 minimap:
@@ -38,47 +39,48 @@ path_planning:                # 路径规划相关参数
   check_curvature: true                       # 启用曲率检查，窄路必开，防止平滑导致出道
   enable_los_post_smoothing: true             # 仅"los"后处理用（catmull_rom保留占位，为兼容未来切换）
 
-control:                       # 运动控制及状态检测参数
+control:
 
   # === 状态与基本判定 ===
-  goal_arrival_threshold: 15.0                # 判定到达目标区域的像素距离阈值，15px适合路宽12~15px的场景
-  path_deviation_tolerance: 3                 # 路径偏离容忍度(px)，决定内走廊宽度范围
-  stuck_threshold: 5.0                        # 坐标移动小于该值视作卡顿(单帧/多帧)
-  stuck_frames_threshold: 180                 # 连续多少帧内满足卡顿条件才判定为真正“卡死”(20Hz下约9秒)
-  debug_log_interval: 30                      # 控制日志输出间隔（帧）
+  goal_arrival_threshold: 15.0
+  path_deviation_tolerance: 3
+  stuck_threshold: 3
+  stuck_frames_threshold: 600
+  debug_log_interval: 30
 
   # === MovementController ===
-  # 前进/转向/速度控制与直行模式
-  angle_dead_zone_deg: 3.0                    # 小于该角度偏差不修正方向，有效抑制检测抖动
-  angle_slow_turn_deg: 12.0                   # 小角度(<12°)用慢转方式调整，提升精度
-  distance_stop_threshold: 6.0                # 距 waypoint <6px 时不再前进，避免抖动和重复切换
-  slow_down_distance: 10.0                    # 小于此距离提前减速，防止冲过目标
-  max_forward_speed: 1.0                      # 最大归一化前进速度(0~1)
-  min_forward_factor: 0.3                     # 大角度转向时的最小速度占比，保证拐弯时不断流
-  large_angle_threshold_deg: 40.0             # 认为“大转弯”的角度阈值
-  large_angle_speed_reduction: 0.3            # 大角度转向时前进速度降幅(比例)
-  corridor_ref_width: 8                       # 横向误差归一
-  edge_speed_reduction: 0.85                  # 走廊边缘速度缩放
-  recenter_speed_reduction: 0.6               # 纠偏模式速度缩放
+  angle_dead_zone_deg: 8.0              # 容忍更多角度误差，减少抖动修正
+  angle_slow_turn_deg: 15.0             # 小角度慢转区拉大一点，更平顺
 
-  # 直行模式判定（区分角度/横向阈值）
-  straight_angle_enter_deg: 2                 # 直行模式进入角度阈值（度）
-  straight_angle_exit_deg: 4                  # 直行模式退出角度阈值（度）
-  straight_lat_enter: 2                       # 直行模式进入横向阈值（像素）
-  straight_lat_exit: 5                        # 直行模式退出横向阈值（像素）
+  distance_stop_threshold: 3.0          # 只在离 waypoint 非常近才停
+  slow_down_distance: 4.0               # 很靠近才减速，基本全程不提前刹车
+
+  max_forward_speed: 1.0
+  min_forward_factor: 0.7               # 大角度转向时最低也保留 70% 速度
+  large_angle_threshold_deg: 55.0       # 只有超大角度才算“大转弯”
+  large_angle_speed_reduction: 0.15     # 大转弯最多只降 15% 速度
+
+  corridor_ref_width: 8
+  edge_speed_reduction: 0.95            # 走到走廊边缘时几乎不减速
+  recenter_speed_reduction: 0.85        # 纠偏时速度也保持在 85% 左右
+
+  # 直行模式判定
+  straight_angle_enter_deg: 3           # 更容易进入直行模式
+  straight_angle_exit_deg: 6
+  straight_lat_enter: 3
+  straight_lat_exit: 6
 
   # === MoveExecutor ===
-  # 指令平滑/滞回（主）
-  smoothing_alpha: 0.5                        # 平滑滤波系数，与主 smoothing_alpha 对齐即可，先进先用
-  turn_deadzone: 0.06                         # 转向死区，大于此值才输出转向
-  min_hold_time_ms: 6.0                     # 最小按键保持时间（毫秒），小于该值按一次也有效
-  forward_hysteresis_on: 0.35                 # 前进开启滞回阈值，建议与主值保持一致
-  forward_hysteresis_off: 0.08                # 前进关闭滞回阈值，抑制抖动
+  smoothing_alpha: 0.5
+  turn_deadzone: 0.06
+  min_hold_time_ms: 6.0
+  forward_hysteresis_on: 0.40           # 一旦判定前进，就更不容易被关掉
+  forward_hysteresis_off: 0.10
 
   # === PathFollower ===
-  max_lateral_error: 10.0                     # 最大横向偏差容忍，超过即触发recenter
-  lookahead_distance: 20.0                    # 路径跟踪前瞻距离(px)，影响曲线走形
-  waypoint_switch_radius: 6.0                 # 到达 waypoint 触发切换的判定半径
+  max_lateral_error: 5.0               # 允许稍微离路中心远一点，换平滑前进
+  lookahead_distance: 15.0              # 提前看远一点，路径更适合高速
+  waypoint_switch_radius: 3.0           # 更快切下一点，减少在点附近反复修正
 
 
 angle_detection:               # 小地图角度检测限制
@@ -97,7 +99,7 @@ vehicle:
 ui:
   overlay_fps: 30  # 覆盖层FPS
   overlay_alpha: 180  # 覆盖层透明度 (0-255)
-  enable: true  # 是否启用调试视图
+  enable: false  # 是否启用调试视图
 
 # 屏幕捕获配置
 monitor_index: 1  # 屏幕捕获监视器索引
