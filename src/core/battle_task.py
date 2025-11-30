@@ -130,8 +130,6 @@ class BattleTask:
                     self._handle_battle_state()
                 elif current_state == GameState.IN_END:
                     self._handle_end_state()
-                elif current_state == GameState.IN_RESULT_PAGE:
-                    self._handle_result_page_state()
                 elif current_state == GameState.UNKNOWN:
                     pass
                 
@@ -299,7 +297,7 @@ class BattleTask:
         logger.info("退出结算界面，返回车库...")
 
         # 1. 当前在结算页面
-        success = self.template_matcher_.match_template("space_jump.png", confidence=0.85)
+        success = self.template_matcher_.match_template("result_page_4.png", confidence=0.85)
         if success is not None:
             logger.info("在结算页面，按下esc键退出结算界面")
             self.key_controller_.tap(Key.esc)
