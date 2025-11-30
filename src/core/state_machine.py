@@ -55,9 +55,9 @@ class StateMachine:
         
         # 状态模板映射
         self.state_templates_ = {
-            GameState.IN_GARAGE: "in_garage.png",
-            GameState.IN_END: ["pingjia.png","result_page.png", "result_page_2.png", "result_page_3.png"], # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
-            GameState.IN_BATTLE: "in_battle.png",
+            GameState.IN_END: ["pingjia.png","jie_suan_1.png","jie_suan_2.png","jie_suan_3.png"], # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
+            GameState.IN_GARAGE: ["in_garage.png"],
+            GameState.IN_BATTLE: ["in_battle.png"],
             # TODO(@ly) 勋章获取页面没有hack
         }
         self._initialized = True
@@ -156,7 +156,7 @@ class StateMachine:
             return GameState.UNKNOWN
         
         for state, templates in self.state_templates_.items():
-            for template_name in (templates if isinstance(templates, list) else [templates]):
+            for template_name in templates:
                 if self.template_matcher_.match_template(template_name, confidence=0.85):
                     logger.debug(f"检测到状态: {state.value} (模板: {template_name})")
                     return state
