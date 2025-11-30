@@ -8,7 +8,7 @@
 
 import time
 import threading
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from loguru import logger
 
 from src.core.state_machine import StateMachine, GameState
@@ -19,9 +19,7 @@ from src.utils.key_controller import KeyController
 from src.navigation.nav_runtime.navigation_runtime import NavigationRuntime
 from pynput.keyboard import Key
 from src.utils.restart_game import GameRestarter
-
-if TYPE_CHECKING:
-    from src.navigation.config.models import NavigationConfig
+from src.utils.global_path import GetGlobalConfig
 
 
 class BattleTask:
@@ -29,7 +27,6 @@ class BattleTask:
     
     def __init__(
         self,
-        config: Optional['NavigationConfig'] = None,
         selection_retry_interval: float = 10.0,
         selection_timeout: float = 120.0,
         state_check_interval: float = 3
@@ -51,22 +48,13 @@ class BattleTask:
         self.navigation_runtime_ = None
         self.navigation_thread_ = None
         
-        # 初始化游戏重启器
-        if config and config.game:
-            self.game_restarter_ = GameRestarter(
-                process_name=config.game.process_name,
-                game_exe_path=config.game.exe_path,
-                wait_seconds=config.game.restart_wait_seconds
-            )
-            self.stuck_timeout_ = config.game.stuck_timeout_seconds
-        else:
-            # 默认配置
-            self.game_restarter_ = GameRestarter(
-                process_name="WorldOfTanks.exe",
-                game_exe_path="C:/Games/World_of_Tanks_CN/WorldOfTanks.exe",
-                wait_seconds=10
-            )
-            self.stuck_timeout_ = 480
+        config = GetGlobalConfig()
+        self.game_restarter_ = GameRestarter(
+            process_name=config.game.process_name,
+            game_exe_path=config.game.exe_path,
+            wait_seconds=config.game.restart_wait_seconds
+        )
+        self.stuck_timeout_ = config.game.stuck_timeout_seconds
 
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout

@@ -11,8 +11,7 @@ import subprocess
 from datetime import datetime
 from loguru import logger
 from .battle_task import BattleTask
-from src.utils.global_path import GetConfigPath
-from src.navigation.config.loader import load_config
+from src.utils.global_path import GetGlobalConfig
 
 class TaskManager:
     """任务管理器"""
@@ -40,8 +39,8 @@ class TaskManager:
         
         # Load configuration
         try:
-            self.config_ = load_config(GetConfigPath())
-            logger.info(f"Task manager loaded config from {GetConfigPath()}")
+            self.config_ = GetGlobalConfig()
+            logger.info(f"Task manager loaded config from {self.config_}")
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
             raise e

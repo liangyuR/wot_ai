@@ -15,7 +15,6 @@ from loguru import logger
 
 import numpy as np
 
-from src.navigation.config.loader import load_config
 from src.navigation.config.models import NavigationConfig
 from src.vision.minimap_detector import MinimapDetectionResult
 from src.navigation.core.coordinate_utils import world_to_grid, grid_to_world
@@ -222,12 +221,12 @@ if __name__ == "__main__":
     import cv2
     import numpy as np
     from loguru import logger
-    from src.utils.global_path import GetConfigPath
+    from src.utils.global_path import GetGlobalConfig
     from src.utils.mask_loader import _imread_gray
     import argparse
 
     # 1. 配置 & 路径规划服务
-    cfg = load_config(str(GetConfigPath()))
+    cfg = GetGlobalConfig()
     logger.info(f"cfg: {cfg.path_planning}, mask: {cfg.mask}")
 
     parser = argparse.ArgumentParser()

@@ -12,9 +12,8 @@ import threading
 from typing import Optional
 
 from loguru import logger
-from src.utils.global_path import GetConfigPath
-from src.navigation.config.loader import load_config
 from src.navigation.service.data_hub import DataHub
+from src.utils.global_path import GetGlobalConfig
 # 屏幕捕获
 from src.navigation.service.capture_service import CaptureService
 # 运动控制
@@ -41,8 +40,7 @@ class NavigationRuntime:
 
     def __init__(self):
         # 配置
-        config_path = GetConfigPath()
-        self.cfg = load_config(config_path)
+        self.cfg = GetGlobalConfig()
 
         # 组件
         self.capture = CaptureService(self.cfg.monitor_index)

@@ -2,14 +2,23 @@ import os
 from pathlib import Path
 from src.utils.global_context import GlobalContext
 from loguru import logger
+from src.navigation.config.models import NavigationConfig
+from src.navigation.config.loader import load_config
 
 _global_context = None
+_global_config = None
 
 def GetGlobalContext() -> GlobalContext:
     global _global_context
     if _global_context is None:
         _global_context = GlobalContext()
     return _global_context
+
+def GetGlobalConfig() -> NavigationConfig:
+    global _global_config
+    if _global_config is None:
+        _global_config = load_config(GetConfigPath())
+    return _global_config
 
 def GetProgramDir() -> Path:
     path = Path(os.getcwd())
