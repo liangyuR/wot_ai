@@ -44,20 +44,22 @@ class MinimapAnchorDetector:
             logger.error("输入帧为空")
             return None
 
-        # TODO(@ly) 暂时不使用ROI
-        # h, w = frame.shape[:2]
-        # roi_w, roi_h = 1200, 1200
-        # start_x = max(0, w - roi_w)
-        # start_y = max(0,wddw h - roi_h)
-        # roi = frame[start_y:h, start_x:w]
-        roi = frame
+        # 使用ROI区域进行模板匹配
+        h, w = frame.shape[:2]
+        roi_w, roi_h = 800, 800
+        roi_w = min(roi_w, w)
+        roi_h = min(roi_h, h)
+        start_x = w - roi_w
+        start_y = h - roi_h
+        roi = frame[start_y:start_y + roi_h, start_x:start_x + roi_w]
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray_eq = self.clahe_.apply(gray)
 
         best_val, best_loc, best_scale = -1.0, None, 1.0
         method = cv2.TM_CCORR_NORMED
-        scales = [0.9, 1.0, 1.1] if self.multi_scale_ else [1.0]
+        # scales = [0.9, 1.0, 1.1] if self.multi_scale_ else [1.0]
+        scales = [1.0]
 
         for scale in scales:
             tpl_scaled = cv2.resize(self.template_gray_, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
@@ -94,8 +96,8 @@ class MinimapAnchorDetector:
         best_loc = (rx0 + max_loc2[0], ry0 + max_loc2[1])
 
         # 计算全局坐标
-        # top_left = (start_x + best_loc[0], start_y + best_loc[1])
-        top_left = (best_loc[0], best_loc[1])
+        top_left = (start_x + best_loc[0], start_y + best_loc[1])
+        # top_left = (best_loc[0], best_loc[1])
         
         # 向右下角偏移约15个像素
         offset_x, offset_y = 13, 13 # 2948 948

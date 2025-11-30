@@ -38,8 +38,9 @@
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": [
-                "C:/Users/11601/project/wot_ai/utest/Snipaste_2025-11-24_15-32-16.png",
-                "--model_path", "C:/Users/11601/project/wot_ai/resource/model/best_m_detect.pt",
+                "C:/Users/11601/project/train_yolo/resource/1.png",
+                "--model_path_base", "C:/Users/11601/project/wot_ai/resource/model/map_detect_base.pt",
+                "--model_path_arrow", "C:/Users/11601/project/wot_ai/resource/model/map_detect_arrow.pt",
                 "--fps", "30.0",
                 "--frames", "200",
             ]

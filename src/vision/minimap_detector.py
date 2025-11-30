@@ -55,7 +55,7 @@ class AngleSmoother:
             平滑后的角度（度）或 None
         """
         if raw_angle is None:
-            return self.angle_ if self.valid_ else None
+            return None
         
         if not self.valid_:
             self.angle_ = raw_angle
@@ -69,8 +69,20 @@ class AngleSmoother:
         if abs(diff) > self.max_step_deg_:
             diff = self.max_step_deg_ if diff > 0 else -self.max_step_deg_
         
-        # 平滑：使用 alpha 系数进行一阶低通滤波
-        self.angle_ = (self.angle_ + self.alpha_ * diff) % 360.0
+        # === 自适应 alpha：抖动小就抑制，大幅转向就加快响应 ===
+        abs_diff = abs(diff)
+        # 你可以把这些阈值配到 config 里，我先写死一版
+        if abs_diff < 2.0:
+            # 极小变化，当成噪声，减弱更新
+            effective_alpha = self.alpha_ * 0.4
+        elif abs_diff < 10.0:
+            # 正常缓慢转向，用原始 alpha
+            effective_alpha = self.alpha_
+        else:
+            # 大幅转向，放大 alpha，加快跟踪
+            effective_alpha = min(1.0, self.alpha_ * 2.0)
+
+        self.angle_ = (self.angle_ + effective_alpha * diff) % 360.0
         
         return self.angle_
     
@@ -90,7 +102,8 @@ class MinimapDetector:
 
     def __init__(
         self,
-        model_path: str,
+        model_path_base: str,
+        model_path_arrow: str,
         conf_threshold: float = 0.25,
         iou_threshold: float = 0.25,
         smoothing_alpha: float = 0.25,
@@ -100,10 +113,16 @@ class MinimapDetector:
         min_aspect_ratio: float = 0.3,
         max_aspect_ratio: float = 3.0,
     ):
-        if not model_path:
+        if not model_path_base:
             raise ValueError("model_path 不能为空")
+        if not model_path_arrow:
+            raise ValueError("model_path_arrow 不能为空")
 
-        self.engine_ = DetectionEngine(model_path)
+        # 基地检测模块
+        self.base_engine_ = DetectionEngine(model_path_base)
+        # 箭头检测模块
+        self.arrow_engine_ = DetectionEngine(model_path_arrow)
+
         self.conf_threshold_ = conf_threshold
         self.iou_threshold_ = iou_threshold
         self.class_name_to_id_: Dict[str, int] = {}
@@ -120,10 +139,17 @@ class MinimapDetector:
         self.min_aspect_ratio_ = min_aspect_ratio
         self.max_aspect_ratio_ = max_aspect_ratio
 
+        # 基地位置缓存，初始化为 None，只有成功检测到 enemy_flag 后才设置
+        self.base_position: Optional[Tuple[float, float]] = None
+
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
         """加载模型并初始化类别名称映射"""
-        if not self.engine_.LoadModel():
+        if not self.base_engine_.LoadModel():
+            logger.error("MinimapDetector: 模型加载失败")
+            return False
+
+        if not self.arrow_engine_.LoadModel():
             logger.error("MinimapDetector: 模型加载失败")
             return False
 
@@ -155,70 +181,119 @@ class MinimapDetector:
         """
         return self.class_name_to_id_.get(class_name)
 
-    # -----------------------------------------------------------
+
+       # -----------------------------------------------------------
     def Detect(self, frame: np.ndarray) -> MinimapDetectionResult:
-        """
-        检测小地图中的关键元素
-
-        Args:
-            frame: 小地图 BGR 图像
-            debug: 是否显示调试可视化
-
-        Returns:
-            MinimapDetectionResult
-        """
-        import time
-        total_start = time.time()
-        
         if frame is None or frame.size == 0:
             logger.error("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
-        # 调用检测引擎，返回 YOLO Results 对象（列表）
-        yolo_start = time.time()
-        yolo_results = self.engine_.Detect(
-            frame, 
-            confidence_threshold=self.conf_threshold_, 
+        # 基地位置（只需检测一次后缓存）
+        if self.base_position is not None:
+            raw_detections = []
+        else:
+            base_result = self.base_engine_.Detect(
+                frame,
+                confidence_threshold=self.conf_threshold_,
+                iou_threshold=self.iou_threshold_,
+                max_det=10
+            )
+            logger.debug(f"base_engine 检测结果: {base_result}")
+
+            if not base_result:
+                logger.error("MinimapDetector: base_engine 检测结果为空，无法获取 enemy_flag 位置")
+                return MinimapDetectionResult(None, None, None, [])
+
+            if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
+                self._update_class_mapping(base_result)
+                self._class_mapping_initialized = True
+
+            raw_detections = self._parse_results(base_result)
+            self.base_position = self._extract_center(raw_detections, "enemy_flag")
+            if self.base_position is not None:
+                logger.debug(f"检测到 enemy_flag 位置并缓存: {self.base_position}")
+            else:
+                logger.warning("MinimapDetector: 未能在检测结果中找到 enemy_flag")
+
+        # 箭头（关键点模型）
+        arrow_result = self.arrow_engine_.Detect(
+            frame,
+            confidence_threshold=self.conf_threshold_,
             iou_threshold=self.iou_threshold_,
-            max_det=10  # 优化：只需要检测2个目标（self_arrow和enemy_flag）
+            max_det=10,
         )
-        yolo_elapsed = time.time() - yolo_start
-        
-        if not yolo_results:
-            logger.error("MinimapDetector: 检测结果为空")
-            return MinimapDetectionResult(None, None, None, [])
 
-        if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
-            self._update_class_mapping(yolo_results)
-            self._class_mapping_initialized = True
+        if not arrow_result or len(arrow_result) == 0:
+            logger.warning("MinimapDetector: 箭头检测结果为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
 
-        # 解析 Results 对象为字典列表
-        parse_start = time.time()
-        raw_detections = self._parse_results(yolo_results)
-        parse_elapsed = time.time() - parse_start
+        first_result = arrow_result[0]
+        if not hasattr(first_result, "keypoints") or first_result.keypoints is None:
+            logger.warning("MinimapDetector: 箭头检测结果中没有 keypoints")
+            return MinimapDetectionResult(None, None, None, raw_detections)
 
-        # 位置提取（使用类别名称）
-        pos_start = time.time()
-        self_pos = self._extract_center(raw_detections, "self_arrow")
-        enemy_flag_pos = self._extract_center(raw_detections, "enemy_flag")
-        pos_elapsed = time.time() - pos_start
-        
-        # 角度提取
-        angle_start = time.time()
-        self_angle = self._extract_angle(frame, raw_detections, "self_arrow")
-        angle_elapsed = time.time() - angle_start
+        # 可视化 dump（可选，保留）
+        # import os
+        # plotted = first_result.plot()
+        # out_dir = "C:/Users/11601/project/wot_ai/resource/run/"
+        # os.makedirs(out_dir, exist_ok=True)w
+        # base_name = "arrow"
+        # ext = ".png"
+        # i = 1
+        # while True:
+        #     out_path = os.path.join(out_dir, f"{base_name}{i}{ext}")
+        #     if not os.path.exists(out_path):
+        #         break
+        #     i += 1
+        # cv2.imwrite(out_path, plotted)
 
-        result = MinimapDetectionResult(self_pos, self_angle, enemy_flag_pos, raw_detections)
-        
-        # 性能监控：记录各步骤耗时
-        total_elapsed = time.time() - total_start
-        if yolo_elapsed > 0.05:  # YOLO超过50ms
-            logger.warning(f"[性能] YOLO推理耗时: {yolo_elapsed*1000:.1f}ms")
-        if angle_elapsed > 0.01:  # 角度提取超过10ms
-            logger.debug(f"[性能] 角度提取耗时: {angle_elapsed*1000:.1f}ms")
-        if total_elapsed > 0.1:  # 总耗时超过100ms
-            logger.warning(f"[性能] 检测总耗时: {total_elapsed*1000:.1f}ms (YOLO:{yolo_elapsed*1000:.1f}ms, 解析:{parse_elapsed*1000:.1f}ms, 位置:{pos_elapsed*1000:.1f}ms, 角度:{angle_elapsed*1000:.1f}ms)")
+        keypoints = first_result.keypoints
+        if keypoints.xy is None or len(keypoints.xy) == 0:
+            logger.warning("MinimapDetector: keypoints 坐标为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
 
+        xy = keypoints.xy  # (N, K, 2)
+        if len(xy) == 0:
+            logger.warning("MinimapDetector: keypoints.xy 数组为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
+
+        coords = xy[0]
+        if coords is None or len(coords) == 0:
+            logger.warning("MinimapDetector: coords 数组为空")
+            return MinimapDetectionResult(None, None, None, raw_detections)
+
+        # === 角度计算（图像坐标系；关键点顺序：0=head, 1=tail） ===
+        if coords.shape[0] >= 2:
+            try:
+                head_x, head_y = float(coords[0][0]), float(coords[0][1])
+                tail_x, tail_y = float(coords[1][0]), float(coords[1][1])
+                if not (np.isfinite(head_x) and np.isfinite(head_y) and np.isfinite(tail_x) and np.isfinite(tail_y)):
+                    logger.warning("MinimapDetector: 关键点坐标包含 NaN 或 inf")
+                    self_pos = None
+                    self_angle = None
+                else:
+                    self_pos = ((head_x + tail_x) / 2, (head_y + tail_y) / 2)
+                    dx = head_x - tail_x
+                    dy = head_y - tail_y
+                    # 关键修正：不再对 dy 取反，直接按图像坐标求角度
+                    self_angle = float(np.degrees(np.arctan2(dy, dx)) % 360)
+            except (IndexError, TypeError, ValueError) as e:
+                logger.error(f"MinimapDetector: 解析关键点时发生异常: {e}")
+                self_pos = None
+                self_angle = None
+        else:
+            logger.warning("MinimapDetector: keypoints 少于2个")
+            self_pos = None
+            self_angle = None
+
+        enemy_flag_pos = self.base_position
+
+        result = MinimapDetectionResult(
+            self_pos=self_pos,
+            self_angle=self_angle,
+            enemy_flag_pos=enemy_flag_pos,
+            raw_detections=raw_detections,
+        )
         return result
 
     def _parse_results(self, yolo_results) -> List[Dict]:
@@ -248,25 +323,6 @@ class MinimapDetector:
                     "confidence": conf,
                     "bbox": (x1, y1, x2, y2),
                 }
-                
-                # 如果有 mask，也添加
-                if result.masks is not None and hasattr(result.masks, "data") and i < result.masks.data.shape[0]:
-                    try:
-                        mask_tensor = result.masks.data[i]
-                        mask_np = mask_tensor.cpu().numpy().astype(np.float32)
-                        # 调整到原始尺寸
-                        orig_h, orig_w = result.orig_shape
-                        if mask_np.shape != (orig_h, orig_w):
-                            mask_np = cv2.resize(
-                                mask_np,
-                                (orig_w, orig_h),
-                                interpolation=cv2.INTER_NEAREST
-                            )
-                        mask_np = (mask_np > 0.5).astype(np.uint8)
-                        det_dict["mask"] = mask_np
-                    except Exception as e:
-                        logger.warning(f"提取 mask 失败（索引 {i}）: {e}")
-                
                 detections.append(det_dict)
         
         return detections
@@ -327,48 +383,7 @@ class MinimapDetector:
             cv2.putText(vis_img, "Enemy", (ex+12, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
         return vis_img
-        
-    # -----------------------------------------------------------
-    def _extract_angle_geometric(
-        self,
-        detections: List[Dict],
-        frame_bgr: np.ndarray,
-    ) -> Optional[float]:
-        """使用几何方法提取箭头角度。
 
-        Args:
-            detections: YOLO检测结果字典列表
-            frame_bgr: 完整帧的BGR图像
-
-        Returns:
-            角度（度），失败返回None
-        """
-        if self.orientation_estimator_ is None:
-            return None
-
-        class_id = self._get_class_id_by_name("self_arrow")
-        if class_id is None:
-            return None
-
-        # 找到 self_arrow 的检测结果（取置信度最高的）
-        target_det = None
-        best_conf = -1.0
-        for det in detections:
-            if int(det.get("cls", -1)) == int(class_id):
-                conf = det.get("confidence", 0.0)
-                if conf > best_conf:
-                    best_conf = conf
-                    target_det = det
-
-        if target_det is None:
-            return None
-
-        bbox = target_det.get("bbox")
-        if bbox is None or len(bbox) != 4:
-            return None
-
-        # 调用几何朝向估计器
-        return self.orientation_estimator_.estimate_from_bbox(frame_bgr, bbox)
 
     def _extract_center(self, detections: List[Dict], class_name: str) -> Optional[Tuple[float, float]]:
         """从检测列表中筛选某个类别，并取最高置信度的中心点
@@ -463,7 +478,7 @@ class MinimapDetector:
         # if area_ratio < self.min_area_ratio_ or area_ratio > self.max_area_ratio_:
         #     return None
         
-        # # 检查外接矩形宽高比
+        # 检查外接矩形宽高比
         # x, y, w, h = cv2.boundingRect(largest_contour)
         # if h <= 0:
         #     return None
@@ -554,10 +569,12 @@ class MinimapDetector:
     def Reset(self):
         """重置检测器状态"""
         self.angle_smoother_.Reset()
+        self.base_position = None
 
 def run_benchmark(
     image_path: str,
-    model_path: str,
+    model_path_base: str,
+    model_path_arrow: str,
     target_fps: float,
     max_frames: Optional[int] = None,
     show_visualization: bool = False,
@@ -569,7 +586,7 @@ def run_benchmark(
         sys.exit(1)
 
     # 创建检测器
-    detector = MinimapDetector(model_path=model_path)
+    detector = MinimapDetector(model_path_base=model_path_base, model_path_arrow=model_path_arrow)
     if not detector.LoadModel():
         print("模型加载失败")
         sys.exit(1)
@@ -652,7 +669,13 @@ if __name__ == "__main__":
         help="图片文件路径（小地图截图）",
     )
     parser.add_argument(
-        "--model_path",
+        "--model_path_base",
+        type=str,
+        default="best.pt",
+        help="检测模型路径 (默认: best.pt)",
+    )
+    parser.add_argument(
+        "--model_path_arrow",
         type=str,
         default="best.pt",
         help="检测模型路径 (默认: best.pt)",
@@ -681,8 +704,9 @@ if __name__ == "__main__":
 
     run_benchmark(
         image_path=args.image_path,
-        model_path=args.model_path,
+        model_path_base=args.model_path_base,
+        model_path_arrow=args.model_path_arrow,
         target_fps=args.fps,
         max_frames=max_frames,
-        show_visualization=False,
+        show_visualization=True,
     )

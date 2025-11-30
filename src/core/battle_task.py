@@ -130,8 +130,6 @@ class BattleTask:
                     self._handle_battle_state()
                 elif current_state == GameState.IN_END:
                     self._handle_end_state()
-                elif current_state == GameState.IN_RESULT_PAGE:
-                    self._handle_result_page_state()
                 elif current_state == GameState.UNKNOWN:
                     pass
                 
@@ -199,9 +197,7 @@ class BattleTask:
         """
         处理结束状态：停止导航AI运行循环（保留初始化状态）
         """
-        if self.end_handled_:
-            return
-        
+
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
         # 停止导航AI运行循环
@@ -218,9 +214,6 @@ class BattleTask:
             logger.error("返回车库失败，将在下次循环重试")
             return
         
-        # 标记已处理
-        self.end_handled_ = True
-
         # 重置战斗状态标志，为下一局做准备
         self.battle_handled_ = False
         self.garage_handled_ = False
@@ -298,13 +291,20 @@ class BattleTask:
         """
         logger.info("退出结算界面，返回车库...")
 
-        # 1. 当前在结算页面
-        success = self.template_matcher_.match_template("space_jump.png", confidence=0.85)
+        # 1. 奖励页面，按下esc键退出奖励页面
+        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
+        if success is not None:
+            logger.info("在奖励页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+        
+        # 2. 结算页面
+        success = self.template_matcher_.match_template("jie_suan_2.png", confidence=0.85)
         if success is not None:
             logger.info("在结算页面，按下esc键退出结算界面")
             self.key_controller_.tap(Key.esc)
             return True
-        
+            
         # 2.当被击毁时，点击"返回车库"按钮
         # press esc
         success = self.template_matcher_.match_template("pingjia.png", confidence=0.85)

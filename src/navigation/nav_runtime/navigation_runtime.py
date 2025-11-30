@@ -17,7 +17,6 @@ from src.navigation.config.loader import load_config
 from src.navigation.service.data_hub import DataHub
 # 屏幕捕获
 from src.navigation.service.capture_service import CaptureService
-from src.utils.screen_action import ScreenAction
 # 运动控制
 from src.navigation.nav_runtime.stuck_detector import StuckDetector
 from src.navigation.controller.movement_service import MovementService
@@ -62,7 +61,8 @@ class NavigationRuntime:
         angle_cfg = self.cfg.angle_detection
         if angle_cfg is not None:
             self.minimap_detector = MinimapDetector(
-                model_path=self.cfg.model.path,
+                model_path_base=self.cfg.model.base_path,
+                model_path_arrow=self.cfg.model.arrow_path,
                 conf_threshold=self.cfg.model.conf_threshold,
                 iou_threshold=self.cfg.model.iou_threshold,
                 smoothing_alpha=angle_cfg.smoothing_alpha,
@@ -75,7 +75,8 @@ class NavigationRuntime:
         else:
             # 向后兼容：如果没有配置，使用默认值
             self.minimap_detector = MinimapDetector(
-                model_path=self.cfg.model.path,
+                model_path_base=self.cfg.model.base_path,
+                model_path_arrow=self.cfg.model.arrow_path,
                 conf_threshold=self.cfg.model.conf_threshold,
                 iou_threshold=self.cfg.model.iou_threshold,
             )
@@ -84,6 +85,8 @@ class NavigationRuntime:
         self.minimap_region: Optional[dict] = None
 
         # 控制与跟随
+        # TODO(@ly): 后续可将 missing_det_timeout 放到配置文件中
+        missing_det_timeout = getattr(self.cfg, "missing_det_timeout", 1.5)
         self.move = MovementService(
             angle_dead_zone_deg=self.cfg.control.angle_dead_zone_deg,
             angle_slow_turn_deg=self.cfg.control.angle_slow_turn_deg,
@@ -109,6 +112,7 @@ class NavigationRuntime:
             min_hold_time_ms=self.cfg.control.min_hold_time_ms,
             forward_hysteresis_on=self.cfg.control.forward_hysteresis_on,
             forward_hysteresis_off=self.cfg.control.forward_hysteresis_off,
+            missing_det_timeout=missing_det_timeout,
         )
 
         self.path_follower_wrapper = PathFollowerWrapper(
@@ -144,6 +148,7 @@ class NavigationRuntime:
             return False
 
         # 先检测一次小地图位置，并写入 minimap_region
+        # first_frame = self.capture.grab_window_by_name("WorldOfTanks.exe")
         first_frame = self.capture.grab()
         if first_frame is None:
             logger.error("首次抓取屏幕失败，无法检测小地图")
@@ -155,19 +160,6 @@ class NavigationRuntime:
             return False
         logger.info(f"检测到小地图区域: {self.minimap_region}")
 
-        # 检测当前地图名称，读取 mask 图片
-        # V1
-        # if not map_name:
-        #     map_name_frame = ScreenAction().screenshot_with_key_hold('b')
-        #     if map_name_frame is None:
-        #         logger.error("无法截取地图名称界面")
-        #         return False
-        #     map_name = self.minimap_name_detector.detect(map_name_frame)
-        #     if not map_name:
-        #         logger.error("无法识别地图名称")
-        #         return False
-        #     logger.info(f"当前地图名称: {map_name}")
-        # V2
         if not map_name:
             from src.utils.key_controller import KeyController
             key_controller = KeyController()
@@ -274,8 +266,7 @@ class NavigationRuntime:
         logger.info("控制线程启动")
 
         # 控制线程 FPS
-        # ctrl_fps = getattr(self.cfg.performance, "control_fps", 20)
-        ctrl_fps = 20
+        ctrl_fps = 30
         ctrl_fps = max(1, int(ctrl_fps))
         interval = 1.0 / ctrl_fps
 
@@ -305,11 +296,25 @@ class NavigationRuntime:
             t0 = time.perf_counter()
 
             # 1) 读取最新检测结果
-            det = self.data_hub.get_latest_detection(max_age=0.5)
-            if det is None or getattr(det, "self_pos", None) is None:
-                self.move.stop()
-                time.sleep(interval)
-                continue
+            det = self.data_hub.get_latest_detection(max_age=1.0)
+            has_detection = det is not None and getattr(det, "self_pos", None) is not None
+
+            # 更新检测状态（盲走模式逻辑在 MovementService 内部处理）
+            self.move.update_detection_status(has_detection)
+
+            if not has_detection:
+                # 没有检测结果：由 MovementService 决定是否进入盲走模式
+                should_blind_forward = self.move.tick_blind_forward()
+                if should_blind_forward:
+                    # 已进入盲走模式，继续循环
+                    dt = time.perf_counter() - t0
+                    if dt < interval:
+                        time.sleep(interval - dt)
+                    continue
+                else:
+                    # tick_blind_forward 已处理停车逻辑，只需等待
+                    time.sleep(interval)
+                    continue
 
             pos = det.self_pos
             heading = math.radians(getattr(det, "self_angle", 0.0) or 0.0)
@@ -361,10 +366,7 @@ class NavigationRuntime:
             dev = follow_result.distance_to_path
             dist_goal = follow_result.distance_to_goal
             goal_reached = follow_result.goal_reached
-            new_idx = follow_result.current_idx
-            used_target_idx = follow_result.target_idx_used
-
-            current_target_idx = new_idx
+            current_target_idx = follow_result.current_idx
 
             # ---- 调试 UI：更新导航状态 + 路径 ----
             if self.view is not None:

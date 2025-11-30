@@ -4,9 +4,10 @@
 
 # YOLO模型配置
 model:
-  path: "resource/model/best_m_detect.pt"  # YOLO模型文件路径（必需）
-  conf_threshold: 0.65  # 置信度阈值 (0.0-1.0)
-  iou_threshold: 0.55  # IoU阈值 (0.0-1.0)
+  base_path: "resource/model/map_detect_base.pt"  # YOLO模型文件路径（必需）
+  arrow_path: "resource/model/map_detect_arrow.pt"  # YOLO模型文件路径（必需）
+  conf_threshold: 0.1  # 置信度阈值 (0.0-1.0)
+  iou_threshold: 0.1  # IoU阈值 (0.0-1.0)
 
 # 小地图配置
 minimap:
@@ -22,57 +23,73 @@ mask:
 grid:
   size: [256, 256]  # 栅格尺寸 [width, height]
 
-# 路径规划配置
-path_planning:
-  enable_astar_smoothing: true  # 是否启用A*内部平滑
-  astar_smooth_weight: 0.3  # A*平滑权重 (0.0-1.0)
-  post_smoothing_method: "catmull_rom"  # cost-map后处理: "catmull_rom" 或 "los"
-  simplify_method: "rdp"  # 简化方法
-  simplify_threshold: 5  # 简化阈值
-  num_points_per_segment: 8  # 每段采样点数
-  curvature_threshold_deg: 40.0  # 曲率阈值（度）
-  check_curvature: true  # 是否进行曲率检查
-  enable_los_post_smoothing: true  # 当 post_smoothing_method=los 时是否启用
+# 路径规划、控制、角度检测配置
+#
+# 本节涵盖路径生成（A*平滑、采样、后处理）、动作控制（容忍阈值、速度与滞回策略），以及 minimap 箭头角度检测参数。
+# 范围包括 path_planning（路径算法配置）、control（运动执行与错误检测）、angle_detection（箭头检测限制），如需实验/调参时可重点关注。
 
-# 控制配置
+path_planning:                # 路径规划相关参数
+  enable_astar_smoothing: true                # 开启A*内部平滑（可去除锯齿，对窄道友好，需配合简化阈值防止过拟合）
+  astar_smooth_weight: 0.3                    # A*平滑权重 (0.0-1.0)，0.3为适中，能兼顾细节与路径平顺
+  post_smoothing_method: "catmull_rom"        # 路径后处理方法: "catmull_rom"（平滑曲线）或 "los"（线段）
+  simplify_method: "rdp"                      # 路径简化方法: RDP，可减少 waypoint 数提升效率
+  simplify_threshold: 3                       # 简化阈值(px)，<5更适合保持窄弯信息
+  num_points_per_segment: 8                   # CatmullRom采样点数，平滑度和点数折中
+  curvature_threshold_deg: 30.0               # 曲率阈值(°)，大于此为急弯，可限制过度平滑
+  check_curvature: true                       # 启用曲率检查，窄路必开，防止平滑导致出道
+  enable_los_post_smoothing: true             # 仅"los"后处理用（catmull_rom保留占位，为兼容未来切换）
+
 control:
-  move_speed: 1.0  # 移动速度
-  rotation_smooth: 0.3  # 旋转平滑度
-  goal_arrival_threshold: 15.0  # 终点到达阈值（像素）
-  path_deviation_tolerance: 5  # 路径偏离容忍度（像素）
-  stuck_threshold: 10.0  # 卡顿检测阈值（像素）
-  stuck_frames_threshold: 120  # 连续卡顿帧数阈值 必须大于 0
-  
-  # MovementController 参数
-  angle_dead_zone_deg: 3.0  # 角度死区（度）
-  angle_slow_turn_deg: 12.0  # 角度慢转阈值（度）
-  distance_stop_threshold: 6.0  # 距离停止阈值（像素）
-  slow_down_distance: 40.0  # 开始减速距离（像素）
-  max_forward_speed: 1.0  # 最大前进速度
-  min_forward_factor: 0.3  # 最小前进因子
-  large_angle_threshold_deg: 40.0  # 大角度阈值（度）
-  large_angle_speed_reduction: 0.3  # 大角度速度衰减系数
-  
-  # MoveExecutor 参数
-  smoothing_alpha: 0.4  # 平滑滤波系数
-  turn_deadzone: 0.06  # 转向死区
-  min_hold_time_ms: 25.0  # 最小按键保持时间（毫秒）
-  forward_hysteresis_on: 0.35  # 前进滞回开启阈值
-  forward_hysteresis_off: 0.08  # 前进滞回关闭阈值
-  
-  # PathFollower 参数
-  max_lateral_error: 35.0  # 最大横向误差（像素）
-  lookahead_distance: 40.0  # 前瞻距离（像素）
-  waypoint_switch_radius: 20.0  # Waypoint切换半径（像素）
 
-# 角度检测配置（可选）
-angle_detection:
-  smoothing_alpha: 1.0  # 角度平滑系数 (0.0-1.0)
-  max_step_deg: 90.0     # 单帧最大角度变化（度）
-  min_area_ratio: 0.2    # 轮廓面积最小比例
-  max_area_ratio: 0.9    # 轮廓面积最大比例
-  min_aspect_ratio: 0.3  # 外接矩形最小宽高比
-  max_aspect_ratio: 3.0  # 外接矩形最大宽高比
+  # === 状态与基本判定 ===
+  goal_arrival_threshold: 15.0
+  path_deviation_tolerance: 3
+  stuck_threshold: 3
+  stuck_frames_threshold: 600
+  debug_log_interval: 30
+
+  # === MovementController ===
+  angle_dead_zone_deg: 8.0              # 容忍更多角度误差，减少抖动修正
+  angle_slow_turn_deg: 15.0             # 小角度慢转区拉大一点，更平顺
+
+  distance_stop_threshold: 3.0          # 只在离 waypoint 非常近才停
+  slow_down_distance: 4.0               # 很靠近才减速，基本全程不提前刹车
+
+  max_forward_speed: 1.0
+  min_forward_factor: 0.7               # 大角度转向时最低也保留 70% 速度
+  large_angle_threshold_deg: 55.0       # 只有超大角度才算“大转弯”
+  large_angle_speed_reduction: 0.15     # 大转弯最多只降 15% 速度
+
+  corridor_ref_width: 8
+  edge_speed_reduction: 0.95            # 走到走廊边缘时几乎不减速
+  recenter_speed_reduction: 0.85        # 纠偏时速度也保持在 85% 左右
+
+  # 直行模式判定
+  straight_angle_enter_deg: 3           # 更容易进入直行模式
+  straight_angle_exit_deg: 6
+  straight_lat_enter: 3
+  straight_lat_exit: 6
+
+  # === MoveExecutor ===
+  smoothing_alpha: 0.5
+  turn_deadzone: 0.06
+  min_hold_time_ms: 6.0
+  forward_hysteresis_on: 0.40           # 一旦判定前进，就更不容易被关掉
+  forward_hysteresis_off: 0.10
+
+  # === PathFollower ===
+  max_lateral_error: 5.0               # 允许稍微离路中心远一点，换平滑前进
+  lookahead_distance: 15.0              # 提前看远一点，路径更适合高速
+  waypoint_switch_radius: 3.0           # 更快切下一点，减少在点附近反复修正
+
+
+angle_detection:               # 小地图角度检测限制
+  smoothing_alpha: 0.9                          # 角度检测平滑系数(0=全历史, 1=全新值)
+  max_step_deg: 50.0                            # 单帧允许的最大角度跳变限制(°)
+  min_area_ratio: 0.2                           # 检测区域需占小地图面积的最小比例
+  max_area_ratio: 0.9                           # 检测区域允许的最大面积比例
+  min_aspect_ratio: 0.3                         # 箭头最小宽高比（排除细长异常）
+  max_aspect_ratio: 3.0                         # 箭头最大宽高比（排除过于扁平异常）
 
 # 车辆配置
 vehicle:
