@@ -265,9 +265,18 @@ class UiConfig(BaseModel):
     enable: bool = Field(False, description="是否启用调试视图")
 
 
+class GameConfig(BaseModel):
+    """游戏配置"""
+    process_name: str = Field("WorldOfTanks.exe", description="游戏进程名称")
+    exe_path: str = Field("C:/Games/World_of_Tanks_CN/WorldOfTanks.exe", description="游戏可执行文件路径")
+    restart_wait_seconds: int = Field(10, description="重启等待时间（秒）")
+    stuck_timeout_seconds: int = Field(480, description="卡死判定超时时间（秒）")
+
+
 class NavigationConfig(BaseModel):
     """导航主配置"""
     model: ModelConfig = Field(..., description="YOLO模型配置")
+    game: GameConfig = Field(default_factory=GameConfig, description="游戏配置")
     minimap: MinimapConfig = Field(..., description="小地图配置")
     mask: Optional[MaskConfig] = Field(None, description="掩码配置（可选）")
     grid: GridConfig = Field(..., description="栅格配置")

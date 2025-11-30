@@ -12,6 +12,7 @@ import cv2
 from time import sleep
 
 from src.core.task_manager import TaskManager
+from src.core.battle_task import BattleTask
 from src.core.tank_selector import TankSelector
 from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath
 from src.navigation.config.loader import load_config
@@ -426,9 +427,14 @@ class MainWindow:
     def _init_debug_components(self):
         """初始化调试组件"""
         try:
+            # 加载配置
+            config = self._get_ai_config()
+            
             self.debug_state_machine_ = StateMachine()
             self.debug_map_detector_ = MapNameDetector()
             self.debug_tank_selector_ = TankSelector()
+            self.debug_battle_task = BattleTask(config)
+            
             logger.info("调试组件初始化完成")
         except Exception as e:
             logger.error(f"调试组件初始化失败: {e}")
