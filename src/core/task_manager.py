@@ -11,6 +11,7 @@ import subprocess
 from datetime import datetime
 from loguru import logger
 from .battle_task import BattleTask
+from src.utils.global_path import GetGlobalConfig
 
 class TaskManager:
     """任务管理器"""
@@ -35,7 +36,15 @@ class TaskManager:
         
         self.running_ = False
         self.start_time_ = None
-    
+        
+        # Load configuration
+        try:
+            self.config_ = GetGlobalConfig()
+            logger.info(f"Task manager loaded config from {self.config_}")
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            raise e
+
     def run_forever(self) -> None:
         """持续执行战斗循环"""
         self.running_ = True
@@ -51,7 +60,7 @@ class TaskManager:
                     break
                 
                 # 创建战斗任务
-                task = BattleTask()
+                task = BattleTask(self.config_)
                 
                 # 启动事件驱动循环
                 if not task.start():

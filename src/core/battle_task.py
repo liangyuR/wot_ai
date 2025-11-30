@@ -18,6 +18,9 @@ from src.utils.template_matcher import TemplateMatcher
 from src.utils.key_controller import KeyController
 from src.navigation.nav_runtime.navigation_runtime import NavigationRuntime
 from pynput.keyboard import Key
+from src.utils.restart_game import GameRestarter
+from src.utils.global_path import GetGlobalConfig
+
 
 class BattleTask:
     """战斗任务（事件驱动模式）"""
@@ -32,9 +35,7 @@ class BattleTask:
         初始化战斗任务
         
         Args:
-            tank_selector: 坦克选择器
-            state_machine: 状态机实例
-            ai_config: NavigationConfig配置对象
+            config: 配置对象
             selection_retry_interval: 选择失败后的重试间隔
             selection_timeout: 选择超时时间
             state_check_interval: 状态检测间隔（秒）
@@ -46,6 +47,14 @@ class BattleTask:
         self.key_controller_ = KeyController()
         self.navigation_runtime_ = None
         self.navigation_thread_ = None
+        
+        config = GetGlobalConfig()
+        self.game_restarter_ = GameRestarter(
+            process_name=config.game.process_name,
+            game_exe_path=config.game.exe_path,
+            wait_seconds=config.game.restart_wait_seconds
+        )
+        self.stuck_timeout_ = config.game.stuck_timeout_seconds
 
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
@@ -63,6 +72,10 @@ class BattleTask:
         
         # 选中的车辆
         self.selected_tank_: Optional[TankTemplate] = None
+        
+        # 状态监测
+        self.last_state_ = GameState.UNKNOWN
+        self.last_state_change_time_ = time.time()
     
     def start(self) -> bool:
         """
@@ -116,6 +129,8 @@ class BattleTask:
         事件驱动主循环
         """
         logger.info("事件循环开始运行")
+        self.last_state_change_time_ = time.time()
+        self.last_state_ = GameState.UNKNOWN
         
         while self.running_:
             try:
@@ -123,6 +138,23 @@ class BattleTask:
                 self.state_machine_.update()
                 current_state = self.state_machine_.current_state()
                 
+                # 状态变化检测
+                if current_state != self.last_state_:
+                    self.last_state_ = current_state
+                    self.last_state_change_time_ = time.time()
+                
+                # 卡死检测
+                elapsed_since_change = time.time() - self.last_state_change_time_
+                if elapsed_since_change > self.stuck_timeout_:
+                    logger.error(f"游戏状态已 {elapsed_since_change:.1f} 秒未变化，判定为卡死，执行重启...")
+                    self.game_restarter_.RestartGame()
+                    # 重启后重置状态计时
+                    self.last_state_change_time_ = time.time()
+                    self.last_state_ = GameState.UNKNOWN
+                    # 等待游戏启动
+                    time.sleep(30)
+                    continue
+
                 # 根据当前状态执行相应操作
                 if current_state == GameState.IN_GARAGE:
                     self._handle_garage_state()

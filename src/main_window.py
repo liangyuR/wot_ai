@@ -12,13 +12,11 @@ import cv2
 from time import sleep
 
 from src.core.task_manager import TaskManager
+from src.core.battle_task import BattleTask
 from src.core.tank_selector import TankSelector
-from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath
-from src.navigation.config.loader import load_config
-from src.navigation.config.models import NavigationConfig
+from src.utils.global_path import GetVehicleScreenshotsDir
 from src.vision.map_name_detector import MapNameDetector
 from src.core.state_machine import StateMachine
-
 
 class MainWindow:
     def __init__(self):
@@ -261,31 +259,6 @@ class MainWindow:
         default_dir = GetVehicleScreenshotsDir()
         default_dir.mkdir(parents=True, exist_ok=True)
         return default_dir
-    
-    def _get_ai_config(self) -> NavigationConfig:
-        """获取AI配置"""
-        config_path = GetConfigPath()
-        if not config_path.exists():
-            # 如果配置文件不存在，使用模板路径
-            template_path = GetConfigTemplatePath()
-            if template_path.exists():
-                logger.warning(f"配置文件不存在，使用模板: {template_path}")
-                config_path = template_path
-            else:
-                # 如果模板也不存在，抛出异常
-                error_msg = f"配置文件不存在: {config_path}，请创建配置文件"
-                logger.error(error_msg)
-                messagebox.showerror("配置错误", error_msg)
-                raise FileNotFoundError(error_msg)
-        
-        try:
-            config = load_config(config_path)
-            logger.info(f"加载配置文件成功: {config}")
-            return config
-        except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
-            messagebox.showerror("配置错误", str(e))
-            raise
 
     def _update_status(self):
         if self.is_running:
@@ -429,6 +402,7 @@ class MainWindow:
             self.debug_state_machine_ = StateMachine()
             self.debug_map_detector_ = MapNameDetector()
             self.debug_tank_selector_ = TankSelector()
+            self.debug_battle_task = BattleTask()
             logger.info("调试组件初始化完成")
         except Exception as e:
             logger.error(f"调试组件初始化失败: {e}")

@@ -7,6 +7,13 @@ model:
   conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
   iou_threshold: 0.75  # IoU阈值 (0.0-1.0)
 
+# 游戏配置
+game:
+  process_name: "WorldOfTanks.exe"  # 游戏进程名称
+  exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe"  # 游戏可执行文件路径（请根据实际情况修改）
+  restart_wait_seconds: 10  # 重启等待时间（秒）
+  stuck_timeout_seconds: 480  # 卡死判定超时时间（秒）
+
 # 小地图配置
 minimap:
   template_path: "tests/minimap_border.png"  # 小地图模板文件路径（必需）
