@@ -51,7 +51,7 @@ class StateMachine:
         self.state_history_ = []
         self.last_update_time_ = 0.0
         self.template_matcher_ = TemplateMatcher()
-        self.screen_action_ = ScreenAction()
+        self.screen_action_ = ScreenAction() # TODO(@liangyu) 替换为 CaptureService
         
         # 状态模板映射
         self.state_templates_ = {

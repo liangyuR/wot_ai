@@ -215,8 +215,6 @@ class BattleTask:
         self.garage_handled_ = False
 
         logger.info("检测到战斗状态，开始启动导航...")
-        # 等待一段时间让游戏稳定
-        time.sleep(10.0)
         # 启动导航线程
         self.navigation_runtime_ = NavigationRuntime()
         self.navigation_thread_ = threading.Thread(target=self.navigation_runtime_.start, daemon=True)
