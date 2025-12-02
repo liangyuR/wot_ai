@@ -94,10 +94,15 @@ class AngleSmoother:
 
 class MinimapDetector:
     """
-    重新设计后的小地图检测器
+    双模型小地图检测器
+
+    检测流程：
+    1. 使用 detect_engine_（检测模型）在全图上检测 self_arrow 和 enemy_flag
+    2. 如果找到 self_arrow bbox，裁剪后使用 pose_engine_（姿态模型）检测关键点
+    3. 通过关键点计算精确的位置和朝向
 
     输入：一张完整的小地图图像 (frame_minimap)
-    输出：self_pos, enemy_flag_pos 以及原始 YOLO detection 列表
+    输出：self_pos, self_angle, enemy_flag_pos 以及原始检测结果列表
     """
 
     def __init__(
@@ -114,14 +119,14 @@ class MinimapDetector:
         max_aspect_ratio: float = 3.0,
     ):
         if not model_path_base:
-            raise ValueError("model_path 不能为空")
+            raise ValueError("model_path_base 不能为空")
         if not model_path_arrow:
             raise ValueError("model_path_arrow 不能为空")
 
-        # 基地检测模块
-        self.base_engine_ = DetectionEngine(model_path_base)
-        # 箭头检测模块
-        self.arrow_engine_ = DetectionEngine(model_path_arrow)
+        # 检测模型：在全图上检测 self_arrow 和 enemy_flag
+        self.detect_engine_ = DetectionEngine(model_path_base)
+        # 姿态模型：在裁剪区域上检测关键点
+        self.pose_engine_ = DetectionEngine(model_path_arrow)
 
         self.conf_threshold_ = conf_threshold
         self.iou_threshold_ = iou_threshold
@@ -145,12 +150,12 @@ class MinimapDetector:
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
         """加载模型并初始化类别名称映射"""
-        if not self.base_engine_.LoadModel():
-            logger.error("MinimapDetector: 模型加载失败")
+        if not self.detect_engine_.LoadModel():
+            logger.error("MinimapDetector: detect_engine 模型加载失败")
             return False
 
-        if not self.arrow_engine_.LoadModel():
-            logger.error("MinimapDetector: 模型加载失败")
+        if not self.pose_engine_.LoadModel():
+            logger.error("MinimapDetector: pose_engine 模型加载失败")
             return False
 
         logger.info("MinimapDetector: 模型加载成功")
@@ -182,100 +187,133 @@ class MinimapDetector:
         return self.class_name_to_id_.get(class_name)
 
 
-       # -----------------------------------------------------------
+    # -----------------------------------------------------------
     def Detect(self, frame: np.ndarray) -> MinimapDetectionResult:
+        """双模型检测流程：
+        1. 使用 detect_engine_ 在全图上检测 self_arrow 和 enemy_flag
+        2. 如果找到 self_arrow bbox，裁剪后使用 pose_engine_ 检测关键点
+        """
         if frame is None or frame.size == 0:
             logger.error("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
-        # 基地位置（只需检测一次后缓存）
-        if self.base_position is not None:
-            raw_detections = []
-        else:
-            base_result = self.base_engine_.Detect(
-                frame,
-                confidence_threshold=self.conf_threshold_,
-                iou_threshold=self.iou_threshold_,
-                max_det=10
-            )
-            logger.debug(f"base_engine 检测结果: {base_result}")
+        # === 第一步：全局检测 ===
+        detect_result = self.detect_engine_.Detect(
+            frame,
+            confidence_threshold=self.conf_threshold_,
+            iou_threshold=self.iou_threshold_,
+            max_det=10
+        )
 
-            if not base_result:
-                logger.error("MinimapDetector: base_engine 检测结果为空，无法获取 enemy_flag 位置")
-                return MinimapDetectionResult(None, None, None, [])
+        if not detect_result or len(detect_result) == 0:
+            logger.warning("MinimapDetector: detect_engine 检测结果为空")
+            return MinimapDetectionResult(None, None, self.base_position, [])
 
-            if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
-                self._update_class_mapping(base_result)
-                self._class_mapping_initialized = True
+        # 初始化类别映射（如果尚未初始化）
+        if not hasattr(self, "_class_mapping_initialized") or not self._class_mapping_initialized:
+            self._update_class_mapping(detect_result)
+            self._class_mapping_initialized = True
 
-            raw_detections = self._parse_results(base_result)
+        # 解析检测结果
+        raw_detections = self._parse_results(detect_result)
+
+        # 检测并缓存 enemy_flag 位置（只需一次）
+        if self.base_position is None:
             self.base_position = self._extract_center(raw_detections, "enemy_flag")
             if self.base_position is not None:
                 logger.debug(f"检测到 enemy_flag 位置并缓存: {self.base_position}")
             else:
                 logger.warning("MinimapDetector: 未能在检测结果中找到 enemy_flag")
 
-        # 箭头（关键点模型）
-        arrow_result = self.arrow_engine_.Detect(
-            frame,
+        # 查找 self_arrow 的 bbox
+        arrow_class_id = self._get_class_id_by_name("self_arrow")
+        if arrow_class_id is None:
+            logger.warning("MinimapDetector: 未找到 self_arrow 类别 ID")
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
+
+        arrow_dets = [d for d in raw_detections if d["cls"] == arrow_class_id]
+        if not arrow_dets:
+            logger.warning("MinimapDetector: 未检测到 self_arrow")
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
+
+        # 选择置信度最高的 self_arrow
+        best_arrow = max(arrow_dets, key=lambda d: d["confidence"])
+        x1, y1, x2, y2 = best_arrow["bbox"]
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
+        # === 第二步：裁剪并运行姿态估计 ===
+        # 添加 10px padding
+        padding = 10
+        h, w = frame.shape[:2]
+        crop_x1 = max(0, x1 - padding)
+        crop_y1 = max(0, y1 - padding)
+        crop_x2 = min(w, x2 + padding)
+        crop_y2 = min(h, y2 + padding)
+
+        # 裁剪图像
+        crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+        if crop.size == 0:
+            logger.warning("MinimapDetector: 裁剪区域为空")
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
+
+        # 运行姿态模型
+        pose_result = self.pose_engine_.Detect(
+            crop,
             confidence_threshold=self.conf_threshold_,
             iou_threshold=self.iou_threshold_,
             max_det=10,
         )
 
-        if not arrow_result or len(arrow_result) == 0:
-            logger.warning("MinimapDetector: 箭头检测结果为空")
-            return MinimapDetectionResult(None, None, None, raw_detections)
+        if not pose_result or len(pose_result) == 0:
+            logger.warning("MinimapDetector: pose_engine 检测结果为空")
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
 
-        first_result = arrow_result[0]
-        if not hasattr(first_result, "keypoints") or first_result.keypoints is None:
-            logger.warning("MinimapDetector: 箭头检测结果中没有 keypoints")
-            return MinimapDetectionResult(None, None, None, raw_detections)
+        first_pose_result = pose_result[0]
+        if not hasattr(first_pose_result, "keypoints") or first_pose_result.keypoints is None:
+            logger.warning("MinimapDetector: pose_engine 检测结果中没有 keypoints")
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
 
-        # 可视化 dump（可选，保留）
-        # import os
-        # plotted = first_result.plot()
-        # out_dir = "C:/Users/11601/project/wot_ai/resource/run/"
-        # os.makedirs(out_dir, exist_ok=True)w
-        # base_name = "arrow"
-        # ext = ".png"
-        # i = 1
-        # while True:
-        #     out_path = os.path.join(out_dir, f"{base_name}{i}{ext}")
-        #     if not os.path.exists(out_path):
-        #         break
-        #     i += 1
-        # cv2.imwrite(out_path, plotted)
-
-        keypoints = first_result.keypoints
+        keypoints = first_pose_result.keypoints
         if keypoints.xy is None or len(keypoints.xy) == 0:
             logger.warning("MinimapDetector: keypoints 坐标为空")
-            return MinimapDetectionResult(None, None, None, raw_detections)
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
 
         xy = keypoints.xy  # (N, K, 2)
         if len(xy) == 0:
             logger.warning("MinimapDetector: keypoints.xy 数组为空")
-            return MinimapDetectionResult(None, None, None, raw_detections)
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
 
         coords = xy[0]
         if coords is None or len(coords) == 0:
             logger.warning("MinimapDetector: coords 数组为空")
-            return MinimapDetectionResult(None, None, None, raw_detections)
+            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
 
-        # === 角度计算（图像坐标系；关键点顺序：0=head, 1=tail） ===
+        # === 坐标转换和结果计算 ===
+        # 关键点顺序：0=head, 1=tail
         if coords.shape[0] >= 2:
             try:
-                head_x, head_y = float(coords[0][0]), float(coords[0][1])
-                tail_x, tail_y = float(coords[1][0]), float(coords[1][1])
-                if not (np.isfinite(head_x) and np.isfinite(head_y) and np.isfinite(tail_x) and np.isfinite(tail_y)):
+                # 局部坐标（相对于裁剪区域）
+                head_x_local, head_y_local = float(coords[0][0]), float(coords[0][1])
+                tail_x_local, tail_y_local = float(coords[1][0]), float(coords[1][1])
+
+                if not (np.isfinite(head_x_local) and np.isfinite(head_y_local) and 
+                        np.isfinite(tail_x_local) and np.isfinite(tail_y_local)):
                     logger.warning("MinimapDetector: 关键点坐标包含 NaN 或 inf")
                     self_pos = None
                     self_angle = None
                 else:
-                    self_pos = ((head_x + tail_x) / 2, (head_y + tail_y) / 2)
-                    dx = head_x - tail_x
-                    dy = head_y - tail_y
-                    # 关键修正：不再对 dy 取反，直接按图像坐标求角度
+                    # 转换为全局坐标
+                    head_x_global = head_x_local + crop_x1
+                    head_y_global = head_y_local + crop_y1
+                    tail_x_global = tail_x_local + crop_x1
+                    tail_y_global = tail_y_local + crop_y1
+
+                    # 计算位置：使用关键点中心
+                    self_pos = ((head_x_global + tail_x_global) / 2, (head_y_global + tail_y_global) / 2)
+
+                    # 计算角度：从 tail 指向 head
+                    dx = head_x_global - tail_x_global
+                    dy = head_y_global - tail_y_global
                     self_angle = float(np.degrees(np.arctan2(dy, dx)) % 360)
             except (IndexError, TypeError, ValueError) as e:
                 logger.error(f"MinimapDetector: 解析关键点时发生异常: {e}")
@@ -286,12 +324,10 @@ class MinimapDetector:
             self_pos = None
             self_angle = None
 
-        enemy_flag_pos = self.base_position
-
         result = MinimapDetectionResult(
             self_pos=self_pos,
             self_angle=self_angle,
-            enemy_flag_pos=enemy_flag_pos,
+            enemy_flag_pos=self.base_position,
             raw_detections=raw_detections,
         )
         return result
