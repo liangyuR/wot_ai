@@ -205,6 +205,9 @@ class NavigationRuntime:
         if self._ctrl_thread and self._ctrl_thread.is_alive():
             self._ctrl_thread.join(timeout=1.0)
 
+        if self.view is not None:
+            self.view.close()
+
         # 停止所有按键
         try:
             self.move.stop()

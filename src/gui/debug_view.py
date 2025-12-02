@@ -287,6 +287,11 @@ class DpgNavDebugView(NavDebugView):
 
         dpg.destroy_context()
 
+    def close(self) -> None:
+        if not self._enable:
+            return
+        dpg.destroy_context()
+
     # ---------------------------------------------------------------------
     # Internal helpers (UI thread only)
     # ---------------------------------------------------------------------
