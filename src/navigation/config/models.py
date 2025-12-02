@@ -223,7 +223,9 @@ class ControlConfig(BaseModel):
     debug_log_interval: int = Field(30, description="控制日志输出间隔（帧）")
     
     # MoveExecutor 参数
-    smoothing_alpha: float = Field(0.3, description="平滑滤波系数")
+    smoothing_alpha: float = Field(0.3, description="平滑滤波系数（已废弃，保留兼容）")
+    smoothing_alpha_forward: float = Field(0.2, description="前进平滑系数")
+    smoothing_alpha_turn: float = Field(0.6, description="转向平滑系数")
     turn_deadzone: float = Field(0.12, description="转向死区")
     min_hold_time_ms: float = Field(100.0, description="最小按键保持时间（毫秒）")
     forward_hysteresis_on: float = Field(0.35, description="前进滞回开启阈值")
@@ -242,7 +244,7 @@ class ControlConfig(BaseModel):
             raise ValueError(f"值必须大于0: {v}")
         return v
     
-    @field_validator('smoothing_alpha', 'min_forward_factor', 'large_angle_speed_reduction', 'edge_speed_reduction', 'recenter_speed_reduction')
+    @field_validator('smoothing_alpha', 'smoothing_alpha_forward', 'smoothing_alpha_turn', 'min_forward_factor', 'large_angle_speed_reduction', 'edge_speed_reduction', 'recenter_speed_reduction')
     @classmethod
     def validate_range_0_1(cls, v: float) -> float:
         """验证0-1范围"""

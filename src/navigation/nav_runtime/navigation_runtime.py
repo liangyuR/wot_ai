@@ -105,7 +105,8 @@ class NavigationRuntime:
             edge_speed_reduction=self.cfg.control.edge_speed_reduction,
             recenter_speed_reduction=self.cfg.control.recenter_speed_reduction,
             debug_log_interval=self.cfg.control.debug_log_interval,
-            smoothing_alpha=self.cfg.control.smoothing_alpha,
+            smoothing_alpha_forward=getattr(self.cfg.control, "smoothing_alpha_forward", 0.2),
+            smoothing_alpha_turn=getattr(self.cfg.control, "smoothing_alpha_turn", 0.6),
             turn_deadzone=self.cfg.control.turn_deadzone,
             min_hold_time_ms=self.cfg.control.min_hold_time_ms,
             forward_hysteresis_on=self.cfg.control.forward_hysteresis_on,
@@ -221,16 +222,11 @@ class NavigationRuntime:
     def _det_loop(self) -> None:
         logger.info("检测线程启动")
 
-        # detect_fps = getattr(self.cfg.performance, "detect_fps", 30)
-        detect_fps = 30
-        detect_fps = max(1, int(detect_fps))
-        min_interval = 1.0 / detect_fps
-
+        # 检测线程不限速，全速运行以减少相位滞后
         m = self.minimap_region
         x, y, w, h = m["x"], m["y"], m["width"], m["height"]
 
         while self._running:
-            t0 = time.perf_counter()
             try:
                 frame = self.capture.grab_region(x, y, w, h)
                 if frame is None:
@@ -251,10 +247,6 @@ class NavigationRuntime:
                 import traceback
                 traceback.print_exc()
 
-            dt = time.perf_counter() - t0
-            if dt < min_interval:
-                time.sleep(min_interval - dt)
-
         logger.info("检测线程退出")
 
     # ============================================================
@@ -263,9 +255,8 @@ class NavigationRuntime:
     def _ctrl_loop(self) -> None:
         logger.info("控制线程启动")
 
-        # 控制线程 FPS
-        ctrl_fps = 30
-        ctrl_fps = max(1, int(ctrl_fps))
+        # 控制线程固定 60 FPS
+        ctrl_fps = 60
         interval = 1.0 / ctrl_fps
 
         if not self.minimap_region:

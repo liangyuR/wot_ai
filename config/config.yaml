@@ -37,10 +37,10 @@ grid:
 
 path_planning:                # 路径规划相关参数
   enable_astar_smoothing: true                # 开启A*内部平滑（可去除锯齿，对窄道友好，需配合简化阈值防止过拟合）
-  astar_smooth_weight: 0.3                    # A*平滑权重 (0.0-1.0)，0.3为适中，能兼顾细节与路径平顺
+  astar_smooth_weight: 0.15                   # [修改] 降低平滑权重，更贴合栅格中心
   post_smoothing_method: "catmull_rom"        # 路径后处理方法: "catmull_rom"（平滑曲线）或 "los"（线段）
   simplify_method: "rdp"                      # 路径简化方法: RDP，可减少 waypoint 数提升效率
-  simplify_threshold: 3                       # 简化阈值(px)，<5更适合保持窄弯信息
+  simplify_threshold: 1.5                     # [修改] 降低简化阈值，在窄道中保留更多细节
   num_points_per_segment: 8                   # CatmullRom采样点数，平滑度和点数折中
   curvature_threshold_deg: 30.0               # 曲率阈值(°)，大于此为急弯，可限制过度平滑
   check_curvature: true                       # 启用曲率检查，窄路必开，防止平滑导致出道
@@ -52,42 +52,44 @@ control:
   goal_arrival_threshold: 15.0
   path_deviation_tolerance: 3
   stuck_threshold: 3
-  stuck_frames_threshold: 600
+  stuck_frames_threshold: 200          # 约 6-7 秒判定卡死
   debug_log_interval: 30
 
   # === MovementController ===
-  angle_dead_zone_deg: 8.0              # 容忍更多角度误差，减少抖动修正
-  angle_slow_turn_deg: 15.0             # 小角度慢转区拉大一点，更平顺
+  angle_dead_zone_deg: 1.5             # [修改] 极小死区，适应窄道高精度要求
+  angle_slow_turn_deg: 15.0
 
-  distance_stop_threshold: 3.0          # 只在离 waypoint 非常近才停
-  slow_down_distance: 4.0               # 很靠近才减速，基本全程不提前刹车
+  distance_stop_threshold: 5.0
+  slow_down_distance: 40.0
 
-  max_forward_speed: 1.0
-  min_forward_factor: 0.7               # 大角度转向时最低也保留 70% 速度
-  large_angle_threshold_deg: 55.0       # 只有超大角度才算“大转弯”
-  large_angle_speed_reduction: 0.15     # 大转弯最多只降 15% 速度
+  max_forward_speed: 0.9               # [修改] 全局稍微降速，求稳
+  min_forward_factor: 0.30             # [修改] 允许更低速度过弯
+  large_angle_threshold_deg: 30.0      # [修改] 30度就算大弯
+  large_angle_speed_reduction: 0.4
 
-  corridor_ref_width: 8
-  edge_speed_reduction: 0.95            # 走到走廊边缘时几乎不减速
-  recenter_speed_reduction: 0.85        # 纠偏时速度也保持在 85% 左右
+  corridor_ref_width: 4.0              # [修改] 4px误差即全力纠偏
+  edge_speed_reduction: 0.6            # [修改] 偏离中心时大幅减速 (60%)
+  recenter_speed_reduction: 0.5        # [修改] 严重偏离时半速纠偏
 
   # 直行模式判定
-  straight_angle_enter_deg: 3           # 更容易进入直行模式
-  straight_angle_exit_deg: 6
+  straight_angle_enter_deg: 4.0        # 略大于死区
+  straight_angle_exit_deg: 8.0
   straight_lat_enter: 3
   straight_lat_exit: 6
 
   # === MoveExecutor ===
-  smoothing_alpha: 0.5
-  turn_deadzone: 0.06
+  smoothing_alpha_forward: 0.2         # [新增] 前进滤波系数（慢响应，模拟惯性）
+  smoothing_alpha_turn: 0.6            # [新增] 转向滤波系数（快响应）
+  smoothing_alpha: 0.5                 # [废弃] 旧参数保留兼容
+  turn_deadzone: 0.05                  # [修改] 降低死区，配合非线性控制
   min_hold_time_ms: 6.0
-  forward_hysteresis_on: 0.40           # 一旦判定前进，就更不容易被关掉
+  forward_hysteresis_on: 0.40
   forward_hysteresis_off: 0.10
 
   # === PathFollower ===
-  max_lateral_error: 5.0               # 允许稍微离路中心远一点，换平滑前进
-  lookahead_distance: 15.0              # 提前看远一点，路径更适合高速
-  waypoint_switch_radius: 3.0           # 更快切下一点，减少在点附近反复修正
+  max_lateral_error: 3.0               # [修改] 收紧走廊宽度，3px即认为偏离
+  lookahead_distance: 12.0             # [修改] 缩短前瞻，防止切弯切墙
+  waypoint_switch_radius: 6.0          # [修改] 减小切换半径，适应窄道密集路点
 
 
 angle_detection:               # 小地图角度检测限制

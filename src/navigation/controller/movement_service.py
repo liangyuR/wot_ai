@@ -34,8 +34,9 @@ class MovementService:
         edge_speed_reduction: float = 0.85,
         recenter_speed_reduction: float = 0.6,
         debug_log_interval: int = 30,
-        smoothing_alpha: float = 0.3,
-        turn_deadzone: float = 0.12,
+        smoothing_alpha_forward: float = 0.2,
+        smoothing_alpha_turn: float = 0.6,
+        turn_deadzone: float = 0.05,
         min_hold_time_ms: float = 100.0,
         forward_hysteresis_on: float = 0.35,
         forward_hysteresis_off: float = 0.08,
@@ -63,7 +64,8 @@ class MovementService:
             debug_log_interval=debug_log_interval,
         )
         self.executor = MoveExecutor(
-            smoothing_alpha=smoothing_alpha,
+            smoothing_alpha_forward=smoothing_alpha_forward,
+            smoothing_alpha_turn=smoothing_alpha_turn,
             turn_deadzone=turn_deadzone,
             min_hold_time_ms=min_hold_time_ms,
             forward_hysteresis_on=forward_hysteresis_on,
