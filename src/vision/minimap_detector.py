@@ -19,6 +19,7 @@ from loguru import logger
 import cv2
 
 from src.vision.detection_engine import DetectionEngine
+from src.vision.opencv_arrow_detector import OpencvArrowDetector
 from src.utils.global_path import GetGlobalConfig
 
 @dataclass
@@ -185,7 +186,7 @@ class MinimapDetector:
         self.conf_threshold_ = config.model.conf_threshold
         self.iou_threshold_ = config.model.iou_threshold
         self.detect_engine_ = DetectionEngine(config.model.base_path)
-        self.pose_engine_ = DetectionEngine(config.model.arrow_path)
+        self.arrow_detector_ = OpencvArrowDetector()
         self.class_name_to_id_: Dict[str, int] = {}
 
         # 角度平滑器参数
@@ -212,10 +213,6 @@ class MinimapDetector:
         """加载模型并初始化类别名称映射"""
         if not self.detect_engine_.LoadModel():
             logger.error("MinimapDetector: detect_engine 模型加载失败")
-            return False
-
-        if not self.pose_engine_.LoadModel():
-            logger.error("MinimapDetector: pose_engine 模型加载失败")
             return False
 
         logger.info("MinimapDetector: 模型加载成功")
@@ -254,7 +251,7 @@ class MinimapDetector:
     def Detect(self, frame: np.ndarray) -> MinimapDetectionResult:
         """双模型检测流程：
         1. 使用 detect_engine_ 在全图上检测 self_arrow 和 enemy_flag
-        2. 如果找到 self_arrow bbox，裁剪后使用 pose_engine_ 检测关键点
+        2. 如果找到 self_arrow bbox，裁剪后使用 OpencvArrowDetector 检测中心和角度
         """
         if frame is None or frame.size == 0:
             logger.error("MinimapDetector: frame 为空或无效")
@@ -306,8 +303,8 @@ class MinimapDetector:
         x1, y1, x2, y2 = best_arrow["bbox"]
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-        # === 第二步：裁剪并运行姿态估计 ===
-        # 以中心点为基准，裁剪固定大小 48x48 的区域
+        # === 第二步：裁剪并运行 OpenCV 箭头检测 ===
+        # 以中心点为基准，裁剪固定大小 64x64 的区域
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
         
@@ -326,74 +323,21 @@ class MinimapDetector:
             logger.warning("MinimapDetector: 裁剪区域为空")
             return MinimapDetectionResult(None, None, self.base_position, raw_detections)
 
-        crop = np.ascontiguousarray(crop)
+        # 运行 OpenCV 箭头检测
+        # 注意：detect 返回的 local_center 是相对于 crop 的坐标
+        local_center, raw_angle = self.arrow_detector_.detect(crop)
 
-        # 运行姿态模型
-        pose_result = self.pose_engine_.Detect(
-            crop,
-            confidence_threshold=self.conf_threshold_,
-            iou_threshold=self.iou_threshold_,
-            max_det=10,
-        )
-
-        if not pose_result or len(pose_result) == 0:
-            logger.warning("MinimapDetector: pose_engine 检测结果为空")
-            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
-
-        first_pose_result = pose_result[0]
-        if not hasattr(first_pose_result, "keypoints") or first_pose_result.keypoints is None:
-            logger.warning("MinimapDetector: pose_engine 检测结果中没有 keypoints")
-            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
-
-        keypoints = first_pose_result.keypoints
-        if keypoints.xy is None or len(keypoints.xy) == 0:
-            logger.warning("MinimapDetector: keypoints 坐标为空")
-            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
-
-        xy = keypoints.xy  # (N, K, 2)
-        if len(xy) == 0:
-            logger.warning("MinimapDetector: keypoints.xy 数组为空")
-            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
-
-        coords = xy[0]
-        if coords is None or len(coords) == 0:
-            logger.warning("MinimapDetector: coords 数组为空")
-            return MinimapDetectionResult(None, None, self.base_position, raw_detections)
-
-        # === 坐标转换和结果计算 ===
-        # 关键点顺序：0=head, 1=tail
-        raw_angle = None
-        if coords.shape[0] >= 2:
-            try:
-                # 局部坐标（相对于裁剪区域）
-                head_x_local, head_y_local = float(coords[0][0]), float(coords[0][1])
-                tail_x_local, tail_y_local = float(coords[1][0]), float(coords[1][1])
-
-                if not (np.isfinite(head_x_local) and np.isfinite(head_y_local) and 
-                        np.isfinite(tail_x_local) and np.isfinite(tail_y_local)):
-                    logger.warning("MinimapDetector: 关键点坐标包含 NaN 或 inf")
-                    self_pos = None
-                else:
-                    # 转换为全局坐标
-                    head_x_global = head_x_local + crop_x1
-                    head_y_global = head_y_local + crop_y1
-                    tail_x_global = tail_x_local + crop_x1
-                    tail_y_global = tail_y_local + crop_y1
-
-                    # 计算位置：使用关键点中心
-                    self_pos = ((head_x_global + tail_x_global) / 2, (head_y_global + tail_y_global) / 2)
-
-                    # 计算角度：从 tail 指向 head
-                    dx = head_x_global - tail_x_global
-                    dy = head_y_global - tail_y_global
-                    raw_angle = float(np.degrees(np.arctan2(dy, dx)) % 360)
-            except (IndexError, TypeError, ValueError) as e:
-                logger.error(f"MinimapDetector: 解析关键点时发生异常: {e}")
-                self_pos = None
+        self_pos = None
+        if local_center is not None:
+            # 转换为全局坐标
+            cx_local, cy_local = local_center
+            self_pos = (cx_local + crop_x1, cy_local + crop_y1)
         else:
-            logger.warning("MinimapDetector: keypoints 少于2个")
-            self_pos = None
+            logger.warning("MinimapDetector: OpenCV detector 未能检测到箭头中心")
 
+        if raw_angle is None:
+             logger.warning("MinimapDetector: OpenCV detector 未能检测到角度")
+        
         # 应用角度平滑
         self_angle = self.angle_smoother_.Update_(raw_angle)
 
@@ -526,8 +470,6 @@ class MinimapDetector:
 
 def run_benchmark(
     image_path: str,
-    model_path_base: str,
-    model_path_arrow: str,
     target_fps: float,
     max_frames: Optional[int] = None,
     show_visualization: bool = False,
@@ -539,7 +481,7 @@ def run_benchmark(
         sys.exit(1)
 
     # 创建检测器
-    detector = MinimapDetector(model_path_base=model_path_base, model_path_arrow=model_path_arrow)
+    detector = MinimapDetector()
     if not detector.LoadModel():
         print("模型加载失败")
         sys.exit(1)
@@ -622,18 +564,6 @@ if __name__ == "__main__":
         help="图片文件路径（小地图截图）",
     )
     parser.add_argument(
-        "--model_path_base",
-        type=str,
-        default="best.pt",
-        help="检测模型路径 (默认: best.pt)",
-    )
-    parser.add_argument(
-        "--model_path_arrow",
-        type=str,
-        default="best.pt",
-        help="检测模型路径 (默认: best.pt)",
-    )
-    parser.add_argument(
         "--fps",
         type=float,
         default=10.0,
@@ -657,8 +587,6 @@ if __name__ == "__main__":
 
     run_benchmark(
         image_path=args.image_path,
-        model_path_base=args.model_path_base,
-        model_path_arrow=args.model_path_arrow,
         target_fps=args.fps,
         max_frames=max_frames,
         show_visualization=True,

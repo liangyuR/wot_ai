@@ -70,6 +70,7 @@ class NavigationRuntime:
         self._running = False
         self._det_thread: Optional[threading.Thread] = None
         self._ctrl_thread: Optional[threading.Thread] = None
+        self._view_thread: Optional[threading.Thread] = None
 
     # ============================================================
     # 外部接口
@@ -124,7 +125,8 @@ class NavigationRuntime:
         self._ctrl_thread.start()
 
         if self.view is not None:
-            self.view.run()
+            self._view_thread = threading.Thread(target=self.view.run, daemon=True)
+            self._view_thread.start()
 
         logger.info("NavigationRuntime 已启动（检测 + 控制）")
         return True
@@ -145,6 +147,8 @@ class NavigationRuntime:
 
         if self.view is not None:
             self.view.close()
+            if self._view_thread and self._view_thread.is_alive():
+                self._view_thread.join(timeout=2.0)
 
         # 停止所有按键
         try:
@@ -167,8 +171,14 @@ class NavigationRuntime:
         m = self.minimap_region
         x, y, w, h = m["x"], m["y"], m["width"], m["height"]
 
+        # 控制线程固定 60 FPS
+        detect_fps = 60
+        interval = 1.0 / detect_fps
+
         while self._running:
             try:
+                t0 = time.perf_counter()
+
                 frame = self.capture.grab_region(x, y, w, h)
                 if frame is None:
                     time.sleep(0.001)
@@ -182,6 +192,10 @@ class NavigationRuntime:
                     continue
 
                 self.data_hub.set_latest_detection(det)
+
+                dt = time.perf_counter() - t0
+                if dt < interval:
+                    time.sleep(interval - dt)
 
             except Exception as e:
                 logger.error(f"检测线程错误: {e}")
@@ -197,7 +211,7 @@ class NavigationRuntime:
         logger.info("控制线程启动")
 
         # 控制线程固定 60 FPS
-        ctrl_fps = 60
+        ctrl_fps = 30
         interval = 1.0 / ctrl_fps
 
         if not self.minimap_region:
@@ -250,13 +264,17 @@ class NavigationRuntime:
             heading = math.radians(getattr(det, "self_angle", 0.0) or 0.0)
 
             # 2) 卡顿检测 + 重规划判断
-            is_stuck = self.stuck_detector.update(pos)
-
+            # is_stuck = self.stuck_detector.update(pos)
+            is_stuck = False
             need_replan = (
                 not current_path_world
                 or is_stuck
                 or current_target_idx >= len(current_path_world) - 1
             )
+            # need_replan = (
+            #     not current_path_world
+            #     or current_target_idx >= len(current_path_world) - 1
+            # )
 
             # 3) 路径规划（若需要）
             if need_replan:

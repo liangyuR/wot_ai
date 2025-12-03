@@ -5,9 +5,9 @@
 # YOLO模型配置
 model:
   base_path: "resource/model/map_detect_base.pt"  # YOLO模型文件路径（必需）
-  arrow_path: "resource/model/map_detect_arrow.pt"  # YOLO模型文件路径（必需）
-  conf_threshold: 0.1  # 置信度阈值 (0.0-1.0)
-  iou_threshold: 0.1  # IoU阈值 (0.0-1.0)
+  arrow_path: "resource/model/best.pt"  # YOLO模型文件路径（必需）
+  conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
+  iou_threshold: 0.5  # IoU阈值 (0.0-1.0)
 
 # 游戏配置
 game:
@@ -23,12 +23,12 @@ minimap:
 
 # 掩码配置（可选）
 mask:
-  inflation_radius_px: 2  # 障碍膨胀半径（像素）
-  cost_alpha: 2  # 代价图权重
+  inflation_radius_px: 1  # 障碍膨胀半径（像素）
+  cost_alpha: 1  # 代价图权重
 
 # 栅格配置
 grid:
-  size: [256, 256]  # 栅格尺寸 [width, height]
+  size: [512, 512]  # 栅格尺寸 [width, height]
 
 # 路径规划、控制、角度检测配置
 #
@@ -60,16 +60,16 @@ control:
   angle_slow_turn_deg: 15.0
 
   distance_stop_threshold: 5.0
-  slow_down_distance: 40.0
+  slow_down_distance: 5.0              # [修改] 等于停止阈值，不因距离减速
 
-  max_forward_speed: 0.9               # [修改] 全局稍微降速，求稳
-  min_forward_factor: 0.30             # [修改] 允许更低速度过弯
+  max_forward_speed: 1.0               # [修改] 最高速度
+  min_forward_factor: 1.0              # [修改] 不因角度减速
   large_angle_threshold_deg: 30.0      # [修改] 30度就算大弯
-  large_angle_speed_reduction: 0.4
+  large_angle_speed_reduction: 1.0     # [修改] 不因大角度减速
 
   corridor_ref_width: 4.0              # [修改] 4px误差即全力纠偏
-  edge_speed_reduction: 0.6            # [修改] 偏离中心时大幅减速 (60%)
-  recenter_speed_reduction: 0.5        # [修改] 严重偏离时半速纠偏
+  edge_speed_reduction: 1.0            # [修改] 不因边缘减速
+  recenter_speed_reduction: 1.0        # [修改] 不因重新居中减速
 
   # 直行模式判定
   straight_angle_enter_deg: 4.0        # 略大于死区
@@ -94,7 +94,7 @@ control:
 
 angle_detection:               # 小地图角度检测限制
   smoothing_alpha: 0.9                          # 角度检测平滑系数(0=全历史, 1=全新值)
-  max_step_deg: 50.0                            # 单帧允许的最大角度跳变限制(°)
+  max_step_deg: 30.0                            # 单帧允许的最大角度跳变限制(°)
   min_area_ratio: 0.2                           # 检测区域需占小地图面积的最小比例
   max_area_ratio: 0.9                           # 检测区域允许的最大面积比例
   min_aspect_ratio: 0.3                         # 箭头最小宽高比（排除细长异常）
@@ -108,7 +108,8 @@ vehicle:
 ui:
   overlay_fps: 30  # 覆盖层FPS
   overlay_alpha: 180  # 覆盖层透明度 (0-255)
-  enable: false  # 是否启用调试视图
+  enable: true  # 是否启用调试视图
 
 # 屏幕捕获配置
 monitor_index: 1  # 屏幕捕获监视器索引
+b

@@ -161,12 +161,7 @@ class PathFollowerWrapper:
             )
 
         logger.debug(
-            "PFW idx=%d carrot_idx=%d mode=%s lat_err=%.2f lookahead=%.1f",
-            idx,
-            carrot_idx,
-            mode,
-            signed_lateral_error,
-            effective_lookahead,
+            f"PFW idx={idx} carrot_idx={carrot_idx} mode={mode} lat_err={signed_lateral_error:.2f} lookahead={effective_lookahead:.1f}"
         )
 
         return FollowResult(
