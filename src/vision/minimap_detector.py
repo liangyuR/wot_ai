@@ -31,63 +31,138 @@ class MinimapDetectionResult:
 
 
 class AngleSmoother:
-    """角度平滑器：平滑角度变化，避免抖动"""
+    """角度平滑器：平滑角度变化，避免抖动
     
-    def __init__(self, alpha: float = 0.25, max_step_deg: float = 45.0):
+    特性：
+    - 处理角度跨越 0°/360° 边界的情况
+    - 自适应平滑系数：根据角度变化幅度动态调整
+    - 输入验证：检查 NaN、inf 和角度范围
+    """
+    
+    def __init__(
+        self,
+        alpha: float = 0.25,
+        max_step_deg: float = 45.0,
+        noise_threshold_deg: float = 2.0,
+        normal_threshold_deg: float = 10.0,
+        noise_alpha_factor: float = 0.4,
+        large_turn_alpha_factor: float = 2.0,
+    ):
         """初始化角度平滑器
         
         Args:
             alpha: 平滑系数，0 < alpha <= 1，值越小越平滑但响应越慢
             max_step_deg: 单帧最大允许变化角度（度），超过此值会被限幅
+            noise_threshold_deg: 噪声阈值（度），小于此值视为噪声
+            normal_threshold_deg: 正常转向阈值（度），小于此值视为正常转向
+            noise_alpha_factor: 噪声时的 alpha 缩放因子
+            large_turn_alpha_factor: 大幅转向时的 alpha 缩放因子
         """
         self.alpha_ = max(0.0, min(1.0, alpha))
         self.max_step_deg_ = max(0.0, max_step_deg)
+        self.noise_threshold_deg_ = max(0.0, noise_threshold_deg)
+        self.normal_threshold_deg_ = max(self.noise_threshold_deg_, normal_threshold_deg)
+        self.noise_alpha_factor_ = max(0.0, noise_alpha_factor)
+        self.large_turn_alpha_factor_ = max(1.0, large_turn_alpha_factor)
+        
         self.angle_: Optional[float] = None
         self.valid_: bool = False
     
-    def Update(self, raw_angle: Optional[float]) -> Optional[float]:
-        """更新角度，返回平滑后的角度
-        
-        Args:
-            raw_angle: 原始角度（度），如果为None则返回当前角度
+    def _normalize_angle(self, angle: float) -> float:
+        """将角度归一化到 [0, 360) 范围"""
+        return angle % 360.0
+    
+    def _compute_angle_diff(self, new_angle: float, old_angle: float) -> float:
+        """计算角度差，处理跨越 0°/360° 边界的情况
         
         Returns:
-            平滑后的角度（度）或 None
+            角度差（度），范围 [-180, 180]
         """
-        if raw_angle is None:
-            return None
+        return (new_angle - old_angle + 540.0) % 360.0 - 180.0
+    
+    def _validate_angle(self, angle: Optional[float]) -> bool:
+        """验证角度值是否有效
         
-        if not self.valid_:
-            self.angle_ = raw_angle
-            self.valid_ = True
-            return self.angle_
+        Args:
+            angle: 待验证的角度值
         
-        # 计算角度差（处理跨越0°/360°边界的情况）
-        diff = (raw_angle - self.angle_ + 540) % 360 - 180
+        Returns:
+            True 如果角度有效，False 否则
+        """
+        if angle is None:
+            return False
+        if not np.isfinite(angle):
+            return False
+        # 角度应该在合理范围内（允许负值，会在归一化时处理）
+        return abs(angle) < 1e6
+    
+    def _compute_adaptive_alpha(self, abs_diff: float) -> float:
+        """根据角度变化幅度计算自适应 alpha
         
-        # 限幅：单帧最大变化角度
-        if abs(diff) > self.max_step_deg_:
-            diff = self.max_step_deg_ if diff > 0 else -self.max_step_deg_
+        Args:
+            abs_diff: 角度变化的绝对值（度）
         
-        # === 自适应 alpha：抖动小就抑制，大幅转向就加快响应 ===
-        abs_diff = abs(diff)
-        # 你可以把这些阈值配到 config 里，我先写死一版
-        if abs_diff < 2.0:
-            # 极小变化，当成噪声，减弱更新
-            effective_alpha = self.alpha_ * 0.4
-        elif abs_diff < 10.0:
-            # 正常缓慢转向，用原始 alpha
+        Returns:
+            有效的 alpha 值 [0, 1]
+        """
+        if abs_diff < self.noise_threshold_deg_:
+            # 极小变化，视为噪声，减弱更新
+            effective_alpha = self.alpha_ * self.noise_alpha_factor_
+        elif abs_diff < self.normal_threshold_deg_:
+            # 正常缓慢转向，使用原始 alpha
             effective_alpha = self.alpha_
         else:
             # 大幅转向，放大 alpha，加快跟踪
-            effective_alpha = min(1.0, self.alpha_ * 2.0)
-
-        self.angle_ = (self.angle_ + effective_alpha * diff) % 360.0
+            effective_alpha = min(1.0, self.alpha_ * self.large_turn_alpha_factor_)
+        
+        return max(0.0, min(1.0, effective_alpha))
+    
+    def Update_(self, raw_angle: Optional[float]) -> Optional[float]:
+        """更新角度，返回平滑后的角度
+        
+        Args:
+            raw_angle: 原始角度（度），如果为 None 则返回当前有效角度
+        
+        Returns:
+            平滑后的角度（度）或 None（如果从未有有效输入）
+        """
+        # 如果输入为 None，返回当前有效角度（保持连续性）
+        if raw_angle is None:
+            return self.angle_ if self.valid_ else None
+        
+        # 验证输入
+        if not self._validate_angle(raw_angle):
+            logger.warning(f"AngleSmoother: 无效的角度输入 {raw_angle}，使用当前角度")
+            return self.angle_ if self.valid_ else None
+        
+        # 归一化角度到 [0, 360)
+        normalized_angle = self._normalize_angle(raw_angle)
+        
+        # 首次有效输入，直接使用
+        if not self.valid_:
+            self.angle_ = normalized_angle
+            self.valid_ = True
+            return self.angle_
+        
+        # 计算角度差
+        diff = self._compute_angle_diff(normalized_angle, self.angle_)
+        
+        # 限幅：单帧最大变化角度
+        abs_diff = abs(diff)
+        if abs_diff > self.max_step_deg_:
+            diff = self.max_step_deg_ if diff > 0 else -self.max_step_deg_
+            abs_diff = self.max_step_deg_
+        
+        # 计算自适应 alpha
+        effective_alpha = self._compute_adaptive_alpha(abs_diff)
+        
+        # 更新平滑角度
+        self.angle_ = self._normalize_angle(self.angle_ + effective_alpha * diff)
         
         return self.angle_
     
-    def Reset(self):
-        """重置平滑器"""
+    def Reset_(self) -> None:
+        """重置平滑器状态"""
         self.angle_ = None
         self.valid_ = False
 
@@ -107,25 +182,28 @@ class MinimapDetector:
 
     def __init__(self):
         config = GetGlobalConfig()
-        self.conf_threshold = config.model.conf_threshold
-        self.iou_threshold = config.model.iou_threshold
-        self.smoothing_alpha = config.angle_detection.smoothing_alpha
-        self.max_step_deg = config.angle_detection.max_step_deg
+        self.conf_threshold_ = config.model.conf_threshold
+        self.iou_threshold_ = config.model.iou_threshold
         self.detect_engine_ = DetectionEngine(config.model.base_path)
         self.pose_engine_ = DetectionEngine(config.model.arrow_path)
-
         self.class_name_to_id_: Dict[str, int] = {}
-        
+
         # 角度平滑器参数
+        angle_cfg = config.angle_detection
         self.angle_smoother_ = AngleSmoother(
-            alpha=self.smoothing_alpha,
-            max_step_deg=self.max_step_deg,
+            alpha=angle_cfg.smoothing_alpha,
+            max_step_deg=angle_cfg.max_step_deg,
+            noise_threshold_deg=angle_cfg.noise_threshold_deg,
+            normal_threshold_deg=angle_cfg.normal_threshold_deg,
+            noise_alpha_factor=angle_cfg.noise_alpha_factor,
+            large_turn_alpha_factor=angle_cfg.large_turn_alpha_factor,
         )
 
         # 基地位置缓存，初始化为 None，只有成功检测到 enemy_flag 后才设置
         self.base_position: Optional[Tuple[float, float]] = None
 
         # 缓存类别 ID
+        # TODO(@liangyu) hack 直接写死
         self.arrow_class_id_: Optional[int] = None
         self.flag_class_id_: Optional[int] = None
 
@@ -317,7 +395,7 @@ class MinimapDetector:
             self_pos = None
 
         # 应用角度平滑
-        self_angle = self.angle_smoother_.Update(raw_angle)
+        self_angle = self.angle_smoother_.Update_(raw_angle)
 
         result = MinimapDetectionResult(
             self_pos=self_pos,
@@ -443,7 +521,7 @@ class MinimapDetector:
     # -----------------------------------------------------------
     def Reset(self):
         """重置检测器状态"""
-        self.angle_smoother_.Reset()
+        self.angle_smoother_.Reset_()
         self.base_position = None
 
 def run_benchmark(

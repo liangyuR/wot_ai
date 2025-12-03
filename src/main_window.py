@@ -123,7 +123,7 @@ class MainWindow:
         self.status_label.pack(pady=5)
 
         # 时长 & 结束行为配置区
-        time_section = self._create_section(self.root, "时长 & 结束行为配置区")
+        time_section = self._create_section(self.root, "时长 & 结束行为配置区（未实现）")
         
         time_row = tk.Frame(time_section, bg="#F0F0F0")
         time_row.pack(anchor="w", pady=5)
@@ -159,7 +159,7 @@ class MainWindow:
         self.end_time_label.pack(anchor="w", padx=5, pady=5)
 
         # 功能扩展区
-        feature_section = self._create_section(self.root, "功能扩展区")
+        feature_section = self._create_section(self.root, "功能扩展区（未实现）")
         
         tk.Checkbutton(
             feature_section, text="是否启用启动银币储备",

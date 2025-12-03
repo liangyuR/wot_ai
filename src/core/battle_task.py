@@ -45,8 +45,8 @@ class BattleTask:
         self.template_matcher_ = TemplateMatcher()
         self.map_name_detector_ = MapNameDetector()
         self.key_controller_ = KeyController()
-        self.navigation_runtime_ = None
-        self.navigation_thread_ = None
+        # NavigationRuntime 只初始化一次，在整个生命周期内复用
+        self.navigation_runtime_ = NavigationRuntime()
         
         config = GetGlobalConfig()
         self.game_restarter_ = GameRestarter(
@@ -114,9 +114,9 @@ class BattleTask:
         logger.info("正在停止事件驱动循环...")
         self.running_ = False
         
-        # 停止导航AI
-        if self.navigation_thread_ and self.navigation_thread_.is_alive():
-            self.navigation_thread_.join(timeout=3.0)
+        # 停止导航AI（如果正在运行）
+        if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
+            self.navigation_runtime_.stop()
         
         # 等待事件循环线程结束
         if self.event_thread_ and self.event_thread_.is_alive():
@@ -215,29 +215,25 @@ class BattleTask:
         self.garage_handled_ = False
 
         logger.info("检测到战斗状态，开始启动导航...")
-        # 启动导航线程
-        self.navigation_runtime_ = NavigationRuntime()
-        self.navigation_thread_ = threading.Thread(target=self.navigation_runtime_.start, daemon=True)
-        self.navigation_thread_.start()
+        # 启动导航（NavigationRuntime.start() 内部会创建并启动线程）
+        if not self.navigation_runtime_.start():
+            logger.error("导航启动失败")
+            return
+        
         # 标记已处理
         self.battle_handled_ = True
         logger.info("战斗状态处理完成")
     
     def _handle_end_state(self) -> None:
         """
-        处理结束状态：停止导航AI运行循环（保留初始化状态）
+        处理结束状态：停止导航AI运行循环（保留实例以便复用）
         """
 
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
-        # 停止导航AI运行循环
-        if self.navigation_runtime_ is not None:
+        # 停止导航AI运行循环（保留实例以便下次复用）
+        if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
-        self.navigation_runtime_ = None
-
-        if self.navigation_thread_ and self.navigation_thread_.is_alive():
-            self.navigation_thread_.join(timeout=3.0)
-        self.navigation_thread_ = None
 
         # 关闭结算页面并返回车库
         if not self.enter_garage():
