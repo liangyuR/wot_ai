@@ -5,6 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from loguru import logger
+from src.utils.global_path import GetGlobalConfig
 
 @dataclass
 class FollowResult:
@@ -30,28 +31,19 @@ class PathFollowerWrapper:
     - 到达终点判断
     """
 
-    def __init__(
-        self,
-        deviation_tolerance: float,
-        goal_arrival_threshold: float,
-        max_lateral_error: float = 80.0,
-        inner_corridor: Optional[float] = None,
-        edge_lookahead_scale: float = 0.6,
-        lookahead_distance: float = 60.0,
-        waypoint_switch_radius: float = 20.0,
-        recenter_forward_offset: float = 10.0,
-    ):
-        """
-        Args:
-            deviation_tolerance: 路径偏离容忍度（px）
-            goal_arrival_threshold: 认为"到达终点"的距离阈值（px）
-            max_lateral_error: 最大横向误差，定义corridor宽度（px）
-            inner_corridor: 内走廊宽度，None 时默认 tolerance 的 3 倍
-            edge_lookahead_scale: 走廊边缘前瞻缩放系数
-            lookahead_distance: 前瞻距离，用于计算胡萝卜点（px）
-            waypoint_switch_radius: Waypoint切换半径（px）
-            recenter_forward_offset: recenter 模式沿切线前推距离（px）
-        """
+    def __init__(self):
+        config = GetGlobalConfig()
+        ctrl_cfg = config.control
+        
+        deviation_tolerance = ctrl_cfg.path_deviation_tolerance
+        goal_arrival_threshold = ctrl_cfg.goal_arrival_threshold
+        max_lateral_error = ctrl_cfg.max_lateral_error
+        lookahead_distance = ctrl_cfg.lookahead_distance
+        waypoint_switch_radius = ctrl_cfg.waypoint_switch_radius
+        
+        inner_corridor: Optional[float] = None
+        edge_lookahead_scale: float = 0.6
+        recenter_forward_offset: float = 10.0
         self._dev_tol = deviation_tolerance
         self._goal_th = goal_arrival_threshold
         

@@ -3,6 +3,7 @@
 
 import math
 from typing import Optional, Tuple
+from src.utils.global_path import GetGlobalConfig
 
 
 class StuckDetector:
@@ -10,12 +11,12 @@ class StuckDetector:
     用于检测坦克是否卡顿（连续多个 tick 移动距离不足）
     """
 
-    def __init__(self, move_threshold: float, frame_threshold: int):
-        """
-        Args:
-            move_threshold: 移动距离阈值（px），小于此值视为“这一帧未移动”
-            frame_threshold: 连续多少帧未移动视为卡顿
-        """
+    def __init__(self):
+        config = GetGlobalConfig()
+        ctrl_cfg = config.control
+        
+        move_threshold = ctrl_cfg.stuck_threshold
+        frame_threshold = ctrl_cfg.stuck_frames_threshold
         self.move_th = move_threshold
         self.frame_th = frame_threshold
 

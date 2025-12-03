@@ -17,7 +17,7 @@ class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("TANK ROBOT")
-        self.root.geometry("900x1440")
+        self.root.geometry("720x1000")
         self.root.configure(bg="#F0F0F0")
 
         # State
@@ -89,9 +89,11 @@ class MainWindow:
         # 使用提示区
         tips_section = self._create_section(self.root, "使用提示区")
         tips = [
-            "· 请将游戏设置为\"窗口化全屏\"",
+            "· 请将游戏设置为\"窗口化 1920x1080\"",
             "· 推荐画质：中–低",
-            "· 游戏进入车库后按 F9 启动 / F10 停止",
+            ". 使用截图软件，截取需要使用的车辆卡片，按照 1，2，3，4，5 的方式命名，",
+            "程序会按照优先级选用，即当优先级更高的车辆可用时，优先选用",
+            "· 在游戏车库状态下，点击启动按钮开始运行",
         ]
         for tip in tips:
             tk.Label(
@@ -215,17 +217,17 @@ class MainWindow:
         footer.pack(fill=tk.X, pady=10)
         
         tk.Label(
-            footer, text="版本：v0.3.1", font=("Microsoft YaHei", 9),
+            footer, text="版本：v0.1.0", font=("Microsoft YaHei", 9),
             bg="#F0F0F0"
         ).pack(side=tk.LEFT, padx=10)
         
         tk.Button(
-            footer, text="查看日志", command=self._view_logs,
+            footer, text="打开日志目录", command=self._view_logs,
             font=("Microsoft YaHei", 9), relief=tk.FLAT
         ).pack(side=tk.LEFT, padx=5)
         
         tk.Button(
-            footer, text="配置文件目录", command=self._open_config_dir,
+            footer, text="打开配置文件", command=self._open_config_dir,
             font=("Microsoft YaHei", 9), relief=tk.FLAT
         ).pack(side=tk.LEFT, padx=5)
 

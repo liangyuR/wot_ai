@@ -157,23 +157,3 @@ class DetectionEngine:
         except Exception as e:
             logger.error(f"检测失败: {e}")
             return []
-
-    # ------------------------------------------------------------------
-    # 内部工具方法
-    # ------------------------------------------------------------------
-    def _select_device(self) -> Optional[str]:
-        """根据配置和环境选择设备字符串"""
-        if self.device_ != "auto":
-            return self.device_
-
-        # auto 模式
-        if torch is None:
-            return "cpu"
-
-        try:
-            if torch.cuda.is_available():
-                return "cuda"
-        except Exception:  # pragma: no cover
-            pass
-
-        return "cpu"
