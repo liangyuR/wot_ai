@@ -229,10 +229,6 @@ class MainWindow:
             font=("Microsoft YaHei", 9), relief=tk.FLAT
         ).pack(side=tk.LEFT, padx=5)
 
-        # 单步调试区
-        debug_section = self._create_section(self.root, "单步调试区")
-        self._build_debug_ui(debug_section)
-
     def _start(self):
         if self.is_running:
             logger.warning("任务已在运行")

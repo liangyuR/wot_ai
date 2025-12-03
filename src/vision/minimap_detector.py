@@ -242,13 +242,18 @@ class MinimapDetector:
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
         # === 第二步：裁剪并运行姿态估计 ===
-        # 添加 10px padding
-        padding = 10
+        # 以中心点为基准，裁剪固定大小 48x48 的区域
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+        
+        crop_size = 48
+        half_size = crop_size // 2
+        
         h, w = frame.shape[:2]
-        crop_x1 = max(0, x1 - padding)
-        crop_y1 = max(0, y1 - padding)
-        crop_x2 = min(w, x2 + padding)
-        crop_y2 = min(h, y2 + padding)
+        crop_x1 = int(max(0, cx - half_size))
+        crop_y1 = int(max(0, cy - half_size))
+        crop_x2 = int(min(w, cx + half_size))
+        crop_y2 = int(min(h, cy + half_size))
 
         # 裁剪图像
         crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
