@@ -60,7 +60,7 @@ class TaskManager:
                     break
                 
                 # 创建战斗任务
-                task = BattleTask(self.config_)
+                task = BattleTask()
                 
                 # 启动事件驱动循环
                 if not task.start():
