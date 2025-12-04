@@ -65,10 +65,7 @@ class BattleTask:
         self.event_thread_: Optional[threading.Thread] = None
         
         # 状态处理标志，防止重复处理
-        self.garage_handled_ = False
         self.battle_handled_ = False
-        self.end_handled_ = False
-        self.result_page_handled_ = False
         
         # 选中的车辆
         self.selected_tank_: Optional[TankTemplate] = None
@@ -180,12 +177,7 @@ class BattleTask:
         """
         处理车库状态：选择车辆并加入战斗
         """
-        if self.garage_handled_:
-            return
         logger.info("检测到车库状态，开始选择车辆...")
-
-        self.end_handled_ = False
-        self.battle_handled_ = False
 
         # 选择车辆
         if not self.select_tank():
@@ -200,8 +192,6 @@ class BattleTask:
             logger.error("加入战斗失败，将在下次循环重试")
             return
         
-        # 标记已处理，等待状态转换
-        self.garage_handled_ = True
         logger.info("车库状态处理完成，等待进入战斗")
     
     def _handle_battle_state(self) -> None:
@@ -210,9 +200,6 @@ class BattleTask:
         """
         if self.battle_handled_:
             return
-
-        self.end_handled_ = False
-        self.garage_handled_ = False
 
         logger.info("检测到战斗状态，开始启动导航...")
         # 启动导航（NavigationRuntime.start() 内部会创建并启动线程）
@@ -242,7 +229,6 @@ class BattleTask:
         
         # 重置战斗状态标志，为下一局做准备
         self.battle_handled_ = False
-        self.garage_handled_ = False
         logger.info("结束状态处理完成")
     
     def _handle_result_page_state(self) -> None:
