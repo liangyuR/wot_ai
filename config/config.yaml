@@ -93,7 +93,7 @@ control:
 
 
 angle_detection:               # 小地图角度检测限制
-  smoothing_alpha: 0.9                          # 角度检测平滑系数(0=全历史, 1=全新值)
+  smoothing_alpha: 0.7                          # 角度检测平滑系数(0=全历史, 1=全新值)
   max_step_deg: 30.0                            # 单帧允许的最大角度跳变限制(°)
   min_area_ratio: 0.2                           # 检测区域需占小地图面积的最小比例
   max_area_ratio: 0.9                           # 检测区域允许的最大面积比例
@@ -112,4 +112,3 @@ ui:
 
 # 屏幕捕获配置
 monitor_index: 1  # 屏幕捕获监视器索引
-b
