@@ -22,14 +22,14 @@ class StuckDetector:
         config = GetGlobalConfig()
         ctrl_cfg = config.control
         
-        move_threshold = ctrl_cfg.stuck_threshold
-        frame_threshold = ctrl_cfg.stuck_frames_threshold
-        self.move_th = move_threshold
-        self.frame_th = frame_threshold
+        # 改为固定参数：6秒内位移小于10px视为卡死
+        self.time_window = 6.0  # 秒
+        self.dist_threshold = 10.0  # 像素
 
         # 记录历史位置（用于时间窗口检测）
         # 存储 (pos, timestamp) 元组
-        self._pos_history: Deque[Tuple[Tuple[float, float], float]] = deque(maxlen=frame_threshold)
+        # maxlen 不再严格限制，而是通过时间清理
+        self._pos_history: Deque[Tuple[Tuple[float, float], float]] = deque()
         
         self.last_pos: Optional[Tuple[float, float]] = None
         self.stuck_frames: int = 0
@@ -58,37 +58,37 @@ class StuckDetector:
         # 添加当前位置到历史记录
         self._pos_history.append((pos, current_time))
         
-        # 如果历史记录不足，无法判断
-        if len(self._pos_history) < self.frame_th:
+        # 清理过期记录（超过时间窗口的）
+        while self._pos_history and (current_time - self._pos_history[0][1] > self.time_window):
+            self._pos_history.popleft()
+        
+        # 如果历史记录时间跨度不足窗口时间的 80%，暂不判定（给一些启动缓冲）
+        if not self._pos_history:
+             # Should not happen as we just appended
+            return False
+            
+        start_time = self._pos_history[0][1]
+        time_span = current_time - start_time
+        
+        if time_span < self.time_window * 0.8:
             self.last_pos = pos
             self.stuck_frames = 0
             self.is_stuck = False
             return False
 
         # 计算时间窗口内的总位移
-        # 参考位置：N帧前的位置（历史记录的第一个）
-        ref_pos, ref_time = self._pos_history[0]
+        # 参考位置：历史记录中最早的点
+        ref_pos, _ = self._pos_history[0]
         dx = pos[0] - ref_pos[0]
         dy = pos[1] - ref_pos[1]
         total_dist = math.hypot(dx, dy)
         
-        # 计算单帧位移（用于快速检测）
-        dx_frame = pos[0] - self.last_pos[0]
-        dy_frame = pos[1] - self.last_pos[1]
-        frame_dist = math.hypot(dx_frame, dy_frame)
-        
         # 改进的卡死判定逻辑：
-        # 使用时间窗口检测，避免低速移动时的误判
-        # 总位移阈值：允许最低速度移动（每帧至少0.3像素）
-        # 如果坦克以最低速度移动（每帧0.3像素），200帧后应该移动60像素
-        # 所以总位移阈值设置为：frame_threshold * 0.3
-        total_threshold = self.frame_th * 0.3
-        
-        # 如果总位移很小（说明在时间窗口内几乎没有移动）
-        # 直接判定为卡死（不需要累积，因为已经在N帧窗口内检测）
-        if total_dist < total_threshold:
+        # 如果在时间窗口（6秒）内，总位移小于阈值（10px），则判定为卡死
+        if total_dist < self.dist_threshold:
             self.is_stuck = True
-            self.stuck_frames = self.frame_th  # 标记为已卡死
+            # 这里的 stuck_frames 仅用于调试显示，保持兼容
+            self.stuck_frames = int(time_span * 30) 
         else:
             # 有显著移动（总位移达到阈值），重置状态
             self.is_stuck = False

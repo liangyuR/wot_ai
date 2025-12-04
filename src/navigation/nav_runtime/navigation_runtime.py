@@ -278,17 +278,12 @@ class NavigationRuntime:
             heading = math.radians(getattr(det, "self_angle", 0.0) or 0.0)
 
             # 2) 卡顿检测 + 重规划判断
-            # is_stuck = self.stuck_detector.update(pos)
-            is_stuck = False
+            is_stuck = self.stuck_detector.update(pos)
             need_replan = (
                 not current_path_world
                 or is_stuck
                 or current_target_idx >= len(current_path_world) - 1
             )
-            # need_replan = (
-            #     not current_path_world
-            #     or current_target_idx >= len(current_path_world) - 1
-            # )
 
             # 3) 路径规划（若需要）
             if need_replan:
