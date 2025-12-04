@@ -155,8 +155,22 @@ class NavigationRuntime:
             self.move.stop()
         except Exception:
             pass
+            
+        # 重置内部状态，防止污染下一次运行
+        self._reset_internal_state()
 
         logger.info("NavigationRuntime 已停止")
+
+    def _reset_internal_state(self) -> None:
+        """重置内部组件状态"""
+        if self.minimap_detector:
+            self.minimap_detector.Reset()
+        
+        if self.stuck_detector:
+            self.stuck_detector.reset()
+            
+        # 如果有其他组件需要重置，可以在这里添加
+        # 例如：self.path_follower_wrapper.reset() (如果需要)
 
     def is_running(self) -> bool:
         return self._running
