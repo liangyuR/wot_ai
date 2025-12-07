@@ -292,7 +292,7 @@ class MinimapDetector:
             crop,
             confidence_threshold=self.conf_threshold_,
             iou_threshold=self.iou_threshold_,
-            max_det=1
+            max_det=10
         )
         
         pose_data = self._parse_pose_result(pose_result)

@@ -93,27 +93,6 @@ class DetectionEngine:
             self.model_ = None
             return False
 
-    def Warmup(self, img_size: Tuple[int, int] = (640, 640)) -> None:
-        """模型预热：跑一帧空白图，避免首帧延迟
-
-        Args:
-            img_size: (宽, 高)
-        """
-        if not self.LoadModel():
-            return
-
-        if self.warmed_up_:
-            return
-
-        w, h = img_size
-        dummy = np.zeros((h, w, 3), dtype=np.uint8)
-        try:
-            _ = self.model_(dummy, conf=0.01, verbose=False)
-            self.warmed_up_ = True
-            logger.info(f"模型预热完成，img_size={img_size}")
-        except Exception as e:  # pragma: no cover - 防御性
-            logger.warning(f"模型预热失败，但不影响后续正常检测: {e}")
-
     # ------------------------------------------------------------------
     # 核心检测接口
     # ------------------------------------------------------------------

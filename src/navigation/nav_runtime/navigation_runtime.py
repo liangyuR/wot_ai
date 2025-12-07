@@ -7,6 +7,7 @@ ThreadManager 的替代方案（不带 UI）
 """
 
 import math
+import random
 import time
 import threading
 from typing import Optional
@@ -65,6 +66,15 @@ class NavigationRuntime:
         self.move = MovementService()
         self.path_follower_wrapper = PathFollowerWrapper()
         self.stuck_detector = StuckDetector()
+
+        # 卡顿脱困配置
+        stuck_cfg = getattr(self.cfg, "stuck_detection", None)
+        if stuck_cfg is not None:
+            self.reverse_duration_s_ = getattr(stuck_cfg, "reverse_duration_s", 0.8)
+            self.max_stuck_count_ = getattr(stuck_cfg, "max_stuck_count", 3)
+        else:
+            self.reverse_duration_s_ = 0.8
+            self.max_stuck_count_ = 3
 
         # 线程
         self._running = False
@@ -288,6 +298,29 @@ class NavigationRuntime:
             # 3) 路径规划（若需要）
             if need_replan:
                 self.move.stop()
+                
+                # 卡顿脱困处理：倒退 + 可选随机转向
+                if is_stuck:
+                    self.stuck_detector.incrementStuckCount()
+                    stuck_count = self.stuck_detector.getStuckCount()
+                    
+                    # 连续卡顿多次后，增加随机转向
+                    if stuck_count >= self.max_stuck_count_:
+                        turn_bias = random.uniform(-0.6, 0.6)
+                        logger.warning(
+                            f"连续卡顿 {stuck_count} 次，执行随机转向脱困 "
+                            f"(turn_bias={turn_bias:.2f})"
+                        )
+                    else:
+                        turn_bias = 0.0
+                        logger.info(f"检测到卡顿（第 {stuck_count} 次），执行倒退脱困")
+                    
+                    # 执行倒退脱困（阻塞）
+                    self.move.reverse(
+                        duration_s=self.reverse_duration_s_,
+                        turn_bias=turn_bias
+                    )
+                
                 grid_path, world_path = self.planner_service.plan_path(det)
 
                 if not world_path:
@@ -309,6 +342,10 @@ class NavigationRuntime:
                     pass
 
                 self.stuck_detector.reset()
+                
+                # 成功规划新路径后，如果不是卡顿触发的重规划，重置卡顿计数
+                if not is_stuck:
+                    self.stuck_detector.resetStuckCount()
 
                 logger.info(f"新路径规划节点数：{len(world_path)}")
 

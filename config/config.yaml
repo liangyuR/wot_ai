@@ -100,6 +100,13 @@ angle_detection:               # 小地图角度检测限制
   min_aspect_ratio: 0.3                         # 箭头最小宽高比（排除细长异常）
   max_aspect_ratio: 3.0                         # 箭头最大宽高比（排除过于扁平异常）
 
+# 卡顿检测与脱困配置
+stuck_detection:
+  time_window_s: 7.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
+  dist_threshold_px: 10.0         # 位移阈值（像素）
+  reverse_duration_s: 5.0         # 脱困倒退时间（秒）
+  max_stuck_count: 3              # 连续卡顿N次后采用随机转向策略
+
 # 车辆配置
 vehicle:
   screenshot_dir: "resource/vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）

@@ -91,6 +91,28 @@ class MovementService:
         cmd = MovementCommand(forward=clamped_speed, turn=0.0, brake=False)
         self.executor.apply_command(cmd)
 
+    def reverse(self, duration_s: float = 0.8, turn_bias: float = 0.0) -> None:
+        """倒退脱困：阻塞执行指定时长的后退动作。
+
+        Args:
+            duration_s: 倒退持续时间（秒）。
+            turn_bias: 转向偏移量 [-1.0, 1.0]，正数右转，负数左转。
+                       用于连续卡顿时增加随机转向提高脱困成功率。
+        """
+        clamped_turn = max(-1.0, min(1.0, turn_bias))
+        cmd = MovementCommand(forward=-1.0, turn=clamped_turn, brake=False)
+        
+        logger.info(f"执行倒退脱困: duration={duration_s:.2f}s, turn_bias={clamped_turn:.2f}")
+        
+        start_time = time.perf_counter()
+        while time.perf_counter() - start_time < duration_s:
+            self.executor.apply_command(cmd)
+            time.sleep(0.03)  # 约 30Hz 更新频率
+        
+        # 倒退结束后停车
+        self.stop()
+        logger.info("倒退脱困完成")
+
     def update_detection_status(self, has_detection: bool) -> None:
         """更新检测结果状态，用于盲走模式判断。
 
