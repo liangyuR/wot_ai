@@ -19,7 +19,6 @@ class GameState(Enum):
     IN_GARAGE = "in_garage"
     IN_BATTLE = "in_battle"
     IN_END = "in_end"
-    IN_RESULT_PAGE = "in_result_page"
     UNKNOWN = "unknown"
 
 
@@ -52,14 +51,13 @@ class StateMachine:
         self.state_history_ = []
         self.last_update_time_ = 0.0
         self.template_matcher_ = TemplateMatcher()
-        self.screen_action_ = ScreenAction()
+        self.screen_action_ = ScreenAction() # TODO(@liangyu) 替换为 CaptureService
         
         # 状态模板映射
         self.state_templates_ = {
-            GameState.IN_GARAGE: "in_garage.png",
-            GameState.IN_END: "pingjia.png", # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
-            GameState.IN_BATTLE: "in_battle.png",
-            GameState.IN_RESULT_PAGE: "result_page.png", # 在胜利/失败后的结算页面
+            GameState.IN_END: ["pingjia.png","jie_suan_1.png","jie_suan_2.png","jie_suan_3.png"], # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
+            GameState.IN_GARAGE: ["in_garage.png"],
+            GameState.IN_BATTLE: ["in_battle.png"],
             # TODO(@ly) 勋章获取页面没有hack
         }
         self._initialized = True
@@ -158,8 +156,8 @@ class StateMachine:
             return GameState.UNKNOWN
         
         for state, templates in self.state_templates_.items():
-            for template_name in (templates if isinstance(templates, list) else [templates]):
-                if self.template_matcher_.match_template(template_name, confidence=0.80):
+            for template_name in templates:
+                if self.template_matcher_.match_template(template_name, confidence=0.85):
                     logger.debug(f"检测到状态: {state.value} (模板: {template_name})")
                     return state
 

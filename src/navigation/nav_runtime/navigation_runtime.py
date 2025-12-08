@@ -7,17 +7,16 @@ ThreadManager 的替代方案（不带 UI）
 """
 
 import math
+import random
 import time
 import threading
 from typing import Optional
 
 from loguru import logger
-from src.utils.global_path import GetConfigPath
-from src.navigation.config.loader import load_config
 from src.navigation.service.data_hub import DataHub
+from src.utils.global_path import GetGlobalConfig
 # 屏幕捕获
 from src.navigation.service.capture_service import CaptureService
-from src.utils.screen_action import ScreenAction
 # 运动控制
 from src.navigation.nav_runtime.stuck_detector import StuckDetector
 from src.navigation.controller.movement_service import MovementService
@@ -42,8 +41,7 @@ class NavigationRuntime:
 
     def __init__(self):
         # 配置
-        config_path = GetConfigPath()
-        self.cfg = load_config(config_path)
+        self.cfg = GetGlobalConfig()
 
         # 组件
         self.capture = CaptureService(self.cfg.monitor_index)
@@ -59,76 +57,25 @@ class NavigationRuntime:
         self.data_hub = DataHub()
 
         # 小地图检测
-        angle_cfg = self.cfg.angle_detection
-        if angle_cfg is not None:
-            self.minimap_detector = MinimapDetector(
-                model_path=self.cfg.model.path,
-                conf_threshold=self.cfg.model.conf_threshold,
-                iou_threshold=self.cfg.model.iou_threshold,
-                smoothing_alpha=angle_cfg.smoothing_alpha,
-                max_step_deg=angle_cfg.max_step_deg,
-                min_area_ratio=angle_cfg.min_area_ratio,
-                max_area_ratio=angle_cfg.max_area_ratio,
-                min_aspect_ratio=angle_cfg.min_aspect_ratio,
-                max_aspect_ratio=angle_cfg.max_aspect_ratio,
-            )
-        else:
-            # 向后兼容：如果没有配置，使用默认值
-            self.minimap_detector = MinimapDetector(
-                model_path=self.cfg.model.path,
-                conf_threshold=self.cfg.model.conf_threshold,
-                iou_threshold=self.cfg.model.iou_threshold,
-            )
+        self.minimap_detector = MinimapDetector()
         self.minimap_anchor_detector = MinimapAnchorDetector()
         self.minimap_name_detector = MapNameDetector()
         self.minimap_region: Optional[dict] = None
 
         # 控制与跟随
-        self.move = MovementService(
-            angle_dead_zone_deg=self.cfg.control.angle_dead_zone_deg,
-            angle_slow_turn_deg=self.cfg.control.angle_slow_turn_deg,
-            distance_stop_threshold=self.cfg.control.distance_stop_threshold,
-            slow_down_distance=self.cfg.control.slow_down_distance,
-            max_forward_speed=self.cfg.control.max_forward_speed,
-            min_forward_factor=self.cfg.control.min_forward_factor,
-            large_angle_threshold_deg=self.cfg.control.large_angle_threshold_deg,
-            large_angle_speed_reduction=self.cfg.control.large_angle_speed_reduction,
-            corridor_ref_width=self.cfg.control.corridor_ref_width,
-            k_lat_normal=self.cfg.control.k_lat_normal,
-            k_lat_edge=self.cfg.control.k_lat_edge,
-            k_lat_recenter=self.cfg.control.k_lat_recenter,
-            straight_angle_enter_deg=self.cfg.control.straight_angle_enter_deg,
-            straight_angle_exit_deg=self.cfg.control.straight_angle_exit_deg,
-            straight_lat_enter=self.cfg.control.straight_lat_enter,
-            straight_lat_exit=self.cfg.control.straight_lat_exit,
-            edge_speed_reduction=self.cfg.control.edge_speed_reduction,
-            recenter_speed_reduction=self.cfg.control.recenter_speed_reduction,
-            debug_log_interval=self.cfg.control.debug_log_interval,
-            smoothing_alpha=self.cfg.control.smoothing_alpha,
-            turn_deadzone=self.cfg.control.turn_deadzone,
-            min_hold_time_ms=self.cfg.control.min_hold_time_ms,
-            forward_hysteresis_on=self.cfg.control.forward_hysteresis_on,
-            forward_hysteresis_off=self.cfg.control.forward_hysteresis_off,
-        )
+        self.move = MovementService()
+        self.path_follower_wrapper = PathFollowerWrapper()
+        self.stuck_detector = StuckDetector()
 
-        self.path_follower_wrapper = PathFollowerWrapper(
-            deviation_tolerance=self.cfg.control.path_deviation_tolerance,
-            goal_arrival_threshold=self.cfg.control.goal_arrival_threshold,
-            max_lateral_error=self.cfg.control.max_lateral_error,
-            lookahead_distance=self.cfg.control.lookahead_distance,
-            waypoint_switch_radius=self.cfg.control.waypoint_switch_radius,
-        )
-
-        # 卡顿检测（用配置参数初始化）
-        self.stuck_detector = StuckDetector(
-            move_threshold=self.cfg.control.stuck_threshold,
-            frame_threshold=self.cfg.control.stuck_frames_threshold,
-        )
+        # 卡顿脱困配置
+        self.reverse_duration_s_ = self.cfg.stuck_detection.reverse_duration_s
+        self.max_stuck_count_ = self.cfg.stuck_detection.max_stuck_count
 
         # 线程
         self._running = False
         self._det_thread: Optional[threading.Thread] = None
         self._ctrl_thread: Optional[threading.Thread] = None
+        self._view_thread: Optional[threading.Thread] = None
 
     # ============================================================
     # 外部接口
@@ -144,6 +91,7 @@ class NavigationRuntime:
             return False
 
         # 先检测一次小地图位置，并写入 minimap_region
+        # first_frame = self.capture.grab_window_by_name("WorldOfTanks.exe")
         first_frame = self.capture.grab()
         if first_frame is None:
             logger.error("首次抓取屏幕失败，无法检测小地图")
@@ -155,23 +103,11 @@ class NavigationRuntime:
             return False
         logger.info(f"检测到小地图区域: {self.minimap_region}")
 
-        # 检测当前地图名称，读取 mask 图片
-        # V1
-        # if not map_name:
-        #     map_name_frame = ScreenAction().screenshot_with_key_hold('b')
-        #     if map_name_frame is None:
-        #         logger.error("无法截取地图名称界面")
-        #         return False
-        #     map_name = self.minimap_name_detector.detect(map_name_frame)
-        #     if not map_name:
-        #         logger.error("无法识别地图名称")
-        #         return False
-        #     logger.info(f"当前地图名称: {map_name}")
-        # V2
         if not map_name:
             from src.utils.key_controller import KeyController
             key_controller = KeyController()
             key_controller.press('b')
+            time.sleep(2)
             map_name = self.minimap_name_detector.detect()
             if not map_name:
                 logger.error("无法识别地图名称")
@@ -195,7 +131,8 @@ class NavigationRuntime:
         self._ctrl_thread.start()
 
         if self.view is not None:
-            self.view.run()
+            self._view_thread = threading.Thread(target=self.view.run, daemon=True)
+            self._view_thread.start()
 
         logger.info("NavigationRuntime 已启动（检测 + 控制）")
         return True
@@ -214,13 +151,32 @@ class NavigationRuntime:
         if self._ctrl_thread and self._ctrl_thread.is_alive():
             self._ctrl_thread.join(timeout=1.0)
 
+        if self.view is not None:
+            self.view.close()
+            if self._view_thread and self._view_thread.is_alive():
+                self._view_thread.join(timeout=2.0)
+
         # 停止所有按键
         try:
             self.move.stop()
         except Exception:
             pass
+            
+        # 重置内部状态，防止污染下一次运行
+        self._reset_internal_state()
 
         logger.info("NavigationRuntime 已停止")
+
+    def _reset_internal_state(self) -> None:
+        """重置内部组件状态"""
+        if self.minimap_detector:
+            self.minimap_detector.Reset()
+        
+        if self.stuck_detector:
+            self.stuck_detector.reset()
+            
+        # 如果有其他组件需要重置，可以在这里添加
+        # 例如：self.path_follower_wrapper.reset() (如果需要)
 
     def is_running(self) -> bool:
         return self._running
@@ -231,17 +187,18 @@ class NavigationRuntime:
     def _det_loop(self) -> None:
         logger.info("检测线程启动")
 
-        # detect_fps = getattr(self.cfg.performance, "detect_fps", 30)
-        detect_fps = 30
-        detect_fps = max(1, int(detect_fps))
-        min_interval = 1.0 / detect_fps
-
+        # 检测线程不限速，全速运行以减少相位滞后
         m = self.minimap_region
         x, y, w, h = m["x"], m["y"], m["width"], m["height"]
 
+        # 控制线程固定 60 FPS
+        detect_fps = 60
+        interval = 1.0 / detect_fps
+
         while self._running:
-            t0 = time.perf_counter()
             try:
+                # t0 = time.perf_counter()
+
                 frame = self.capture.grab_region(x, y, w, h)
                 if frame is None:
                     time.sleep(0.001)
@@ -256,14 +213,14 @@ class NavigationRuntime:
 
                 self.data_hub.set_latest_detection(det)
 
+                # dt = time.perf_counter() - t0
+                # if dt < interval:
+                #     time.sleep(interval - dt)
+
             except Exception as e:
                 logger.error(f"检测线程错误: {e}")
                 import traceback
                 traceback.print_exc()
-
-            dt = time.perf_counter() - t0
-            if dt < min_interval:
-                time.sleep(min_interval - dt)
 
         logger.info("检测线程退出")
 
@@ -273,10 +230,8 @@ class NavigationRuntime:
     def _ctrl_loop(self) -> None:
         logger.info("控制线程启动")
 
-        # 控制线程 FPS
-        # ctrl_fps = getattr(self.cfg.performance, "control_fps", 20)
-        ctrl_fps = 20
-        ctrl_fps = max(1, int(ctrl_fps))
+        # 控制线程固定 60 FPS
+        ctrl_fps = 30
         interval = 1.0 / ctrl_fps
 
         if not self.minimap_region:
@@ -305,18 +260,32 @@ class NavigationRuntime:
             t0 = time.perf_counter()
 
             # 1) 读取最新检测结果
-            det = self.data_hub.get_latest_detection(max_age=0.5)
-            if det is None or getattr(det, "self_pos", None) is None:
-                self.move.stop()
-                time.sleep(interval)
-                continue
+            det = self.data_hub.get_latest_detection(max_age=1.0)
+            has_detection = det is not None and getattr(det, "self_pos", None) is not None
+
+            # 更新检测状态（盲走模式逻辑在 MovementService 内部处理）
+            self.move.update_detection_status(has_detection)
+
+            if not has_detection:
+                # 没有检测结果：由 MovementService 决定是否进入盲走模式
+                should_blind_forward = self.move.tick_blind_forward()
+                if should_blind_forward:
+                    # 已进入盲走模式，继续循环
+                    dt = time.perf_counter() - t0
+                    if dt < interval:
+                        time.sleep(interval - dt)
+                    continue
+                else:
+                    # tick_blind_forward 已处理停车逻辑，只需等待
+                    time.sleep(interval)
+                    continue
 
             pos = det.self_pos
             heading = math.radians(getattr(det, "self_angle", 0.0) or 0.0)
 
             # 2) 卡顿检测 + 重规划判断
             is_stuck = self.stuck_detector.update(pos)
-
+            # is_stuck = False
             need_replan = (
                 not current_path_world
                 or is_stuck
@@ -326,6 +295,29 @@ class NavigationRuntime:
             # 3) 路径规划（若需要）
             if need_replan:
                 self.move.stop()
+                
+                # 卡顿脱困处理：倒退 + 可选随机转向
+                if is_stuck:
+                    self.stuck_detector.incrementStuckCount()
+                    stuck_count = self.stuck_detector.getStuckCount()
+                    
+                    # 连续卡顿多次后，增加随机转向
+                    if stuck_count >= self.max_stuck_count_:
+                        turn_bias = random.uniform(-0.6, 0.6)
+                        logger.warning(
+                            f"连续卡顿 {stuck_count} 次，执行随机转向脱困 "
+                            f"(turn_bias={turn_bias:.2f})"
+                        )
+                    else:
+                        turn_bias = 0.0
+                        logger.info(f"检测到卡顿（第 {stuck_count} 次），执行倒退脱困")
+                    
+                    # 执行倒退脱困（阻塞）
+                    self.move.reverse(
+                        duration_s=self.reverse_duration_s_,
+                        turn_bias=turn_bias
+                    )
+                
                 grid_path, world_path = self.planner_service.plan_path(det)
 
                 if not world_path:
@@ -347,6 +339,10 @@ class NavigationRuntime:
                     pass
 
                 self.stuck_detector.reset()
+                
+                # 成功规划新路径后，如果不是卡顿触发的重规划，重置卡顿计数
+                if not is_stuck:
+                    self.stuck_detector.resetStuckCount()
 
                 logger.info(f"新路径规划节点数：{len(world_path)}")
 
@@ -361,10 +357,7 @@ class NavigationRuntime:
             dev = follow_result.distance_to_path
             dist_goal = follow_result.distance_to_goal
             goal_reached = follow_result.goal_reached
-            new_idx = follow_result.current_idx
-            used_target_idx = follow_result.target_idx_used
-
-            current_target_idx = new_idx
+            current_target_idx = follow_result.current_idx
 
             # ---- 调试 UI：更新导航状态 + 路径 ----
             if self.view is not None:

@@ -71,7 +71,7 @@ class PathPlanningCore:
                     if start_blocked or goal_blocked:
                         # 尝试修正，如果修正失败则认为是修正失败
                         from src.navigation.path_planner.astar_planner import _adjust_start_goal_for_cost_astar
-                        adjusted = _adjust_start_goal_for_cost_astar(start, goal, cost_map, max_radius=12)
+                        adjusted = _adjust_start_goal_for_cost_astar(start, goal, cost_map, max_radius=100)
                         if adjusted is None:
                             self._cost_astar_adjust_fail_count += 1
                             fallback_reason = "起点/终点修正失败"

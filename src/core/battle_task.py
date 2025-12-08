@@ -18,6 +18,9 @@ from src.utils.template_matcher import TemplateMatcher
 from src.utils.key_controller import KeyController
 from src.navigation.nav_runtime.navigation_runtime import NavigationRuntime
 from pynput.keyboard import Key
+from src.utils.restart_game import GameRestarter
+from src.utils.global_path import GetGlobalConfig
+
 
 class BattleTask:
     """战斗任务（事件驱动模式）"""
@@ -32,9 +35,7 @@ class BattleTask:
         初始化战斗任务
         
         Args:
-            tank_selector: 坦克选择器
-            state_machine: 状态机实例
-            ai_config: NavigationConfig配置对象
+            config: 配置对象
             selection_retry_interval: 选择失败后的重试间隔
             selection_timeout: 选择超时时间
             state_check_interval: 状态检测间隔（秒）
@@ -44,8 +45,16 @@ class BattleTask:
         self.template_matcher_ = TemplateMatcher()
         self.map_name_detector_ = MapNameDetector()
         self.key_controller_ = KeyController()
-        self.navigation_runtime_ = None
-        self.navigation_thread_ = None
+        # NavigationRuntime 只初始化一次，在整个生命周期内复用
+        self.navigation_runtime_ = NavigationRuntime()
+        
+        config = GetGlobalConfig()
+        self.game_restarter_ = GameRestarter(
+            process_name=config.game.process_name,
+            game_exe_path=config.game.exe_path,
+            wait_seconds=config.game.restart_wait_seconds
+        )
+        self.stuck_timeout_ = config.game.stuck_timeout_seconds
 
         self.selection_retry_interval_ = selection_retry_interval
         self.selection_timeout_ = selection_timeout
@@ -56,13 +65,14 @@ class BattleTask:
         self.event_thread_: Optional[threading.Thread] = None
         
         # 状态处理标志，防止重复处理
-        self.garage_handled_ = False
         self.battle_handled_ = False
-        self.end_handled_ = False
-        self.result_page_handled_ = False
         
         # 选中的车辆
         self.selected_tank_: Optional[TankTemplate] = None
+        
+        # 状态监测
+        self.last_state_ = GameState.UNKNOWN
+        self.last_state_change_time_ = time.time()
     
     def start(self) -> bool:
         """
@@ -101,9 +111,9 @@ class BattleTask:
         logger.info("正在停止事件驱动循环...")
         self.running_ = False
         
-        # 停止导航AI
-        if self.navigation_thread_ and self.navigation_thread_.is_alive():
-            self.navigation_thread_.join(timeout=3.0)
+        # 停止导航AI（如果正在运行）
+        if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
+            self.navigation_runtime_.stop()
         
         # 等待事件循环线程结束
         if self.event_thread_ and self.event_thread_.is_alive():
@@ -116,6 +126,8 @@ class BattleTask:
         事件驱动主循环
         """
         logger.info("事件循环开始运行")
+        self.last_state_change_time_ = time.time()
+        self.last_state_ = GameState.UNKNOWN
         
         while self.running_:
             try:
@@ -123,6 +135,23 @@ class BattleTask:
                 self.state_machine_.update()
                 current_state = self.state_machine_.current_state()
                 
+                # 状态变化检测
+                if current_state != self.last_state_:
+                    self.last_state_ = current_state
+                    self.last_state_change_time_ = time.time()
+                
+                # 卡死检测
+                elapsed_since_change = time.time() - self.last_state_change_time_
+                if elapsed_since_change > self.stuck_timeout_:
+                    logger.error(f"游戏状态已 {elapsed_since_change:.1f} 秒未变化，判定为卡死，执行重启...")
+                    self.game_restarter_.RestartGame()
+                    # 重启后重置状态计时
+                    self.last_state_change_time_ = time.time()
+                    self.last_state_ = GameState.UNKNOWN
+                    # 等待游戏启动
+                    time.sleep(30)
+                    continue
+
                 # 根据当前状态执行相应操作
                 if current_state == GameState.IN_GARAGE:
                     self._handle_garage_state()
@@ -130,8 +159,6 @@ class BattleTask:
                     self._handle_battle_state()
                 elif current_state == GameState.IN_END:
                     self._handle_end_state()
-                elif current_state == GameState.IN_RESULT_PAGE:
-                    self._handle_result_page_state()
                 elif current_state == GameState.UNKNOWN:
                     pass
                 
@@ -150,12 +177,7 @@ class BattleTask:
         """
         处理车库状态：选择车辆并加入战斗
         """
-        if self.garage_handled_:
-            return
         logger.info("检测到车库状态，开始选择车辆...")
-
-        self.end_handled_ = False
-        self.battle_handled_ = False
 
         # 选择车辆
         if not self.select_tank():
@@ -170,8 +192,6 @@ class BattleTask:
             logger.error("加入战斗失败，将在下次循环重试")
             return
         
-        # 标记已处理，等待状态转换
-        self.garage_handled_ = True
         logger.info("车库状态处理完成，等待进入战斗")
     
     def _handle_battle_state(self) -> None:
@@ -181,49 +201,34 @@ class BattleTask:
         if self.battle_handled_:
             return
 
-        self.end_handled_ = False
-        self.garage_handled_ = False
-
         logger.info("检测到战斗状态，开始启动导航...")
-        # 等待一段时间让游戏稳定
-        time.sleep(10.0)
-        # 启动导航线程
-        self.navigation_runtime_ = NavigationRuntime()
-        self.navigation_thread_ = threading.Thread(target=self.navigation_runtime_.start, daemon=True)
-        self.navigation_thread_.start()
+        # 启动导航（NavigationRuntime.start() 内部会创建并启动线程）
+        if not self.navigation_runtime_.start():
+            logger.error("导航启动失败")
+            return
+        
         # 标记已处理
         self.battle_handled_ = True
         logger.info("战斗状态处理完成")
     
     def _handle_end_state(self) -> None:
         """
-        处理结束状态：停止导航AI运行循环（保留初始化状态）
+        处理结束状态：停止导航AI运行循环（保留实例以便复用）
         """
-        if self.end_handled_:
-            return
-        
+
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
-        # 停止导航AI运行循环
-        if self.navigation_runtime_ is not None:
+        # 停止导航AI运行循环（保留实例以便下次复用）
+        if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
-        self.navigation_runtime_ = None
-
-        if self.navigation_thread_ and self.navigation_thread_.is_alive():
-            self.navigation_thread_.join(timeout=3.0)
-        self.navigation_thread_ = None
 
         # 关闭结算页面并返回车库
         if not self.enter_garage():
             logger.error("返回车库失败，将在下次循环重试")
             return
         
-        # 标记已处理
-        self.end_handled_ = True
-
         # 重置战斗状态标志，为下一局做准备
         self.battle_handled_ = False
-        self.garage_handled_ = False
         logger.info("结束状态处理完成")
     
     def _handle_result_page_state(self) -> None:
@@ -244,24 +249,20 @@ class BattleTask:
         """
         logger.info("选择车辆...")
         
-        deadline = time.time() + self.selection_timeout_
         
-        while time.time() < deadline:
-            candidates = self.tank_selector_.pick()
-            if not candidates:
-                logger.error("车辆模板列表为空，无法选择")
-                return False
-            
-            for candidate in candidates:
-                if self._try_select_candidate(candidate):
-                    self.selected_tank_ = candidate
-                    logger.info(f"车辆选择成功: {candidate.name}")
-                    return True
-            
-            logger.info(f"所有车辆暂不可用，等待 {self.selection_retry_interval_} 秒后重试")
-            time.sleep(self.selection_retry_interval_)
+        candidates = self.tank_selector_.pick()
+        if not candidates:
+            logger.error("车辆模板列表为空，无法选择")
+            return False
         
-        logger.error("选择车辆超时")
+        for candidate in candidates:
+            if self._try_select_candidate(candidate):
+                self.selected_tank_ = candidate
+                logger.info(f"车辆选择成功: {candidate.name}")
+                return True
+                
+        logger.info(f"所有车辆暂不可用，等待 {self.selection_retry_interval_} 秒后重试")
+        time.sleep(self.selection_retry_interval_)
         return False
     
     def _try_select_candidate(self, candidate: TankTemplate) -> bool:
@@ -298,13 +299,20 @@ class BattleTask:
         """
         logger.info("退出结算界面，返回车库...")
 
-        # 1. 当前在结算页面
-        success = self.template_matcher_.match_template("space_jump.png", confidence=0.85)
+        # 1. 奖励页面，按下esc键退出奖励页面
+        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
+        if success is not None:
+            logger.info("在奖励页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+        
+        # 2. 结算页面
+        success = self.template_matcher_.match_template("jie_suan_2.png", confidence=0.85)
         if success is not None:
             logger.info("在结算页面，按下esc键退出结算界面")
             self.key_controller_.tap(Key.esc)
             return True
-        
+            
         # 2.当被击毁时，点击"返回车库"按钮
         # press esc
         success = self.template_matcher_.match_template("pingjia.png", confidence=0.85)

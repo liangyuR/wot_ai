@@ -9,22 +9,15 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from loguru import logger
 import cv2
-from time import sleep
 
 from src.core.task_manager import TaskManager
-from src.core.tank_selector import TankSelector
-from src.utils.global_path import GetVehicleScreenshotsDir, GetConfigPath, GetConfigTemplatePath
-from src.navigation.config.loader import load_config
-from src.navigation.config.models import NavigationConfig
-from src.vision.map_name_detector import MapNameDetector
-from src.core.state_machine import StateMachine
-
+from src.utils.global_path import GetVehicleScreenshotsDir, GetLogDir, GetConfigPath
 
 class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("TANK ROBOT")
-        self.root.geometry("900x1440")
+        self.root.geometry("720x1000")
         self.root.configure(bg="#F0F0F0")
 
         # State
@@ -41,19 +34,39 @@ class MainWindow:
         self.task_manager_ = None
         self.task_thread_ = None
 
-        # Debug components
-        self.debug_state_machine_ = None
-        self.debug_map_detector_ = None
-        self.debug_tank_selector_ = None
-        self.debug_ai_controller_ = None
-        self.debug_battle_task = None
-        self.debug_ai_config_ = None
-        self.debug_ai_running_ = False
+        # InitLog
+        self._init_log()
 
         # Setup UI
         self._build_ui()
         self._update_status()
-        self._init_debug_components()
+
+    def _init_log(self):
+        """Initialize logging configuration"""
+        log_dir = GetLogDir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.remove()  # Remove default handler
+        
+        # Console handler
+        logger.add(
+            sys.stderr,
+            level="INFO",
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+        )
+        
+        # File handler
+        log_file = log_dir / "wot_ai_{time:YYYY-MM-DD}.log"
+        logger.add(
+            str(log_file),
+            rotation="00:00",  # New file every day at midnight
+            retention="10 days",  # Keep logs for 10 days
+            level="DEBUG",
+            encoding="utf-8",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+        )
+        
+        logger.info(f"Log initialized, saving to: {log_dir}")
 
     def _create_section(self, parent, title=None):
         """Create a section frame with optional title"""
@@ -76,9 +89,11 @@ class MainWindow:
         # 使用提示区
         tips_section = self._create_section(self.root, "使用提示区")
         tips = [
-            "· 请将游戏设置为\"窗口化全屏\"",
+            "· 请将游戏设置为\"窗口化 1920x1080\"",
             "· 推荐画质：中–低",
-            "· 游戏进入车库后按 F9 启动 / F10 停止",
+            ". 使用截图软件，截取需要使用的车辆卡片，按照 1，2，3，4，5 的方式命名，",
+            "程序会按照优先级选用，即当优先级更高的车辆可用时，优先选用",
+            "· 在游戏车库状态下，点击启动按钮开始运行",
         ]
         for tip in tips:
             tk.Label(
@@ -92,12 +107,12 @@ class MainWindow:
         btn_frame.pack(pady=10)
         
         tk.Button(
-            btn_frame, text="● 启动 (F9)", command=self._start,
+            btn_frame, text="● 启动", command=self._start,
             font=("Microsoft YaHei", 10), width=15
         ).pack(side=tk.LEFT, padx=10)
         
         tk.Button(
-            btn_frame, text="■ 停止 (F10)", command=self._stop,
+            btn_frame, text="■ 停止", command=self._stop,
             font=("Microsoft YaHei", 10), width=15
         ).pack(side=tk.LEFT, padx=10)
         
@@ -108,7 +123,7 @@ class MainWindow:
         self.status_label.pack(pady=5)
 
         # 时长 & 结束行为配置区
-        time_section = self._create_section(self.root, "时长 & 结束行为配置区")
+        time_section = self._create_section(self.root, "时长 & 结束行为配置区（未实现）")
         
         time_row = tk.Frame(time_section, bg="#F0F0F0")
         time_row.pack(anchor="w", pady=5)
@@ -144,7 +159,7 @@ class MainWindow:
         self.end_time_label.pack(anchor="w", padx=5, pady=5)
 
         # 功能扩展区
-        feature_section = self._create_section(self.root, "功能扩展区")
+        feature_section = self._create_section(self.root, "功能扩展区（未实现）")
         
         tk.Checkbutton(
             feature_section, text="是否启用启动银币储备",
@@ -202,23 +217,19 @@ class MainWindow:
         footer.pack(fill=tk.X, pady=10)
         
         tk.Label(
-            footer, text="版本：v0.3.1", font=("Microsoft YaHei", 9),
+            footer, text="版本：v0.1.0", font=("Microsoft YaHei", 9),
             bg="#F0F0F0"
         ).pack(side=tk.LEFT, padx=10)
         
         tk.Button(
-            footer, text="查看日志", command=self._view_logs,
+            footer, text="打开日志目录", command=self._view_logs,
             font=("Microsoft YaHei", 9), relief=tk.FLAT
         ).pack(side=tk.LEFT, padx=5)
         
         tk.Button(
-            footer, text="配置文件目录", command=self._open_config_dir,
+            footer, text="打开配置文件", command=self._open_config_dir,
             font=("Microsoft YaHei", 9), relief=tk.FLAT
         ).pack(side=tk.LEFT, padx=5)
-
-        # 单步调试区
-        debug_section = self._create_section(self.root, "单步调试区")
-        self._build_debug_ui(debug_section)
 
     def _start(self):
         if self.is_running:
@@ -261,31 +272,6 @@ class MainWindow:
         default_dir = GetVehicleScreenshotsDir()
         default_dir.mkdir(parents=True, exist_ok=True)
         return default_dir
-    
-    def _get_ai_config(self) -> NavigationConfig:
-        """获取AI配置"""
-        config_path = GetConfigPath()
-        if not config_path.exists():
-            # 如果配置文件不存在，使用模板路径
-            template_path = GetConfigTemplatePath()
-            if template_path.exists():
-                logger.warning(f"配置文件不存在，使用模板: {template_path}")
-                config_path = template_path
-            else:
-                # 如果模板也不存在，抛出异常
-                error_msg = f"配置文件不存在: {config_path}，请创建配置文件"
-                logger.error(error_msg)
-                messagebox.showerror("配置错误", error_msg)
-                raise FileNotFoundError(error_msg)
-        
-        try:
-            config = load_config(config_path)
-            logger.info(f"加载配置文件成功: {config}")
-            return config
-        except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
-            messagebox.showerror("配置错误", str(e))
-            raise
 
     def _update_status(self):
         if self.is_running:
@@ -404,301 +390,10 @@ class MainWindow:
             logger.error(f"删除失败: {e}")
 
     def _view_logs(self):
-        log_dir = Path("logs")
-        if log_dir.exists():
-            try:
-                if sys.platform == "win32":
-                    os.startfile(str(log_dir))
-            except Exception as e:
-                messagebox.showerror("错误", f"打开日志目录失败: {e}")
-        else:
-            messagebox.showinfo("提示", "日志目录不存在")
+        os.startfile(str(GetLogDir()))
 
     def _open_config_dir(self):
-        config_dir = Path("config")
-        config_dir.mkdir(exist_ok=True)
-        try:
-            if sys.platform == "win32":
-                os.startfile(str(config_dir))
-        except Exception as e:
-            messagebox.showerror("错误", f"打开配置目录失败: {e}")
-
-    def _init_debug_components(self):
-        """初始化调试组件"""
-        try:
-            self.debug_state_machine_ = StateMachine()
-            self.debug_map_detector_ = MapNameDetector()
-            self.debug_tank_selector_ = TankSelector()
-            logger.info("调试组件初始化完成")
-        except Exception as e:
-            logger.error(f"调试组件初始化失败: {e}")
-            messagebox.showerror("错误", f"调试组件初始化失败: {e}")
-
-    def _build_debug_ui(self, parent):
-        """构建单步调试UI"""
-        # 导航AI控制区
-        ai_ctrl_frame = tk.Frame(parent, bg="#F0F0F0")
-        ai_ctrl_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        tk.Label(
-            ai_ctrl_frame, text="导航AI控制：", font=("Microsoft YaHei", 9),
-            bg="#F0F0F0"
-        ).pack(side=tk.LEFT, padx=5)
-        
-        self.debug_ai_status_label = tk.Label(
-            ai_ctrl_frame, text="● 已停止", font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", fg="#666666"
-        )
-        self.debug_ai_status_label.pack(side=tk.LEFT, padx=5)
-        
-        self.debug_ai_start_btn = tk.Button(
-            ai_ctrl_frame, text="启动导航AI", command=self._debug_start_ai,
-            font=("Microsoft YaHei", 9), width=12, bg="#90EE90"
-        )
-        self.debug_ai_start_btn.pack(side=tk.LEFT, padx=5)
-        
-        self.debug_ai_stop_btn = tk.Button(
-            ai_ctrl_frame, text="停止导航AI", command=self._debug_stop_ai,
-            font=("Microsoft YaHei", 9), width=12, bg="#FFB6C1", state=tk.DISABLED
-        )
-        self.debug_ai_stop_btn.pack(side=tk.LEFT, padx=5)
-
-        # 单步测试按钮区
-        test_btn_frame = tk.Frame(parent, bg="#F0F0F0")
-        test_btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        tk.Label(
-            test_btn_frame, text="单步测试：", font=("Microsoft YaHei", 9, "bold"),
-            bg="#F0F0F0"
-        ).pack(anchor="w", padx=5, pady=2)
-        
-        btn_row1 = tk.Frame(test_btn_frame, bg="#F0F0F0")
-        btn_row1.pack(fill=tk.X, padx=5, pady=2)
-        
-        tk.Button(
-            btn_row1, text="1. 选择坦克", command=self._debug_select_tank,
-            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
-        ).pack(side=tk.LEFT, padx=3)
-        
-        tk.Button(
-            btn_row1, text="2. 加入战斗", command=self._debug_join_battle,
-            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
-        ).pack(side=tk.LEFT, padx=3)
-        
-        tk.Button(
-            btn_row1, text="3. 识别地图名称", command=self._debug_detect_map,
-            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
-        ).pack(side=tk.LEFT, padx=3)
-        
-        btn_row2 = tk.Frame(test_btn_frame, bg="#F0F0F0")
-        btn_row2.pack(fill=tk.X, padx=5, pady=2)
-        
-        tk.Button(
-            btn_row2, text="4. 返回车库", command=self._debug_return_garage,
-            font=("Microsoft YaHei", 9), width=15, bg="#E6E6FA"
-        ).pack(side=tk.LEFT, padx=3)
-        
-        tk.Button(
-            btn_row2, text="检测当前状态", command=self._debug_detect_state,
-            font=("Microsoft YaHei", 9), width=15, bg="#FFFACD"
-        ).pack(side=tk.LEFT, padx=3)
-        
-        tk.Button(
-            btn_row2, text="刷新调试组件", command=self._debug_refresh_components,
-            font=("Microsoft YaHei", 9), width=15, bg="#F0F0F0"
-        ).pack(side=tk.LEFT, padx=3)
-
-        # 状态显示区
-        status_frame = tk.Frame(parent, bg="#F0F0F0", relief=tk.SUNKEN, bd=1)
-        status_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        tk.Label(
-            status_frame, text="调试状态信息：", font=("Microsoft YaHei", 9, "bold"),
-            bg="#F0F0F0", anchor="w"
-        ).pack(fill=tk.X, padx=5, pady=2)
-        
-        # 使用Text组件显示状态信息，支持滚动
-        text_frame = tk.Frame(status_frame, bg="white")
-        text_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.debug_status_text = tk.Text(
-            text_frame, height=6, font=("Consolas", 9),
-            wrap=tk.WORD, bg="white", fg="black"
-        )
-        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=self.debug_status_text.yview)
-        self.debug_status_text.configure(yscrollcommand=scrollbar.set)
-        
-        self.debug_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self._debug_log_status("调试组件已就绪")
-
-    def _debug_log_status(self, message: str):
-        """在调试状态区域记录消息"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.debug_status_text.insert(tk.END, f"[{timestamp}] {message}\n")
-        self.debug_status_text.see(tk.END)
-        logger.info(f"[调试] {message}")
-
-    def _debug_start_ai(self):
-        """启动导航AI"""
-        if self.debug_ai_running_:
-            messagebox.showwarning("警告", "导航AI已在运行")
-            return
-        
-        try:
-            map_name = self.debug_map_detector_.detect()
-            if not map_name:
-                map_name = "default"
-                self._debug_log_status(f"未识别到地图，使用默认配置: {map_name}")
-            else:
-                self._debug_log_status(f"识别到地图: {map_name}")
-            
-            if self.debug_ai_controller_.start(self.debug_ai_config_, map_name):
-                self.debug_ai_running_ = True
-                self.debug_ai_status_label.config(text="○ 运行中", fg="#00AA00")
-                self.debug_ai_start_btn.config(state=tk.DISABLED)
-                self.debug_ai_stop_btn.config(state=tk.NORMAL)
-                self._debug_log_status(f"导航AI已启动 (地图: {map_name})")
-            else:
-                messagebox.showerror("错误", "导航AI启动失败")
-                self._debug_log_status("导航AI启动失败")
-        except Exception as e:
-            logger.error(f"启动导航AI失败: {e}")
-            messagebox.showerror("错误", f"启动导航AI失败: {e}")
-            self._debug_log_status(f"启动导航AI失败: {e}")
-
-    def _debug_stop_ai(self):
-        """停止导航AI"""
-        if not self.debug_ai_running_:
-            return
-        
-        try:
-            self.debug_ai_controller_.stop()
-            self.debug_ai_running_ = False
-            self.debug_ai_status_label.config(text="● 已停止", fg="#666666")
-            self.debug_ai_start_btn.config(state=tk.NORMAL)
-            self.debug_ai_stop_btn.config(state=tk.DISABLED)
-            self._debug_log_status("导航AI已停止")
-        except Exception as e:
-            logger.error(f"停止导航AI失败: {e}")
-            messagebox.showerror("错误", f"停止导航AI失败: {e}")
-            self._debug_log_status(f"停止导航AI失败: {e}")
-
-    def _debug_select_tank(self):
-        """单步测试：选择坦克"""
-        self._debug_log_status("开始测试：选择坦克...")
-        
-        if not self.debug_tank_selector_:
-            messagebox.showerror("错误", "坦克选择器未初始化")
-            return
-        
-        try:
-            success = self.debug_battle_task.select_tank()
-            if success:
-                self._debug_log_status("✓ 成功选择坦克")
-            else:
-                messagebox.showwarning("警告", "未找到坦克")
-                self._debug_log_status("✗ 未找到坦克")
-        except Exception as e:
-            logger.error(f"选择坦克失败: {e}")
-            messagebox.showerror("错误", f"选择坦克失败: {e}")
-            self._debug_log_status(f"选择坦克失败: {e}")
-
-    def _debug_join_battle(self):
-        """单步测试：加入战斗"""
-        self._debug_log_status("开始测试：加入战斗...")
-        
-        try:
-            success = self.debug_battle_task.enter_battle()
-            if success:
-                self._debug_log_status("✓ 成功加入战斗")
-            else:
-                messagebox.showwarning("警告", "未找到加入战斗按钮")
-                self._debug_log_status("✗ 未找到加入战斗按钮")
-        except Exception as e:
-            logger.error(f"加入战斗失败: {e}")
-            messagebox.showerror("错误", f"加入战斗失败: {e}")
-            self._debug_log_status(f"加入战斗失败: {e}")
-
-    def _debug_detect_map(self):
-        """单步测试：识别地图名称"""
-        self._debug_log_status("开始测试：识别地图名称...")
-        
-        try:
-            sleep(5)
-            map_name = self.debug_map_detector_.detect()
-            if map_name:
-                self._debug_log_status(f"✓ 从暂停界面识别到地图: {map_name}")
-                messagebox.showinfo("成功", f"识别到地图: {map_name}")
-                return
-            messagebox.showwarning("警告", "未能识别到地图名称")
-            self._debug_log_status("✗ 未能识别到地图名称")
-        except Exception as e:
-            logger.error(f"识别地图失败: {e}")
-            messagebox.showerror("错误", f"识别地图失败: {e}")
-            self._debug_log_status(f"识别地图失败: {e}")
-
-    def _debug_return_garage(self):
-        """单步测试：返回车库"""
-        self._debug_log_status("开始测试：返回车库...")
-        try:
-            sleep(5)
-            success = self.debug_battle_task.enter_garage()
-            if success:
-                self._debug_log_status("✓ 成功返回车库")
-            else:
-                messagebox.showwarning("警告", "未找到返回车库按钮")
-                self._debug_log_status("✗ 未找到返回车库按钮")
-        except Exception as e:
-            logger.error(f"返回车库失败: {e}")
-            messagebox.showerror("错误", f"返回车库失败: {e}")
-            self._debug_log_status(f"返回车库失败: {e}")
-
-    def _debug_detect_state(self):
-        """检测当前游戏状态"""
-        self._debug_log_status("开始检测当前游戏状态...")
-
-        if not self.debug_state_machine_:
-            messagebox.showerror("错误", "状态机未初始化")
-            return
-
-        from tkinter import filedialog
-        file_path = filedialog.askopenfilename(
-            title="选择要检测的图片",
-            filetypes=[("PNG 图片", "*.png"), ("所有文件", "*.*")]
-        )
-        if not file_path:
-            self._debug_log_status("✗ 未选择任何图片")
-            messagebox.showwarning("警告", "未选择任何图片")
-            return
-
-        try:
-            frame = cv2.imread(file_path)
-            for _ in range(3):
-                self.debug_state_machine_.update(frame=frame)
-            self._debug_log_status(f"✓ 已加载图片: {file_path}")
-            current_state = self.debug_state_machine_.current_state()
-            state_text = f"当前游戏状态: {current_state.value}"
-            self._debug_log_status(state_text)
-            messagebox.showinfo("状态检测", state_text)
-        except Exception as e:
-            msg = f"检测状态失败: {e}"
-            logger.error(msg)
-            messagebox.showerror("错误", msg)
-            self._debug_log_status(msg)
-
-    def _debug_refresh_components(self):
-        """刷新调试组件"""
-        self._debug_log_status("刷新调试组件...")
-        try:
-            self._init_debug_components()
-            self._debug_log_status("✓ 调试组件刷新完成")
-            messagebox.showinfo("成功", "调试组件刷新完成")
-        except Exception as e:
-            logger.error(f"刷新调试组件失败: {e}")
-            messagebox.showerror("错误", f"刷新调试组件失败: {e}")
-            self._debug_log_status(f"刷新调试组件失败: {e}")
+        os.startfile(str(GetConfigPath()))
 
     def run(self):
         self.root.mainloop()

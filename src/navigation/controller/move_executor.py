@@ -37,8 +37,9 @@ class MoveExecutor:
 
     def __init__(
         self,
-        smoothing_alpha: float = 0.3,
-        turn_deadzone: float = 0.12,
+        smoothing_alpha_forward: float = 0.2,
+        smoothing_alpha_turn: float = 0.6,
+        turn_deadzone: float = 0.05,
         min_hold_time_ms: float = 100.0,
         forward_hysteresis_on: float = 0.35,
         forward_hysteresis_off: float = 0.08,
@@ -49,7 +50,8 @@ class MoveExecutor:
         # 平滑滤波参数
         self._smooth_forward: float = 0.0
         self._smooth_turn: float = 0.0
-        self._smoothing_alpha: float = max(0.0, min(1.0, smoothing_alpha))
+        self._alpha_fwd: float = max(0.0, min(1.0, smoothing_alpha_forward))
+        self._alpha_turn: float = max(0.0, min(1.0, smoothing_alpha_turn))
 
         # 调参阈值：小于这个值就认为是 0
         self._turn_deadzone = turn_deadzone
@@ -75,8 +77,13 @@ class MoveExecutor:
             return
 
         # 一阶指数平滑滤波
-        self._smooth_forward += self._smoothing_alpha * (cmd.forward - self._smooth_forward)
-        self._smooth_turn += self._smoothing_alpha * (cmd.turn - self._smooth_turn)
+        # 刹车时跳过滤波，实现急停
+        if cmd.forward == 0.0:
+            self._smooth_forward = 0.0
+        else:
+            self._smooth_forward += self._alpha_fwd * (cmd.forward - self._smooth_forward)
+            
+        self._smooth_turn += self._alpha_turn * (cmd.turn - self._smooth_turn)
 
         # 使用平滑后的值进行量化
         target_forward = self._quantize_forward_with_hysteresis(self._smooth_forward)

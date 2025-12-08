@@ -117,7 +117,7 @@ class DpgNavDebugView(NavDebugView):
     def __init__(
         self,
         title: str = "Nav Debug",
-        window_size: Tuple[int, int] = (960, 540),
+        window_size: Tuple[int, int] = (960, 720),
         enable: bool = True,
         grid_to_minimap_h: Optional[np.ndarray] = None,   # 新增: homography
     ) -> None:
@@ -286,6 +286,13 @@ class DpgNavDebugView(NavDebugView):
             dpg.render_dearpygui_frame()
 
         dpg.destroy_context()
+
+    def close(self) -> None:
+        if not self._enable:
+            return
+        # 避免跨线程直接销毁上下文，而是通知 UI 循环停止
+        if dpg.is_dearpygui_running():
+            dpg.stop_dearpygui()
 
     # ---------------------------------------------------------------------
     # Internal helpers (UI thread only)

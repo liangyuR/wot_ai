@@ -84,7 +84,7 @@ class DetectionPerformanceTest:
             
             logger.info(f"初始化YOLO检测器: {model_path}")
             self.minimap_detector_ = MinimapDetector(
-                model_path=model_path,
+                model_path_base=model_path,
                 conf_threshold=self.config_.get('conf_threshold', 0.25),
                 iou_threshold=self.config_.get('iou_threshold', 0.75)
             )

@@ -93,27 +93,6 @@ class DetectionEngine:
             self.model_ = None
             return False
 
-    def Warmup(self, img_size: Tuple[int, int] = (640, 640)) -> None:
-        """模型预热：跑一帧空白图，避免首帧延迟
-
-        Args:
-            img_size: (宽, 高)
-        """
-        if not self.LoadModel():
-            return
-
-        if self.warmed_up_:
-            return
-
-        w, h = img_size
-        dummy = np.zeros((h, w, 3), dtype=np.uint8)
-        try:
-            _ = self.model_(dummy, conf=0.01, verbose=False)
-            self.warmed_up_ = True
-            logger.info(f"模型预热完成，img_size={img_size}")
-        except Exception as e:  # pragma: no cover - 防御性
-            logger.warning(f"模型预热失败，但不影响后续正常检测: {e}")
-
     # ------------------------------------------------------------------
     # 核心检测接口
     # ------------------------------------------------------------------
@@ -157,23 +136,3 @@ class DetectionEngine:
         except Exception as e:
             logger.error(f"检测失败: {e}")
             return []
-
-    # ------------------------------------------------------------------
-    # 内部工具方法
-    # ------------------------------------------------------------------
-    def _select_device(self) -> Optional[str]:
-        """根据配置和环境选择设备字符串"""
-        if self.device_ != "auto":
-            return self.device_
-
-        # auto 模式
-        if torch is None:
-            return "cpu"
-
-        try:
-            if torch.cuda.is_available():
-                return "cuda"
-        except Exception:  # pragma: no cover
-            pass
-
-        return "cpu"

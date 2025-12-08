@@ -24,7 +24,7 @@ class MovementController:
         min_forward_factor: float = 0.3,
         large_angle_threshold_deg: float = 60.0,
         large_angle_speed_reduction: float = 0.5,
-        corridor_ref_width: float = 40.0,
+        corridor_ref_width: float = 40.0, # max_lateral_error
         k_lat_normal: float = 0.3,
         k_lat_edge: float = 0.5,
         k_lat_recenter: float = 0.8,
@@ -111,9 +111,11 @@ class MovementController:
         abs_error = abs(angle_error)
         if abs_error < self.angle_dead_zone:
             return 0.0
+        
+        # 使用 1.5 次方代替平方，提高小角度修正的灵敏度
         norm = angle_error / self.angle_slow_turn
         norm = self._clamp(norm, -1.0, 1.0)
-        return math.copysign(norm * norm, norm)
+        return math.copysign(pow(abs(norm), 1.5), norm)
 
     def _compute_lateral_term_(self, lateral_error: float, mode: str) -> float:
         """横向纠偏控制项。"""

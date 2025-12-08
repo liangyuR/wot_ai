@@ -22,6 +22,7 @@ pywin32 = "*"
 dearpygui = "*"
 pyautogui = "*"
 pydantic = "*"
+psutil = "*"
 imgui = {version = "*", extras = ["full"]}
 pygame = "*"
 torch = {version = "*", source = "pytorch-cu128"}

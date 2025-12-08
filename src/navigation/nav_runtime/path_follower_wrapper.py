@@ -5,6 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from loguru import logger
+from src.utils.global_path import GetGlobalConfig
 
 @dataclass
 class FollowResult:
@@ -30,34 +31,33 @@ class PathFollowerWrapper:
     - 到达终点判断
     """
 
-    def __init__(
-        self,
-        deviation_tolerance: float,
-        goal_arrival_threshold: float,
-        max_lateral_error: float = 80.0,
-        inner_corridor: Optional[float] = None,
-        edge_lookahead_scale: float = 0.6,
-        lookahead_distance: float = 60.0,
-        waypoint_switch_radius: float = 20.0,
-        recenter_forward_offset: float = 10.0,
-    ):
-        """
-        Args:
-            deviation_tolerance: 路径偏离容忍度（px）
-            goal_arrival_threshold: 认为"到达终点"的距离阈值（px）
-            max_lateral_error: 最大横向误差，定义corridor宽度（px）
-            inner_corridor: 内走廊宽度，None 时默认 tolerance 的 3 倍
-            edge_lookahead_scale: 走廊边缘前瞻缩放系数
-            lookahead_distance: 前瞻距离，用于计算胡萝卜点（px）
-            waypoint_switch_radius: Waypoint切换半径（px）
-            recenter_forward_offset: recenter 模式沿切线前推距离（px）
-        """
+    def __init__(self):
+        config = GetGlobalConfig()
+        ctrl_cfg = config.control
+        
+        deviation_tolerance = ctrl_cfg.path_deviation_tolerance
+        goal_arrival_threshold = ctrl_cfg.goal_arrival_threshold
+        max_lateral_error = ctrl_cfg.max_lateral_error
+        lookahead_distance = ctrl_cfg.lookahead_distance
+        waypoint_switch_radius = ctrl_cfg.waypoint_switch_radius
+        
+        inner_corridor: Optional[float] = None
+        edge_lookahead_scale: float = 0.6
+        recenter_forward_offset: float = 10.0
         self._dev_tol = deviation_tolerance
         self._goal_th = goal_arrival_threshold
+        
         self._max_lateral_error = max_lateral_error
         self._inner_corridor = (
             inner_corridor if inner_corridor is not None else deviation_tolerance * 3.0
         )
+        if self._inner_corridor >= self._max_lateral_error:
+            logger.warning(
+                "inner_corridor(%.1f) >= max_lateral_error(%.1f)，corridor_edge 区间将消失，自动收缩 inner_corridor",
+                self._inner_corridor, self._max_lateral_error,
+            )
+            self._inner_corridor = self._max_lateral_error * 0.7
+
         self._edge_lookahead_scale = max(0.1, min(edge_lookahead_scale, 1.0))
         self._lookahead_dist = lookahead_distance
         self._waypoint_switch_radius = waypoint_switch_radius
@@ -161,12 +161,7 @@ class PathFollowerWrapper:
             )
 
         logger.debug(
-            "PFW idx=%d carrot_idx=%d mode=%s lat_err=%.2f lookahead=%.1f",
-            idx,
-            carrot_idx,
-            mode,
-            signed_lateral_error,
-            effective_lookahead,
+            f"PFW idx={idx} carrot_idx={carrot_idx} mode={mode} lat_err={signed_lateral_error:.2f} lookahead={effective_lookahead:.1f}"
         )
 
         return FollowResult(
@@ -309,8 +304,10 @@ class PathFollowerWrapper:
             return (0, current_pos, float('inf'))
         
         min_dist = float('inf')
+        n = len(path_world)
+        start_idx = max(0, min(start_idx, n - 1))
         nearest_idx = start_idx
-        nearest_point = path_world[start_idx] if start_idx < len(path_world) else path_world[0]
+        nearest_point = path_world[start_idx]
         
         # 从start_idx开始搜索，避免回溯
         for i in range(start_idx, len(path_world)):

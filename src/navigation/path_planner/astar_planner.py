@@ -124,7 +124,7 @@ class AStarPlanner():
         
         # 使用公共helper修正起点和终点
         original_start, original_goal = start, goal
-        adjusted = _adjust_start_goal_for_obstacle_astar(start, goal, grid, max_radius=15)
+        adjusted = _adjust_start_goal_for_obstacle_astar(start, goal, grid, max_radius=100)
         if adjusted is None:
             error_msg = f"起点或终点位于障碍物上且无法找到可通行区域: start={start}, goal={goal}"
             logger.error(error_msg)
