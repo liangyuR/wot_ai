@@ -216,6 +216,10 @@ class MinimapDetector:
             logger.error("MinimapDetector: detect_engine 模型加载失败")
             return False
 
+        if not self.pose_engine_.LoadModel():
+            logger.error("MinimapDetector: detect_engine 模型加载失败")
+            return False
+
         logger.info("MinimapDetector: 模型加载成功")
         return True
 
