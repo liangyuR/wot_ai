@@ -206,8 +206,8 @@ class MinimapDetector:
 
         # 缓存类别 ID
         # TODO(@liangyu) hack 直接写死
-        self.arrow_class_id_: Optional[int] = 0
-        self.flag_class_id_: Optional[int] = 1
+        self.arrow_class_id_: Optional[int] = config.model.class_id_arrow
+        self.flag_class_id_: Optional[int] = config.model.class_id_flag
 
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
@@ -269,7 +269,7 @@ class MinimapDetector:
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
         
-        crop_size = 24
+        crop_size = 36
         half_size = crop_size // 2
         
         h, w = frame.shape[:2]
@@ -301,7 +301,6 @@ class MinimapDetector:
             logger.debug("MinimapDetector: 使用 pose_engine_ 检测成功")
         else:
             # === 回退：使用 OpenCV 箭头检测 ===
-            logger.debug("MinimapDetector: pose_engine_ 检测失败，回退到 OpencvArrowDetector")
             local_center, raw_angle = self.arrow_detector_.detect(crop)
             
             if local_center is None:

@@ -17,6 +17,9 @@ class ModelConfig(BaseModel):
     arrow_path: str = Field(..., description="箭头模型文件路径")
     conf_threshold: float = Field(..., description="置信度阈值")
     iou_threshold: float = Field(..., description="IoU阈值")
+
+    class_id_flag: int = Field(..., description="旗帜类别ID")
+    class_id_arrow: int = Field(..., description="箭头类别ID")
     
     @field_validator('base_path', 'arrow_path')
     @classmethod
@@ -248,7 +251,7 @@ class ControlConfig(BaseModel):
     max_lateral_error: float = Field(80.0, description="最大横向误差（像素）")
     lookahead_distance: float = Field(60.0, description="前瞻距离（像素）")
     waypoint_switch_radius: float = Field(20.0, description="Waypoint切换半径（像素）")
-    
+
     @field_validator('corridor_ref_width', 'straight_lat_enter', 'straight_lat_exit')
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
@@ -288,6 +291,12 @@ class GameConfig(BaseModel):
     stuck_timeout_seconds: int = Field(480, description="卡死判定超时时间（秒）")
 
 
+class StuckDetectionConfig(BaseModel):
+    """卡顿脱困配置"""
+    reverse_duration_s: float = Field(0.8, description="脱困倒退时间（秒）")
+    max_stuck_count: int = Field(3, description="连续卡顿帧数阈值")
+
+
 class NavigationConfig(BaseModel):
     """导航主配置"""
     model: ModelConfig = Field(..., description="YOLO模型配置")
@@ -300,6 +309,7 @@ class NavigationConfig(BaseModel):
     angle_detection: Optional[AngleDetectionConfig] = Field(None, description="角度检测配置（可选）")
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     ui: UiConfig = Field(..., description="UI配置")
+    stuck_detection: StuckDetectionConfig = Field(..., description="卡顿脱困配置")
     
     @field_validator('monitor_index')
     @classmethod

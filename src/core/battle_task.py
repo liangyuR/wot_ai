@@ -249,24 +249,20 @@ class BattleTask:
         """
         logger.info("选择车辆...")
         
-        deadline = time.time() + self.selection_timeout_
         
-        while time.time() < deadline:
-            candidates = self.tank_selector_.pick()
-            if not candidates:
-                logger.error("车辆模板列表为空，无法选择")
-                return False
-            
-            for candidate in candidates:
-                if self._try_select_candidate(candidate):
-                    self.selected_tank_ = candidate
-                    logger.info(f"车辆选择成功: {candidate.name}")
-                    return True
-            
-            logger.info(f"所有车辆暂不可用，等待 {self.selection_retry_interval_} 秒后重试")
-            time.sleep(self.selection_retry_interval_)
+        candidates = self.tank_selector_.pick()
+        if not candidates:
+            logger.error("车辆模板列表为空，无法选择")
+            return False
         
-        logger.error("选择车辆超时")
+        for candidate in candidates:
+            if self._try_select_candidate(candidate):
+                self.selected_tank_ = candidate
+                logger.info(f"车辆选择成功: {candidate.name}")
+                return True
+                
+        logger.info(f"所有车辆暂不可用，等待 {self.selection_retry_interval_} 秒后重试")
+        time.sleep(self.selection_retry_interval_)
         return False
     
     def _try_select_candidate(self, candidate: TankTemplate) -> bool:

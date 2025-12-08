@@ -68,13 +68,8 @@ class NavigationRuntime:
         self.stuck_detector = StuckDetector()
 
         # 卡顿脱困配置
-        stuck_cfg = getattr(self.cfg, "stuck_detection", None)
-        if stuck_cfg is not None:
-            self.reverse_duration_s_ = getattr(stuck_cfg, "reverse_duration_s", 0.8)
-            self.max_stuck_count_ = getattr(stuck_cfg, "max_stuck_count", 3)
-        else:
-            self.reverse_duration_s_ = 0.8
-            self.max_stuck_count_ = 3
+        self.reverse_duration_s_ = self.cfg.stuck_detection.reverse_duration_s
+        self.max_stuck_count_ = self.cfg.stuck_detection.max_stuck_count
 
         # 线程
         self._running = False
@@ -112,6 +107,7 @@ class NavigationRuntime:
             from src.utils.key_controller import KeyController
             key_controller = KeyController()
             key_controller.press('b')
+            time.sleep(2)
             map_name = self.minimap_name_detector.detect()
             if not map_name:
                 logger.error("无法识别地图名称")
@@ -201,7 +197,7 @@ class NavigationRuntime:
 
         while self._running:
             try:
-                t0 = time.perf_counter()
+                # t0 = time.perf_counter()
 
                 frame = self.capture.grab_region(x, y, w, h)
                 if frame is None:
@@ -217,9 +213,9 @@ class NavigationRuntime:
 
                 self.data_hub.set_latest_detection(det)
 
-                dt = time.perf_counter() - t0
-                if dt < interval:
-                    time.sleep(interval - dt)
+                # dt = time.perf_counter() - t0
+                # if dt < interval:
+                #     time.sleep(interval - dt)
 
             except Exception as e:
                 logger.error(f"检测线程错误: {e}")
@@ -289,6 +285,7 @@ class NavigationRuntime:
 
             # 2) 卡顿检测 + 重规划判断
             is_stuck = self.stuck_detector.update(pos)
+            # is_stuck = False
             need_replan = (
                 not current_path_world
                 or is_stuck

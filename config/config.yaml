@@ -8,6 +8,8 @@ model:
   arrow_path: "resource/model/best.pt"  # YOLO模型文件路径（必需）
   conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
   iou_threshold: 0.5  # IoU阈值 (0.0-1.0)
+  class_id_flag: 0
+  class_id_arrow: 1
 
 # 游戏配置
 game:
