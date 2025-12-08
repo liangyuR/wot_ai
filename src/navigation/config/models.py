@@ -17,6 +17,9 @@ class ModelConfig(BaseModel):
     arrow_path: str = Field(..., description="箭头模型文件路径")
     conf_threshold: float = Field(..., description="置信度阈值")
     iou_threshold: float = Field(..., description="IoU阈值")
+
+    class_id_flag: int = Field(..., description="旗帜类别ID")
+    class_id_arrow: int = Field(..., description="箭头类别ID")
     
     @field_validator('base_path', 'arrow_path')
     @classmethod
@@ -71,6 +74,11 @@ class AngleDetectionConfig(BaseModel):
     """角度检测配置"""
     smoothing_alpha: float = Field(0.25, description="角度平滑系数 (0.0-1.0)")
     max_step_deg: float = Field(45.0, description="单帧最大角度变化（度）")
+    # 自适应 alpha 阈值配置
+    noise_threshold_deg: float = Field(2.0, description="噪声阈值（度），小于此值视为噪声")
+    normal_threshold_deg: float = Field(10.0, description="正常转向阈值（度），小于此值视为正常转向")
+    noise_alpha_factor: float = Field(0.4, description="噪声时的 alpha 缩放因子")
+    large_turn_alpha_factor: float = Field(2.0, description="大幅转向时的 alpha 缩放因子")
     min_area_ratio: float = Field(0.2, description="轮廓面积最小比例")
     max_area_ratio: float = Field(0.9, description="轮廓面积最大比例")
     min_aspect_ratio: float = Field(0.3, description="外接矩形最小宽高比")
@@ -84,12 +92,20 @@ class AngleDetectionConfig(BaseModel):
             raise ValueError(f"平滑系数必须在0.0-1.0之间: {v}")
         return v
     
-    @field_validator('max_step_deg', 'min_area_ratio', 'max_area_ratio', 'min_aspect_ratio', 'max_aspect_ratio')
+    @field_validator('max_step_deg', 'noise_threshold_deg', 'normal_threshold_deg', 'min_area_ratio', 'max_area_ratio', 'min_aspect_ratio', 'max_aspect_ratio')
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
         """验证正浮点数"""
         if v <= 0:
             raise ValueError(f"值必须大于0: {v}")
+        return v
+    
+    @field_validator('noise_alpha_factor', 'large_turn_alpha_factor')
+    @classmethod
+    def validate_alpha_factor(cls, v: float) -> float:
+        """验证 alpha 缩放因子"""
+        if v <= 0:
+            raise ValueError(f"alpha 缩放因子必须大于0: {v}")
         return v
     
     @field_validator('min_area_ratio', 'max_area_ratio')
@@ -223,7 +239,9 @@ class ControlConfig(BaseModel):
     debug_log_interval: int = Field(30, description="控制日志输出间隔（帧）")
     
     # MoveExecutor 参数
-    smoothing_alpha: float = Field(0.3, description="平滑滤波系数")
+    smoothing_alpha: float = Field(0.3, description="平滑滤波系数（已废弃，保留兼容）")
+    smoothing_alpha_forward: float = Field(0.2, description="前进平滑系数")
+    smoothing_alpha_turn: float = Field(0.6, description="转向平滑系数")
     turn_deadzone: float = Field(0.12, description="转向死区")
     min_hold_time_ms: float = Field(100.0, description="最小按键保持时间（毫秒）")
     forward_hysteresis_on: float = Field(0.35, description="前进滞回开启阈值")
@@ -233,7 +251,7 @@ class ControlConfig(BaseModel):
     max_lateral_error: float = Field(80.0, description="最大横向误差（像素）")
     lookahead_distance: float = Field(60.0, description="前瞻距离（像素）")
     waypoint_switch_radius: float = Field(20.0, description="Waypoint切换半径（像素）")
-    
+
     @field_validator('corridor_ref_width', 'straight_lat_enter', 'straight_lat_exit')
     @classmethod
     def validate_positive_float(cls, v: float) -> float:
@@ -242,7 +260,7 @@ class ControlConfig(BaseModel):
             raise ValueError(f"值必须大于0: {v}")
         return v
     
-    @field_validator('smoothing_alpha', 'min_forward_factor', 'large_angle_speed_reduction', 'edge_speed_reduction', 'recenter_speed_reduction')
+    @field_validator('smoothing_alpha', 'smoothing_alpha_forward', 'smoothing_alpha_turn', 'min_forward_factor', 'large_angle_speed_reduction', 'edge_speed_reduction', 'recenter_speed_reduction')
     @classmethod
     def validate_range_0_1(cls, v: float) -> float:
         """验证0-1范围"""
@@ -273,6 +291,12 @@ class GameConfig(BaseModel):
     stuck_timeout_seconds: int = Field(480, description="卡死判定超时时间（秒）")
 
 
+class StuckDetectionConfig(BaseModel):
+    """卡顿脱困配置"""
+    reverse_duration_s: float = Field(0.8, description="脱困倒退时间（秒）")
+    max_stuck_count: int = Field(3, description="连续卡顿帧数阈值")
+
+
 class NavigationConfig(BaseModel):
     """导航主配置"""
     model: ModelConfig = Field(..., description="YOLO模型配置")
@@ -285,6 +309,7 @@ class NavigationConfig(BaseModel):
     angle_detection: Optional[AngleDetectionConfig] = Field(None, description="角度检测配置（可选）")
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     ui: UiConfig = Field(..., description="UI配置")
+    stuck_detection: StuckDetectionConfig = Field(..., description="卡顿脱困配置")
     
     @field_validator('monitor_index')
     @classmethod

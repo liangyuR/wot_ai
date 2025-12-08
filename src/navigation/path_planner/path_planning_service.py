@@ -17,7 +17,7 @@ import numpy as np
 
 from src.navigation.config.models import NavigationConfig
 from src.vision.minimap_detector import MinimapDetectionResult
-from src.navigation.core.coordinate_utils import world_to_grid, grid_to_world
+from src.utils.coordinate_utils import world_to_grid, grid_to_world
 from src.utils.mask_loader import load_mask
 from src.utils.global_path import GetMapMaskPath
 

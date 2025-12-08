@@ -45,6 +45,9 @@ def GetConfigPath() -> Path:
 def GetConfigTemplatePath() -> Path:
     return GetProgramDir() / "config" / "config.yaml.template"
 
+def GetLogDir() -> Path:
+    return GetProgramDir() / "Logs"
+
 
 if __name__ == "__main__":
     logger.info(GetProgramDir())

@@ -287,6 +287,13 @@ class DpgNavDebugView(NavDebugView):
 
         dpg.destroy_context()
 
+    def close(self) -> None:
+        if not self._enable:
+            return
+        # 避免跨线程直接销毁上下文，而是通知 UI 循环停止
+        if dpg.is_dearpygui_running():
+            dpg.stop_dearpygui()
+
     # ---------------------------------------------------------------------
     # Internal helpers (UI thread only)
     # ---------------------------------------------------------------------

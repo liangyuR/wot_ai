@@ -41,10 +41,6 @@ def _load_and_align(
         对齐后的掩码（0=可通行，1=障碍），尺寸与minimap_frame相同
     """
     # 加载掩码
-    # mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-    # if mask is None:
-    #     raise ValueError(f"无法读取掩码文件: {mask_path}")
-    
     mask = _imread_gray(mask_path)
     if mask is None:
         raise ValueError(f"无法读取掩码文件: {mask_path}")
@@ -72,7 +68,7 @@ def _load_and_align(
         mask, M, (minimap_w, minimap_h),
         flags=cv2.INTER_NEAREST,
         borderMode=cv2.BORDER_CONSTANT,
-        borderValue=255  # 边界填充为白色（可通行）
+        borderValue=0  # 边界填充为黑色（不可通行）
     )
     
     # 注意：掩码中白色是可通行区域，黑色是障碍
