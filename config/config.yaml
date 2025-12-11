@@ -104,9 +104,9 @@ angle_detection:               # 小地图角度检测限制
 
 # 卡顿检测与脱困配置
 stuck_detection:
-  time_window_s: 7.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
-  dist_threshold_px: 10.0         # 位移阈值（像素）
-  reverse_duration_s: 5.0         # 脱困倒退时间（秒）
+  time_window_s: 50.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
+  dist_threshold_px: 3.0         # 位移阈值（像素）
+  reverse_duration_s: 2.0         # 脱困倒退时间（秒）
   max_stuck_count: 3              # 连续卡顿N次后采用随机转向策略
 
 # 车辆配置
@@ -116,7 +116,7 @@ vehicle:
 # UI配置
 ui:
   overlay_fps: 30  # 覆盖层FPS
-  overlay_alpha: 180  # 覆盖层透明度 (0-255)
+  overlay_alpha: 180  # 覆盖层透明度 (0-255)aw
   enable: true  # 是否启用调试视图
 
 # 屏幕捕获配置
