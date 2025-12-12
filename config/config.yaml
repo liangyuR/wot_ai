@@ -108,7 +108,7 @@ angle_detection:               # 小地图角度检测限制
 
 # 卡顿检测与脱困配置
 stuck_detection:
-  time_window_s: 50.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
+  time_window_s: 10.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
   dist_threshold_px: 3.0         # 位移阈值（像素）
   reverse_duration_s: 2.0         # 脱困倒退时间（秒）
   max_stuck_count: 3              # 连续卡顿N次后采用随机转向策略
