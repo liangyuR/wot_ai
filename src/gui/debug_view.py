@@ -217,6 +217,23 @@ class DpgNavDebugView(NavDebugView):
     # Public UI entrypoint
     # ---------------------------------------------------------------------
 
+    def _resetDpgState(self) -> None:
+        """重置所有 DearPyGui 相关的 ID 和尺寸状态（支持多次启动）"""
+        self._tex_registry = None
+        self._tex_id_minimap = None
+        self._tex_id_grid = None
+        self._tex_id_grid_overlay = None
+        self._minimap_tex_w = 2
+        self._minimap_tex_h = 2
+        self._grid_tex_w = 2
+        self._grid_tex_h = 2
+        self._grid_overlay_tex_w = 2
+        self._grid_overlay_tex_h = 2
+        self._drawlist_minimap = None
+        self._drawlist_grid = None
+        self._txt_status = None
+        self._txt_metrics = None
+
     def run(self) -> None:
         """Create DearPyGui context and start UI loop (blocking).
 
@@ -226,6 +243,9 @@ class DpgNavDebugView(NavDebugView):
 
         if not self._enable:
             return
+
+        # 重置所有 DearPyGui ID（支持多次启动）
+        self._resetDpgState()
 
         dpg.create_context()
 

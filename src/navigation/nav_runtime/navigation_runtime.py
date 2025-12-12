@@ -311,6 +311,10 @@ class NavigationRuntime:
         current_path_world = []
         current_target_idx = 0
 
+        # View 更新降频：每 VIEW_UPDATE_INTERVAL 帧更新一次（约 10 FPS）
+        VIEW_UPDATE_INTERVAL = 3
+        view_update_counter = 0
+
         while self._running:
             t0 = time.perf_counter()
 
@@ -414,10 +418,12 @@ class NavigationRuntime:
             goal_reached = follow_result.goal_reached
             current_target_idx = follow_result.current_idx
 
-            # ---- 调试 UI：更新导航状态 + 路径 ----
-            if self.view is not None:
+            # ---- 调试 UI：更新导航状态 + 路径（降频）----
+            view_update_counter += 1
+            if self.view is not None and view_update_counter >= VIEW_UPDATE_INTERVAL:
+                view_update_counter = 0
                 try:
-                    goal_pos = getattr(det, "goal_pos", None)  # 或者从 cfg / planner_service 拿
+                    goal_pos = getattr(det, "goal_pos", None)
                     self.view.update_nav_state(
                         self_pos_mmap=pos,
                         heading_rad=heading,
@@ -431,7 +437,7 @@ class NavigationRuntime:
                         goal_reached=goal_reached,
                     )
                 except Exception:
-                    logger.exception("view.update_nav_state 失败")
+                    pass  # 静默处理，避免影响控制性能
 
             # 5) 更新 DataHub 状态
             try:
