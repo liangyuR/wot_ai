@@ -518,8 +518,7 @@ class DpgNavDebugView(NavDebugView):
                     pmax=(w, h),
                     parent=self._drawlist_minimap,
                 )
-            # === 新增结束 ===
-
+                
             # draw path (world path in minimap coords)
             if len(path_world) >= 2:
                 dpg.draw_polyline(
@@ -545,48 +544,61 @@ class DpgNavDebugView(NavDebugView):
                 cx, cy = self_pos
                 angle = heading
                 length = 14.0
-                width = 8.0
+                # width = 8.0
 
-                tip = (
-                    cx + length * math.cos(angle),
-                    cy + length * math.sin(angle),
-                )
-                left = (
-                    cx + width * math.cos(angle + 2.5),
-                    cy + width * math.sin(angle + 2.5),
-                )
-                right = (
-                    cx + width * math.cos(angle - 2.5),
-                    cy + width * math.sin(angle - 2.5),
-                )
-
-                dpg.draw_triangle(
-                    p1=tip,
-                    p2=left,
-                    p3=right,
-                    color=(255, 255, 0, 255),
-                    fill=(255, 255, 0, 128),
+                # draw self position as a point
+                dpg.draw_circle(
+                    center=(cx, cy),
+                    radius=4.0,
+                    color=(0, 255, 255, 255),
+                    fill=(0, 255, 255, 64),
                     parent=self._drawlist_minimap,
                 )
 
-            # draw goal position as a cross
+                # draw self heading as an line
+                dpg.draw_line(
+                    p1=(cx, cy),
+                    p2=(cx + length * math.cos(angle), cy + length * math.sin(angle)),
+                    color=(255, 255, 0, 255),
+                    thickness=2.0,
+                    parent=self._drawlist_minimap,
+                )
+
+                # 绘制箭头
+                # tip = (
+                #     cx + length * math.cos(angle),
+                #     cy + length * math.sin(angle),
+                # )
+                # left = (
+                #     cx + width * math.cos(angle + 2.5),
+                #     cy + width * math.sin(angle + 2.5),
+                # )
+                # right = (
+                #     cx + width * math.cos(angle - 2.5),
+                #     cy + width * math.sin(angle - 2.5),
+                # )
+
+                # dpg.draw_triangle(
+                #     p1=tip,
+                #     p2=left,
+                #     p3=right,
+                #     color=(255, 255, 0, 255),
+                #     fill=(255, 255, 0, 128),
+                #     parent=self._drawlist_minimap,
+                # )
+
+            # 终点绘制为一个空心圆
             if goal_pos is not None:
                 gx, gy = goal_pos
-                size = 6.0
-                dpg.draw_line(
-                    p1=(gx - size, gy - size),
-                    p2=(gx + size, gy + size),
+                size = 7.5
+                dpg.draw_circle(
+                    center=(gx, gy),
+                    radius=size,
                     color=(255, 0, 0, 255),
-                    thickness=2.0,
+                    fill=(255, 0, 0, 64),
                     parent=self._drawlist_minimap,
                 )
-                dpg.draw_line(
-                    p1=(gx - size, gy + size),
-                    p2=(gx + size, gy - size),
-                    color=(255, 0, 0, 255),
-                    thickness=2.0,
-                    parent=self._drawlist_minimap,
-                )
+                
 
         # --- Grid texture + drawing ---
         if grid_mask is not None and self._drawlist_grid is not None:
