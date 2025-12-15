@@ -8,23 +8,17 @@ packages = [{include = "wot_robot"}]
 
 [tool.poetry.dependencies]
 python = "3.11.9"
-PyYAML = "*"
 opencv-python = "*"
 numpy = "1.26.4"
 mss = "*"
 pynput = "*"
 loguru = "*"
-dxcam = ">=0.0.5"
 ultralytics = ">=8.0.0"
-pytesseract = "*"
 pyinstaller = "*"
-pywin32 = "*"
 dearpygui = "*"
 pyautogui = "*"
 pydantic = "*"
 psutil = "*"
-imgui = {version = "*", extras = ["full"]}
-pygame = "*"
 torch = {version = "*", source = "pytorch-cu128"}
 torchvision = {version = "*", source = "pytorch-cu128"}
 
@@ -32,10 +26,6 @@ torchvision = {version = "*", source = "pytorch-cu128"}
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 secondary = true
-
-
-[tool.poetry.group.dev.dependencies]
-pytest = "*"
 
 [build-system]
 requires = ["poetry-core"]

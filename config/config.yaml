@@ -58,8 +58,8 @@ control:
   debug_log_interval: 30
 
   # === MovementController ===
-  angle_dead_zone_deg: 1.5             # [修改] 极小死区，适应窄道高精度要求
-  angle_slow_turn_deg: 15.0
+  angle_dead_zone_deg: 3.0             # [修改] 增大死区，容忍检测噪声减少左摇右摆
+  angle_slow_turn_deg: 20.0            # [修改] 增大慢转阈值
 
   distance_stop_threshold: 5.0
   slow_down_distance: 5.0              # [修改] 等于停止阈值，不因距离减速
@@ -95,8 +95,12 @@ control:
 
 
 angle_detection:               # 小地图角度检测限制
-  smoothing_alpha: 0.7                          # 角度检测平滑系数(0=全历史, 1=全新值)
+  smoothing_alpha: 0.5                          # [修改] 降低平滑系数，更平滑减少抖动
   max_step_deg: 30.0                            # 单帧允许的最大角度跳变限制(°)
+  noise_threshold_deg: 3.0                      # [新增] 小于此角度变化视为噪声
+  normal_threshold_deg: 10.0                    # [新增] 正常转向阈值
+  noise_alpha_factor: 0.3                       # [新增] 噪声时降低响应系数
+  large_turn_alpha_factor: 2.0                  # [新增] 大幅转向时加快响应
   min_area_ratio: 0.2                           # 检测区域需占小地图面积的最小比例
   max_area_ratio: 0.9                           # 检测区域允许的最大面积比例
   min_aspect_ratio: 0.3                         # 箭头最小宽高比（排除细长异常）
@@ -104,7 +108,7 @@ angle_detection:               # 小地图角度检测限制
 
 # 卡顿检测与脱困配置
 stuck_detection:
-  time_window_s: 50.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
+  time_window_s: 10.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
   dist_threshold_px: 3.0         # 位移阈值（像素）
   reverse_duration_s: 2.0         # 脱困倒退时间（秒）
   max_stuck_count: 3              # 连续卡顿N次后采用随机转向策略
