@@ -55,13 +55,25 @@ class MainWindow:
             format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
         )
         
-        # File handler
-        log_file = log_dir / "wot_ai_{time:YYYY-MM-DD}.log"
+        # DEBUG file handler - only DEBUG level
+        debug_log_file = log_dir / "wot_ai_debug_{time:YYYY-MM-DD}.log"
         logger.add(
-            str(log_file),
+            str(debug_log_file),
             rotation="00:00",  # New file every day at midnight
             retention="10 days",  # Keep logs for 10 days
             level="DEBUG",
+            filter=lambda record: record["level"].name == "DEBUG",
+            encoding="utf-8",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+        )
+        
+        # INFO file handler - INFO and above (INFO, WARNING, ERROR, CRITICAL)
+        info_log_file = log_dir / "wot_ai_info_{time:YYYY-MM-DD}.log"
+        logger.add(
+            str(info_log_file),
+            rotation="00:00",  # New file every day at midnight
+            retention="10 days",  # Keep logs for 10 days
+            level="INFO",
             encoding="utf-8",
             format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
         )
