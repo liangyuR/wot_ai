@@ -27,6 +27,18 @@ class StuckDetector:
         self.time_window_ = self._getConfigValue(stuck_cfg, "time_window_s", 7.0)
         self.dist_threshold_ = self._getConfigValue(stuck_cfg, "dist_threshold_px", 10.0)
 
+        # 记录历史位置（用于时间窗口检测）
+        # 存储 (pos, timestamp) 元组
+        # maxlen 不再严格限制，而是通过时间清理
+        self._pos_history_: Deque[Tuple[Tuple[float, float], float]] = deque()
+        
+        self.last_pos_: Optional[Tuple[float, float]] = None
+        self.stuck_frames_: int = 0
+        self.is_stuck_: bool = False
+        
+        # 连续卡顿计数（每次检测到卡顿并处理后由上层调用 incrementStuckCount）
+        self.stuck_count_: int = 0
+
     @staticmethod
     def _getConfigValue(cfg, key: str, default):
         """兼容 dict 和 object 两种配置访问方式"""
@@ -39,18 +51,6 @@ class StuckDetector:
         if isinstance(cfg, dict):
             return cfg.get(key, default)
         return default
-
-        # 记录历史位置（用于时间窗口检测）
-        # 存储 (pos, timestamp) 元组
-        # maxlen 不再严格限制，而是通过时间清理
-        self._pos_history_: Deque[Tuple[Tuple[float, float], float]] = deque()
-        
-        self.last_pos_: Optional[Tuple[float, float]] = None
-        self.stuck_frames_: int = 0
-        self.is_stuck_: bool = False
-        
-        # 连续卡顿计数（每次检测到卡顿并处理后由上层调用 incrementStuckCount）
-        self.stuck_count_: int = 0
 
     def update(self, pos: Tuple[float, float]) -> bool:
         """
