@@ -21,6 +21,7 @@ class TaskManager:
         run_hours: int = 4,
         auto_stop: bool = False,
         auto_shutdown: bool = False,
+        enable_silver_reserve: bool = False,
     ):
         """
         初始化任务管理器
@@ -29,10 +30,12 @@ class TaskManager:
             run_hours: 运行时长限制（小时）
             auto_stop: 达到时长后自动停止
             auto_shutdown: 达到时长后自动关机（需要管理员权限）
+            enable_silver_reserve: 是否启用银币储备功能
         """
         self.run_hours_ = run_hours
         self.auto_stop_ = auto_stop
         self.auto_shutdown_ = auto_shutdown
+        self.enable_silver_reserve_ = enable_silver_reserve
         
         self.running_ = False
         self.start_time_ = None
@@ -60,7 +63,7 @@ class TaskManager:
                     break
                 
                 # 创建战斗任务
-                task = BattleTask()
+                task = BattleTask(enable_silver_reserve=self.enable_silver_reserve_)
                 
                 # 启动事件驱动循环
                 if not task.start():

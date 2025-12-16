@@ -321,6 +321,7 @@ class MainWindow:
             run_hours=self._run_hours,
             auto_stop=self._auto_stop,
             auto_shutdown=self._auto_shutdown,
+            enable_silver_reserve=self._silver_reserve,
         )
 
         self._is_running = True
