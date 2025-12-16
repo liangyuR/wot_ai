@@ -43,11 +43,20 @@ class MinimapDetector:
     检测流程：
     1. 使用 detect_engine_（检测模型）在全图上检测 self_arrow 和 enemy_flag
     2. 如果找到 self_arrow bbox，裁剪后优先使用 pose_engine_（姿态模型）检测关键点
-    3. 通过关键点计算精确的位置和朝向（Head=0, Tail=1）
+    3. 通过关键点计算精确的位置和朝向（Head, L, R）
     4. 如果 pose_engine_ 检测失败，回退到 OpencvArrowDetector 检测中心和角度
+
+    支持 YOLO 追踪模式（可选）：
+    - 启用后使用 model.track() 代替 model.predict()
+    - 在帧之间保持对象 ID，提高追踪稳定性
     """
 
-    def __init__(self):
+    def __init__(self, enable_tracking: bool = True):
+        """初始化小地图检测器
+
+        Args:
+            enable_tracking: 是否启用 YOLO 追踪模式（默认启用）
+        """
         config = GetGlobalConfig()
 
         # 检测参数
@@ -55,6 +64,10 @@ class MinimapDetector:
         self.iou_threshold_ = config.model.iou_threshold
         self.crop_size_ = getattr(config.model, 'crop_size', 36)
         self.min_keypoint_conf_ = getattr(config.model, 'min_keypoint_conf', 0.5)
+
+        # 追踪模式配置
+        self.enable_tracking_ = enable_tracking
+        self.tracker_type_ = getattr(config.model, 'tracker', 'bytetrack.yaml')
 
         # 检测引擎
         self.detect_engine_ = DetectionEngine(config.model.base_path)
@@ -108,13 +121,23 @@ class MinimapDetector:
             logger.debug("MinimapDetector: frame 为空或无效")
             return MinimapDetectionResult(None, None, None, [])
 
-        # === 第一步：全局检测 ===
-        detect_result = self.detect_engine_.Detect(
-            frame,
-            confidence_threshold=self.conf_threshold_,
-            iou_threshold=self.iou_threshold_,
-            max_det=10
-        )
+        # === 第一步：全局检测（支持追踪模式）===
+        if self.enable_tracking_:
+            detect_result = self.detect_engine_.Track(
+                frame,
+                confidence_threshold=self.conf_threshold_,
+                iou_threshold=self.iou_threshold_,
+                max_det=10,
+                persist=True,
+                tracker=self.tracker_type_,
+            )
+        else:
+            detect_result = self.detect_engine_.Detect(
+                frame,
+                confidence_threshold=self.conf_threshold_,
+                iou_threshold=self.iou_threshold_,
+                max_det=10
+            )
 
         if not detect_result or len(detect_result) == 0:
             logger.debug("MinimapDetector: detect_engine 检测结果为空")
@@ -162,9 +185,14 @@ class MinimapDetector:
         )
 
     def Reset(self) -> None:
-        """重置检测器状态"""
+        """重置检测器状态（包括追踪器）"""
         self.angle_smoother_.Reset()
         self.base_position_ = None
+
+        # 重置追踪器状态
+        if self.enable_tracking_:
+            self.detect_engine_.ResetTracker()
+            self.pose_engine_.ResetTracker()
 
     # -----------------------------------------------------------
     # Private: YOLO 结果解析
@@ -255,7 +283,7 @@ class MinimapDetector:
         frame: np.ndarray,
         bbox: Tuple[float, float, float, float]
     ) -> Tuple[Optional[np.ndarray], Tuple[int, int]]:
-        """裁剪箭头区域
+        """裁剪箭头区域（直接根据 BBOX 裁剪）
 
         Args:
             frame: 原始图像
@@ -265,16 +293,18 @@ class MinimapDetector:
             (crop_image, (offset_x, offset_y)) 或 (None, (0, 0))
         """
         x1, y1, x2, y2 = bbox
-        cx = (x1 + x2) / 2
-        cy = (y1 + y2) / 2
-
-        half_size = self.crop_size_ // 2
         h, w = frame.shape[:2]
 
-        crop_x1 = int(max(0, cx - half_size))
-        crop_y1 = int(max(0, cy - half_size))
-        crop_x2 = int(min(w, cx + half_size))
-        crop_y2 = int(min(h, cy + half_size))
+        # 直接使用 bbox 坐标，并确保在图像范围内
+        crop_x1 = int(max(0, x1))
+        crop_y1 = int(max(0, y1))
+        crop_x2 = int(min(w, x2))
+        crop_y2 = int(min(h, y2))
+
+        # 检查裁剪区域是否有效
+        if crop_x1 >= crop_x2 or crop_y1 >= crop_y2:
+            logger.debug("MinimapDetector: 裁剪区域无效")
+            return None, (0, 0)
 
         crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
         if crop.size == 0:
@@ -317,7 +347,7 @@ class MinimapDetector:
         self,
         pose_results: List
     ) -> Optional[Tuple[Tuple[float, float], float]]:
-        """解析 Pose 模型的关键点结果
+        """解析 Pose 模型的关键点结果（三个关键点：head, L, R）
 
         Args:
             pose_results: YOLO pose Results 对象列表
@@ -339,8 +369,8 @@ class MinimapDetector:
 
         kpts = keypoints.data[0]
 
-        if kpts.shape[0] < 2:
-            logger.debug("MinimapDetector: pose 模型关键点数量不足")
+        if kpts.shape[0] < 3:
+            logger.debug("MinimapDetector: pose 模型关键点数量不足（需要3个：head, L, R）")
             return None
 
         if hasattr(kpts, "cpu"):
@@ -348,28 +378,34 @@ class MinimapDetector:
         else:
             kpts = np.array(kpts)
 
-        # Head (index 0) 和 Tail (index 1)
+        # Head (index 0): 箭头顶端
+        # L (index 1): 左下角
+        # R (index 2): 右下角
         head = kpts[0]
-        tail = kpts[1]
+        L = kpts[1]
+        R = kpts[2]
 
         head_conf = head[2] if len(head) > 2 else 1.0
-        tail_conf = tail[2] if len(tail) > 2 else 1.0
+        L_conf = L[2] if len(L) > 2 else 1.0
+        R_conf = R[2] if len(R) > 2 else 1.0
 
-        if head_conf < self.min_keypoint_conf_ or tail_conf < self.min_keypoint_conf_:
+        if head_conf < self.min_keypoint_conf_ or L_conf < self.min_keypoint_conf_ or R_conf < self.min_keypoint_conf_:
             logger.debug(
                 f"MinimapDetector: 关键点置信度不足 "
-                f"(head={head_conf:.2f}, tail={tail_conf:.2f})"
+                f"(head={head_conf:.2f}, L={L_conf:.2f}, R={R_conf:.2f})"
             )
             return None
 
-        # 中心点
-        center_x = (head[0] + tail[0]) / 2.0
-        center_y = (head[1] + tail[1]) / 2.0
+        # 中心点：使用三个关键点的平均值
+        center_x = (head[0] + L[0] + R[0]) / 3.0
+        center_y = (head[1] + L[1] + R[1]) / 3.0
         local_center = (float(center_x), float(center_y))
 
-        # 角度：Tail -> Head 方向
-        dx = head[0] - tail[0]
-        dy = head[1] - tail[1]
+        # 角度：从底部中心（L和R的中点）指向 head 的方向
+        bottom_center_x = (L[0] + R[0]) / 2.0
+        bottom_center_y = (L[1] + R[1]) / 2.0
+        dx = head[0] - bottom_center_x
+        dy = head[1] - bottom_center_y
         angle_rad = np.arctan2(dy, dx)
         raw_angle = np.degrees(angle_rad) % 360.0
 

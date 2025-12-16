@@ -4,12 +4,13 @@
 
 # YOLO模型配置
 model:
-  base_path: "resource/model/best.pt"  # YOLO模型文件路径（必需）
-  arrow_path: "resource/model/map_pose_arrow.pt"  # YOLO模型文件路径（必需）
+  base_path: "resource/model/map_detect_base_s_v2.pt"  # YOLO模型文件路径（必需）
+  arrow_path: "resource/model/map_pose_arrow_v2_3key.pt"  # YOLO模型文件路径（必需）
   conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
   iou_threshold: 0.5  # IoU阈值 (0.0-1.0)
   class_id_flag: 0
   class_id_arrow: 1
+  tracker: "bytetrack.yaml"  # 或 "botsort.yaml"
 
 # 游戏配置
 game:
@@ -97,7 +98,7 @@ control:
 angle_detection:               # 小地图角度检测限制
   smoothing_alpha: 0.5                          # [修改] 降低平滑系数，更平滑减少抖动
   max_step_deg: 30.0                            # 单帧允许的最大角度跳变限制(°)
-  noise_threshold_deg: 3.0                      # [新增] 小于此角度变化视为噪声
+  noise_threshold_deg: 5.0                      # [新增] 小于此角度变化视为噪声
   normal_threshold_deg: 10.0                    # [新增] 正常转向阈值
   noise_alpha_factor: 0.3                       # [新增] 噪声时降低响应系数
   large_turn_alpha_factor: 2.0                  # [新增] 大幅转向时加快响应
@@ -108,10 +109,10 @@ angle_detection:               # 小地图角度检测限制
 
 # 卡顿检测与脱困配置
 stuck_detection:
-  time_window_s: 10.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
+  time_window_s: 15.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
   dist_threshold_px: 3.0         # 位移阈值（像素）
   reverse_duration_s: 2.0         # 脱困倒退时间（秒）
-  max_stuck_count: 3              # 连续卡顿N次后采用随机转向策略
+  max_stuck_count: 5              # 连续卡顿N次后采用随机转向策略
 
 # 车辆配置
 vehicle:
