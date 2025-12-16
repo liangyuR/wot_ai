@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Main window using DearPyGui."""
+"""Main window using Tkinter."""
 
 import sys
 import os
@@ -13,7 +13,9 @@ from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import dearpygui.dearpygui as dpg
+from PIL import Image, ImageTk
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
 from loguru import logger
 
 from src.core.task_manager import TaskManager
@@ -21,7 +23,7 @@ from src.utils.global_path import GetVehicleScreenshotsDir, GetLogDir, GetConfig
 
 
 class MainWindow:
-    """Main control window using DearPyGui."""
+    """Main control window using Tkinter."""
 
     def __init__(self):
         self._title = "TANK ROBOT"
@@ -35,22 +37,21 @@ class MainWindow:
         self._silver_reserve = False
         self._start_time: Optional[datetime] = None
 
-        # Vehicle images: {filename: (texture_id, thumb_w, thumb_h)}
-        self._vehicle_textures: Dict[str, Tuple[int, int, int]] = {}
+        # Vehicle images: {filename: PhotoImage}
+        self._vehicle_images: Dict[str, ImageTk.PhotoImage] = {}
         self._vehicle_screenshot_dir = self._initVehicleScreenshotDir()
 
         # TaskManager
         self._task_manager: Optional[TaskManager] = None
         self._task_thread: Optional[threading.Thread] = None
 
-        # DearPyGui IDs
-        self._tex_registry: Optional[int] = None
-        self._status_text_id: Optional[int] = None
-        self._end_time_text_id: Optional[int] = None
-        self._vehicle_group_id: Optional[int] = None
-        self._file_dialog_id: Optional[int] = None
-        self._confirm_dialog_id: Optional[int] = None
-        self._confirm_callback_data: Optional[Path] = None
+        # Tkinter widgets
+        self._root: Optional[tk.Tk] = None
+        self._status_label: Optional[tk.Label] = None
+        self._end_time_label: Optional[tk.Label] = None
+        self._vehicle_frame: Optional[ttk.Frame] = None
+        self._vehicle_canvas: Optional[tk.Canvas] = None
+        self._vehicle_scrollbar: Optional[ttk.Scrollbar] = None
 
         # InitLog
         self._initLog()
@@ -110,150 +111,132 @@ class MainWindow:
 
     def _buildUI(self) -> None:
         """Build the main UI layout."""
-        win_w, win_h = self._window_size
+        self._root = tk.Tk()
+        self._root.title(self._title)
+        self._root.geometry(f"{self._window_size[0]}x{self._window_size[1]}")
+        self._root.resizable(False, False)
 
-        with dpg.window(label=self._title, width=win_w, height=win_h, no_close=True,
-                        no_collapse=True, no_resize=True, no_move=True, tag="main_window"):
+        # Main container with padding
+        main_frame = ttk.Frame(self._root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-            # === Tips Section ===
-            with dpg.collapsing_header(label="Tips", default_open=True):
-                dpg.add_text("* Set game to windowed 1920x1080")
-                dpg.add_text("* Recommended graphics: Medium-Low")
-                dpg.add_text("* Screenshot vehicle cards, name as 1.png, 2.png...")
-                dpg.add_text("* Higher priority vehicles are selected first")
-                dpg.add_text("* Start from garage screen")
+        # === Tips Section ===
+        tips_frame = ttk.LabelFrame(main_frame, text="Tips", padding="5")
+        tips_frame.pack(fill=tk.X, pady=5)
 
-            dpg.add_spacer(height=5)
+        tips_text = [
+            "* Set game to windowed 1920x1080",
+            "* Recommended graphics: Medium-Low",
+            "* Screenshot vehicle cards, name as 1.png, 2.png...",
+            "* Higher priority vehicles are selected first",
+            "* Start from garage screen"
+        ]
+        for tip in tips_text:
+            ttk.Label(tips_frame, text=tip, anchor="w").pack(anchor="w", padx=5, pady=2)
 
-            # === Control Section ===
-            with dpg.collapsing_header(label="Control", default_open=True):
-                with dpg.group(horizontal=True):
-                    dpg.add_button(label="Start", width=100, callback=self._onStart)
-                    dpg.add_button(label="Stop", width=100, callback=self._onStop)
+        # === Control Section ===
+        control_frame = ttk.LabelFrame(main_frame, text="Control", padding="5")
+        control_frame.pack(fill=tk.X, pady=5)
 
-                dpg.add_spacer(height=5)
-                self._status_text_id = dpg.add_text("Status: Stopped", color=(255, 100, 100))
+        button_frame = ttk.Frame(control_frame)
+        button_frame.pack(fill=tk.X, pady=5)
 
-            dpg.add_spacer(height=5)
+        ttk.Button(button_frame, text="Start", width=15, command=self._onStart).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Stop", width=15, command=self._onStop).pack(side=tk.LEFT, padx=5)
 
-            # === Duration & End Behavior Section ===
-            with dpg.collapsing_header(label="Duration & End Behavior (Not Implemented)",
-                                       default_open=False):
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Run duration limit:")
-                    dpg.add_input_int(
-                        default_value=self._run_hours,
-                        width=80,
-                        min_value=1,
-                        max_value=24,
-                        callback=lambda s, a: setattr(self, '_run_hours', a)
-                    )
-                    dpg.add_text("hours")
+        self._status_label = ttk.Label(control_frame, text="Status: Stopped", foreground="red")
+        self._status_label.pack(pady=5)
 
-                dpg.add_checkbox(
-                    label="Auto stop when duration reached",
-                    default_value=self._auto_stop,
-                    callback=lambda s, a: setattr(self, '_auto_stop', a)
-                )
-                dpg.add_checkbox(
-                    label="Auto shutdown when duration reached (Admin required)",
-                    default_value=self._auto_shutdown,
-                    callback=lambda s, a: setattr(self, '_auto_shutdown', a)
-                )
+        # === Duration & End Behavior Section ===
+        duration_frame = ttk.LabelFrame(main_frame, text="Duration & End Behavior (Not Implemented)", padding="5")
+        duration_frame.pack(fill=tk.X, pady=5)
 
-                self._end_time_text_id = dpg.add_text("Estimated end time: --")
+        hours_frame = ttk.Frame(duration_frame)
+        hours_frame.pack(fill=tk.X, pady=2)
 
-            dpg.add_spacer(height=5)
+        ttk.Label(hours_frame, text="Run duration limit:").pack(side=tk.LEFT, padx=5)
+        hours_var = tk.IntVar(value=self._run_hours)
+        hours_spinbox = ttk.Spinbox(hours_frame, from_=1, to=24, width=10, textvariable=hours_var,
+                                    command=lambda: setattr(self, '_run_hours', hours_var.get()))
+        hours_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(hours_frame, text="hours").pack(side=tk.LEFT, padx=5)
 
-            # === Feature Expansion Section ===
-            with dpg.collapsing_header(label="Feature Expansion (Not Implemented)",
-                                       default_open=False):
-                dpg.add_checkbox(
-                    label="Enable silver reserve on start",
-                    default_value=self._silver_reserve,
-                    callback=lambda s, a: setattr(self, '_silver_reserve', a)
-                )
+        auto_stop_var = tk.BooleanVar(value=self._auto_stop)
+        ttk.Checkbutton(duration_frame, text="Auto stop when duration reached",
+                       variable=auto_stop_var,
+                       command=lambda: setattr(self, '_auto_stop', auto_stop_var.get())).pack(anchor="w", padx=5, pady=2)
 
-            dpg.add_spacer(height=5)
+        auto_shutdown_var = tk.BooleanVar(value=self._auto_shutdown)
+        ttk.Checkbutton(duration_frame, text="Auto shutdown when duration reached (Admin required)",
+                       variable=auto_shutdown_var,
+                       command=lambda: setattr(self, '_auto_shutdown', auto_shutdown_var.get())).pack(anchor="w", padx=5, pady=2)
 
-            # === Vehicle Priority Section ===
-            with dpg.collapsing_header(label="Vehicle Priority", default_open=True):
-                dpg.add_text("Select vehicles in priority order:")
-                dpg.add_text("1.png -> 2.png -> 3.png ...", color=(150, 150, 150))
+        self._end_time_label = ttk.Label(duration_frame, text="Estimated end time: --")
+        self._end_time_label.pack(pady=2)
 
-                with dpg.group(horizontal=True):
-                    dpg.add_button(label="Add Screenshot", callback=self._onAddScreenshot)
-                    dpg.add_button(label="Open Screenshot Folder",
-                                   callback=self._onOpenScreenshotDir)
-                    dpg.add_button(label="Refresh", callback=self._refreshVehicleList)
+        # === Feature Expansion Section ===
+        feature_frame = ttk.LabelFrame(main_frame, text="Feature Expansion (Not Implemented)", padding="5")
+        feature_frame.pack(fill=tk.X, pady=5)
 
-                dpg.add_spacer(height=5)
-                dpg.add_text("Current vehicle priority:")
+        silver_reserve_var = tk.BooleanVar(value=self._silver_reserve)
+        ttk.Checkbutton(feature_frame, text="Enable silver reserve on start",
+                       variable=silver_reserve_var,
+                       command=lambda: setattr(self, '_silver_reserve', silver_reserve_var.get())).pack(anchor="w", padx=5, pady=2)
 
-                # Scrollable vehicle list container
-                with dpg.child_window(height=200, border=True, horizontal_scrollbar=True):
-                    self._vehicle_group_id = dpg.add_group(horizontal=True)
+        # === Vehicle Priority Section ===
+        vehicle_frame = ttk.LabelFrame(main_frame, text="Vehicle Priority", padding="5")
+        vehicle_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
-            dpg.add_spacer(height=10)
+        ttk.Label(vehicle_frame, text="Select vehicles in priority order:").pack(anchor="w", padx=5)
+        ttk.Label(vehicle_frame, text="1.png -> 2.png -> 3.png ...", foreground="gray").pack(anchor="w", padx=5)
 
-            # === Footer ===
-            with dpg.group(horizontal=True):
-                dpg.add_text("Version: v0.1.0", color=(128, 128, 128))
-                dpg.add_button(label="Open Log Folder", callback=self._onOpenLogDir)
-                dpg.add_button(label="Open Config", callback=self._onOpenConfigDir)
+        button_frame2 = ttk.Frame(vehicle_frame)
+        button_frame2.pack(fill=tk.X, pady=5)
 
-        # === File Dialog ===
-        with dpg.file_dialog(
-            directory_selector=False,
-            show=False,
-            callback=self._onFileSelected,
-            cancel_callback=lambda: None,
-            width=500,
-            height=400,
-            tag="file_dialog"
-        ):
-            dpg.add_file_extension(".png", color=(0, 255, 0))
-            dpg.add_file_extension(".*")
+        ttk.Button(button_frame2, text="Add Screenshot", command=self._onAddScreenshot).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame2, text="Open Screenshot Folder", command=self._onOpenScreenshotDir).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame2, text="Refresh", command=self._refreshVehicleList).pack(side=tk.LEFT, padx=5)
 
-        self._file_dialog_id = dpg.last_item()
+        ttk.Label(vehicle_frame, text="Current vehicle priority:").pack(anchor="w", padx=5, pady=5)
 
-        # === Confirm Delete Dialog ===
-        with dpg.window(
-            label="Confirm Delete",
-            modal=True,
-            show=False,
-            no_resize=True,
-            width=300,
-            height=100,
-            tag="confirm_dialog"
-        ):
-            dpg.add_text("Are you sure you want to delete this screenshot?")
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Yes", width=100, callback=self._onConfirmDelete)
-                dpg.add_button(label="No", width=100,
-                               callback=lambda: dpg.configure_item("confirm_dialog", show=False))
+        # Scrollable vehicle list
+        list_container = ttk.Frame(vehicle_frame)
+        list_container.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self._confirm_dialog_id = dpg.last_item()
+        self._vehicle_canvas = tk.Canvas(list_container, height=200, borderwidth=1, relief=tk.SUNKEN)
+        self._vehicle_scrollbar = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self._vehicle_canvas.yview)
+        self._vehicle_frame = ttk.Frame(self._vehicle_canvas)
+
+        self._vehicle_canvas.configure(yscrollcommand=self._vehicle_scrollbar.set)
+        self._vehicle_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._vehicle_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._vehicle_canvas.create_window((0, 0), window=self._vehicle_frame, anchor="nw")
+        self._vehicle_frame.bind("<Configure>", lambda e: self._vehicle_canvas.configure(scrollregion=self._vehicle_canvas.bbox("all")))
+
+        # === Footer ===
+        footer_frame = ttk.Frame(main_frame)
+        footer_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(footer_frame, text="Version: v0.1.0", foreground="gray").pack(side=tk.LEFT, padx=5)
+        ttk.Button(footer_frame, text="Open Log Folder", command=self._onOpenLogDir).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(footer_frame, text="Open Config", command=self._onOpenConfigDir).pack(side=tk.RIGHT, padx=5)
 
     # -------------------------------------------------------------------------
     # Vehicle List Management
     # -------------------------------------------------------------------------
 
-    def _refreshVehicleList(self, sender=None, app_data=None) -> None:
+    def _refreshVehicleList(self) -> None:
         """Refresh the vehicle thumbnail list."""
-        if self._vehicle_group_id is None:
+        if self._vehicle_frame is None:
             return
 
-        # Clear existing items
-        dpg.delete_item(self._vehicle_group_id, children_only=True)
+        # Clear existing widgets
+        for widget in self._vehicle_frame.winfo_children():
+            widget.destroy()
 
-        # Clear old textures
-        for filename, (tex_id, _, _) in self._vehicle_textures.items():
-            try:
-                dpg.delete_item(tex_id)
-            except Exception:
-                pass
-        self._vehicle_textures.clear()
+        # Clear old images
+        self._vehicle_images.clear()
 
         # Load images from directory
         if not self._vehicle_screenshot_dir.exists():
@@ -274,44 +257,39 @@ class MainWindow:
                 new_w, new_h = int(w * scale), int(h * scale)
                 thumbnail = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-                # Convert to RGBA float
-                rgba_data = self._bgrToRgbaFloat(thumbnail)
+                # Convert BGR to RGB for PIL
+                thumbnail_rgb = cv2.cvtColor(thumbnail, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(thumbnail_rgb)
+                photo = ImageTk.PhotoImage(pil_image)
+                self._vehicle_images[img_path.name] = photo
 
-                # Create dynamic texture
-                tex_id = dpg.add_dynamic_texture(
-                    new_w, new_h, rgba_data, parent=self._tex_registry
-                )
-                self._vehicle_textures[img_path.name] = (tex_id, new_w, new_h)
+                # Create item frame
+                item_frame = ttk.Frame(self._vehicle_frame)
+                item_frame.pack(fill=tk.X, padx=5, pady=2)
 
-                # Create item group
-                with dpg.group(parent=self._vehicle_group_id):
-                    dpg.add_image(tex_id)
-                    dpg.add_text(img_path.name, color=(200, 200, 200))
-                    dpg.add_button(
-                        label="Delete",
-                        callback=lambda s, a, p=img_path: self._onDeleteScreenshot(p),
-                        small=True
-                    )
-                    dpg.add_spacer(width=10)
+                # Image label
+                img_label = ttk.Label(item_frame, image=photo)
+                img_label.pack(side=tk.LEFT, padx=5)
+
+                # Filename label
+                ttk.Label(item_frame, text=img_path.name).pack(side=tk.LEFT, padx=5)
+
+                # Delete button
+                ttk.Button(item_frame, text="Delete", width=10,
+                          command=lambda p=img_path: self._onDeleteScreenshot(p)).pack(side=tk.RIGHT, padx=5)
 
             except Exception as e:
                 logger.error(f"Failed to load image {img_path}: {e}")
 
-    @staticmethod
-    def _bgrToRgbaFloat(frame_bgr: np.ndarray) -> List[float]:
-        """Convert BGR uint8 image to RGBA float32 list in [0, 1]."""
-        h, w, _ = frame_bgr.shape
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        alpha = np.full((h, w, 1), 255, dtype=np.uint8)
-        rgba = np.concatenate([frame_rgb, alpha], axis=2)
-        rgba_f = (rgba.astype(np.float32) / 255.0).reshape(-1).tolist()
-        return rgba_f
+        # Update scroll region
+        self._vehicle_frame.update_idletasks()
+        self._vehicle_canvas.configure(scrollregion=self._vehicle_canvas.bbox("all"))
 
     # -------------------------------------------------------------------------
     # Callbacks
     # -------------------------------------------------------------------------
 
-    def _onStart(self, sender=None, app_data=None) -> None:
+    def _onStart(self) -> None:
         """Start task manager."""
         if self._is_running:
             logger.warning("Task already running")
@@ -333,7 +311,7 @@ class MainWindow:
 
         logger.info("Task manager started")
 
-    def _onStop(self, sender=None, app_data=None) -> None:
+    def _onStop(self) -> None:
         """Stop task manager."""
         if not self._is_running:
             return
@@ -350,52 +328,39 @@ class MainWindow:
         self._start_time = None
         logger.info("Task manager stopped")
 
-    def _onAddScreenshot(self, sender=None, app_data=None) -> None:
+    def _onAddScreenshot(self) -> None:
         """Open file dialog to add screenshot."""
-        dpg.show_item("file_dialog")
-
-    def _onFileSelected(self, sender, app_data) -> None:
-        """Handle file selection from dialog."""
-        if not app_data or "file_path_name" not in app_data:
-            return
-
-        file_path = app_data["file_path_name"]
-        if not file_path:
-            return
-
-        try:
-            src_path = Path(file_path)
-            dest_path = self._vehicle_screenshot_dir / src_path.name
-            shutil.copy2(src_path, dest_path)
-            self._refreshVehicleList()
-            logger.info(f"Added vehicle screenshot: {dest_path}")
-        except Exception as e:
-            logger.error(f"Failed to add screenshot: {e}")
+        file_path = filedialog.askopenfilename(
+            title="Select Vehicle Screenshot",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+        )
+        if file_path:
+            try:
+                src_path = Path(file_path)
+                dest_path = self._vehicle_screenshot_dir / src_path.name
+                shutil.copy2(src_path, dest_path)
+                self._refreshVehicleList()
+                logger.info(f"Added vehicle screenshot: {dest_path}")
+            except Exception as e:
+                logger.error(f"Failed to add screenshot: {e}")
 
     def _onDeleteScreenshot(self, img_path: Path) -> None:
         """Show delete confirmation dialog."""
-        self._confirm_callback_data = img_path
-        dpg.configure_item("confirm_dialog", show=True)
+        result = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete {img_path.name}?",
+            parent=self._root
+        )
+        if result:
+            try:
+                if img_path.exists():
+                    img_path.unlink()
+                    self._refreshVehicleList()
+                    logger.info(f"Deleted vehicle screenshot: {img_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete screenshot: {e}")
 
-    def _onConfirmDelete(self, sender=None, app_data=None) -> None:
-        """Handle delete confirmation."""
-        dpg.configure_item("confirm_dialog", show=False)
-
-        if self._confirm_callback_data is None:
-            return
-
-        img_path = self._confirm_callback_data
-        self._confirm_callback_data = None
-
-        try:
-            if img_path.exists():
-                img_path.unlink()
-                self._refreshVehicleList()
-                logger.info(f"Deleted vehicle screenshot: {img_path}")
-        except Exception as e:
-            logger.error(f"Failed to delete screenshot: {e}")
-
-    def _onOpenScreenshotDir(self, sender=None, app_data=None) -> None:
+    def _onOpenScreenshotDir(self) -> None:
         """Open vehicle screenshot directory."""
         try:
             if sys.platform == "win32":
@@ -403,7 +368,7 @@ class MainWindow:
         except Exception as e:
             logger.error(f"Failed to open directory: {e}")
 
-    def _onOpenLogDir(self, sender=None, app_data=None) -> None:
+    def _onOpenLogDir(self) -> None:
         """Open log directory."""
         try:
             if sys.platform == "win32":
@@ -411,7 +376,7 @@ class MainWindow:
         except Exception as e:
             logger.error(f"Failed to open log directory: {e}")
 
-    def _onOpenConfigDir(self, sender=None, app_data=None) -> None:
+    def _onOpenConfigDir(self) -> None:
         """Open config file location."""
         try:
             if sys.platform == "win32":
@@ -424,8 +389,8 @@ class MainWindow:
     # -------------------------------------------------------------------------
 
     def _updateStatus(self) -> None:
-        """Update status display on each frame."""
-        if self._status_text_id is None:
+        """Update status display."""
+        if self._status_label is None:
             return
 
         if self._is_running:
@@ -443,53 +408,39 @@ class MainWindow:
                     status_text = "Status: Running (Time exceeded)"
                     end_text = "Estimated end time: --"
 
-                dpg.set_value(self._status_text_id, status_text)
-                dpg.configure_item(self._status_text_id, color=(100, 255, 100))
+                self._status_label.config(text=status_text, foreground="green")
 
-                if self._end_time_text_id:
-                    dpg.set_value(self._end_time_text_id, end_text)
+                if self._end_time_label:
+                    self._end_time_label.config(text=end_text)
             else:
-                dpg.set_value(self._status_text_id, "Status: Running")
-                dpg.configure_item(self._status_text_id, color=(100, 255, 100))
+                self._status_label.config(text="Status: Running", foreground="green")
         else:
-            dpg.set_value(self._status_text_id, "Status: Stopped")
-            dpg.configure_item(self._status_text_id, color=(255, 100, 100))
+            self._status_label.config(text="Status: Stopped", foreground="red")
 
-            if self._end_time_text_id:
-                dpg.set_value(self._end_time_text_id, "Estimated end time: --")
+            if self._end_time_label:
+                self._end_time_label.config(text="Estimated end time: --")
+
+        # Schedule next update
+        if self._root:
+            self._root.after(1000, self._updateStatus)
 
     # -------------------------------------------------------------------------
     # Main Entry
     # -------------------------------------------------------------------------
 
     def run(self) -> None:
-        """Create DearPyGui context and start UI loop (blocking)."""
-        dpg.create_context()
-
-        # Texture registry
-        self._tex_registry = dpg.add_texture_registry()
-
+        """Create Tkinter window and start UI loop (blocking)."""
         # Build UI
         self._buildUI()
 
         # Load initial vehicle list
         self._refreshVehicleList()
 
-        # Create viewport
-        win_w, win_h = self._window_size
-        dpg.create_viewport(title=self._title, width=win_w, height=win_h, resizable=False)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
+        # Start status update loop
+        self._updateStatus()
 
-        # Set primary window
-        dpg.set_primary_window("main_window", True)
-
-        # Render loop
-        while dpg.is_dearpygui_running():
-            self._updateStatus()
-            dpg.render_dearpygui_frame()
-
-        dpg.destroy_context()
+        # Start main loop
+        self._root.mainloop()
 
 
 def main():

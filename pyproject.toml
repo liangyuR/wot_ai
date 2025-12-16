@@ -19,6 +19,7 @@ dearpygui = "*"
 pyautogui = "*"
 pydantic = "*"
 psutil = "*"
+pillow = "*"
 torch = {version = "*", source = "pytorch-cu128"}
 torchvision = {version = "*", source = "pytorch-cu128"}
 
