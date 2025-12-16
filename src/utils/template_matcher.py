@@ -35,7 +35,7 @@ class TemplateMatcher:
     def match_template(
         self,
         template: Union[str, Path],
-        confidence: float = 0.85,
+        confidence: float = 0.75,
         region: Optional[Tuple[int, int, int, int]] = None,
         frame: Optional[np.ndarray] = None,
     ) -> Optional[Tuple[int, int]]:
@@ -66,7 +66,7 @@ class TemplateMatcher:
                     template_path = fallback
 
         if template_path is None:
-            logger.debug("模板未找到: %s", template)
+            logger.info("模板未找到: %s", template)
             return None
 
         if frame is None:
@@ -111,15 +111,15 @@ class TemplateMatcher:
         result = cv2.matchTemplate(search_img, tpl_gray, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-        logger.debug(f"模板匹配最大置信度：{max_val:.3f}，期望：{confidence}")
+        logger.info(f"模板匹配最大置信度：{max_val:.3f}，期望：{confidence}")
         if max_val >= confidence:
             tpl_h, tpl_w = tpl_gray.shape[:2]
             center_x = max_loc[0] + tpl_w // 2 + top_left_offset[0]
             center_y = max_loc[1] + tpl_h // 2 + top_left_offset[1]
             center = (center_x, center_y)
-            logger.debug(f"找到模板 {template_path} 在位置: {center}")
+            logger.info(f"找到模板 {template_path} 在位置: {center}")
             return center
-        logger.debug(f"未在画面中找到模板: {template_path}")
+        logger.info(f"未在画面中找到模板: {template_path}")
         return None
 
 # 保持与模块初始用法兼容的函数
