@@ -1,128 +1,119 @@
-# 导航系统配置文件模板
-# 复制此文件为 config.yaml 并填写实际值
-# 这里的路径全部相对于 main_window.py 文件所在目录或 EXE 所在目录
+﻿# 导航系统配置文件模板（复制为 config.yaml 后按需修改）
+# 路径相对 main_window.py 或打包后的 EXE 目录
 
-# YOLO模型配置
+# YOLO 模型配置
 model:
-  base_path: "resource/model/map_detect_base_s_v2.pt"  # YOLO模型文件路径（必需）
-  arrow_path: "resource/model/map_pose_arrow_v2_3key.pt"  # YOLO模型文件路径（必需）
-  conf_threshold: 0.25  # 置信度阈值 (0.0-1.0)
-  iou_threshold: 0.5  # IoU阈值 (0.0-1.0)
-  class_id_flag: 0
-  class_id_arrow: 1
-  tracker: "bytetrack.yaml"  # 或 "botsort.yaml"
+  base_path: "resource/model/map_detect_base_s_v2.pt"    # 检测模型路径；留空=无法检测
+  arrow_path: "resource/model/map_pose_arrow_v2_3key.pt" # 箭头模型路径；留空=无法识别朝向
+  conf_threshold: 0.25                                    # 置信度阈值：大=框更少更保守，小=框更多含噪
+  iou_threshold: 0.5                                      # IoU阈值：大=去重更严格，小=容忍重叠
+  class_id_flag: 0                                        # 旗帜类别ID（按模型而定）
+  class_id_arrow: 1                                       # 箭头类别ID（按模型而定）
+  tracker: "bytetrack.yaml"                              # 跟踪器配置；也可用 "botsort.yaml"
 
 # 游戏配置
 game:
-  process_name: "WorldOfTanks.exe"  # 游戏进程名称
-  exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe"  # 游戏可执行文件路径（请根据实际情况修改）
-  restart_wait_seconds: 15  # 重启等待时间（秒）
-  stuck_timeout_seconds: 480  # 卡死判定超时时间（秒）
+  process_name: "WorldOfTanks.exe"                       # 进程名；错误则无法定位窗口
+  exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe"# 可执行路径；改成你的安装路径
+  restart_wait_seconds: 15                                # 重启等待秒数：大=更稳妥，小=更快重启
+  stuck_timeout_seconds: 480                              # 判定卡死的总超时时间：大=更耐心，小=更快重启
 
 # 小地图配置
 minimap:
-  size: [1200, 1200]  # 小地图尺寸 [width, height]
-  max_size: 1200  # 小地图最大尺寸
+  size: [1200, 1200]                                      # 小地图截取尺寸：大=分辨率高但耗时，小=快但精度低
+  max_size: 1200                                          # 允许的最大尺寸上限
 
 # 掩码配置（可选）
 mask:
-  inflation_radius_px: 1  # 障碍膨胀半径（像素）
-  cost_alpha: 1  # 代价图权重
+  inflation_radius_px: 1                                  # 障碍膨胀半径：大=更保守远离障碍，小=更贴近障碍
+  cost_alpha: 1                                           # 代价图权重：大=更倾向远离障碍，小=更自由
 
 # 栅格配置
 grid:
-  size: [512, 512]  # 栅格尺寸 [width, height]
+  size: [512, 512]                                        # 网格分辨率：大=更细更准但耗时，小=更快但精度低
 
-# 路径规划、控制、角度检测配置
-#
-# 本节涵盖路径生成（A*平滑、采样、后处理）、动作控制（容忍阈值、速度与滞回策略），以及 minimap 箭头角度检测参数。
-# 范围包括 path_planning（路径算法配置）、control（运动执行与错误检测）、angle_detection（箭头检测限制），如需实验/调参时可重点关注。
+# 路径规划（自身≈3px，典型道路宽≈12-15px）
+path_planning:
+  enable_astar_smoothing: true                # 开A*内部平滑；关=折线硬、短；开=圆滑但需防贴边
+  astar_smooth_weight: 0.15                   # 大=更圆滑/可能绕远或贴边；小=更贴网格/折线硬；窄路推荐0.15-0.5
+  post_smoothing_method: "catmull_rom"        # catmull_rom=曲线平滑；los=直线简化，直但贴障碍风险高
+  simplify_method: "rdp"                      # rdp降点数；none不简化；los按视线连线（更直但贴边）
+  simplify_threshold: 1.5                     # 大=更激进简化、点少但弯被削；小=保留细节更安全但点多
+  num_points_per_segment: 8                   # Catmull-Rom采样：大=更细腻/开销高；小=更硬朗/点少
+  curvature_threshold_deg: 30.0               # 判急弯阈值：小=更敏感、提前减速；大=容忍急弯
+  check_curvature: true                       # 曲率检查；窄道建议开，防平滑出界
+  enable_los_post_smoothing: true             # los后继续平滑：开=更顺；关=保持直线
 
-path_planning:                # 路径规划相关参数
-  enable_astar_smoothing: true                # 开启A*内部平滑（可去除锯齿，对窄道友好，需配合简化阈值防止过拟合）
-  astar_smooth_weight: 0.15                   # [修改] 降低平滑权重，更贴合栅格中心
-  post_smoothing_method: "catmull_rom"        # 路径后处理方法: "catmull_rom"（平滑曲线）或 "los"（线段）
-  simplify_method: "rdp"                      # 路径简化方法: RDP，可减少 waypoint 数提升效率
-  simplify_threshold: 1.5                     # [修改] 降低简化阈值，在窄道中保留更多细节
-  num_points_per_segment: 8                   # CatmullRom采样点数，平滑度和点数折中
-  curvature_threshold_deg: 30.0               # 曲率阈值(°)，大于此为急弯，可限制过度平滑
-  check_curvature: true                       # 启用曲率检查，窄路必开，防止平滑导致出道
-  enable_los_post_smoothing: true             # 仅"los"后处理用（catmull_rom保留占位，为兼容未来切换）
-
+# 控制（运动执行与误差容忍）
 control:
+  goal_arrival_threshold: 15.0                # 到点判定半径：大=更易判到达，小=更严格
+  path_deviation_tolerance: 3                 # 路径偏离容忍：大=容忍更宽，抖动少；小=紧跟路径，易频繁纠偏
+  stuck_threshold: 3                          # 单帧位移阈值：大=更易判移动，小=更易判停滞
+  stuck_frames_threshold: 200                 # 连续帧阈值：大=更晚判卡死，小=更早脱困
+  debug_log_interval: 30                      # 调试日志间隔帧
 
-  # === 状态与基本判定 ===
-  goal_arrival_threshold: 15.0
-  path_deviation_tolerance: 3
-  stuck_threshold: 3
-  stuck_frames_threshold: 200          # 约 6-7 秒判定卡死
-  debug_log_interval: 30
-
-  # === MovementController ===
-  angle_dead_zone_deg: 3.0             # [修改] 增大死区，容忍检测噪声减少左摇右摆
-  angle_slow_turn_deg: 20.0            # [修改] 增大慢转阈值
-
-  distance_stop_threshold: 5.0
-  slow_down_distance: 5.0              # [修改] 等于停止阈值，不因距离减速
-
-  max_forward_speed: 1.0               # [修改] 最高速度
-  min_forward_factor: 1.0              # [修改] 不因角度减速
-  large_angle_threshold_deg: 30.0      # [修改] 30度就算大弯
-  large_angle_speed_reduction: 1.0     # [修改] 不因大角度减速
-
-  corridor_ref_width: 4.0              # [修改] 4px误差即全力纠偏
-  edge_speed_reduction: 1.0            # [修改] 不因边缘减速
-  recenter_speed_reduction: 1.0        # [修改] 不因重新居中减速
+  # MovementController
+  angle_dead_zone_deg: 3.0                    # 舵角死区：大=抗噪但响应慢，小=灵敏但易抖
+  angle_slow_turn_deg: 20.0                   # 慢转阈值：大=少触发慢转，小=易降速
+  distance_stop_threshold: 5.0                # 停止距离：大=提前刹车，小=贴近目标
+  slow_down_distance: 5.0                     # 减速距离：大=提前减速，小=更晚减速
+  max_forward_speed: 1.0                      # 最大前进速度：大=快，小=慢
+  min_forward_factor: 1.0                     # 最低速度比例：大=不减速，小=允许大幅减速
+  large_angle_threshold_deg: 30.0             # 大角度阈值：大=少认定大角，小=易认定大角
+  large_angle_speed_reduction: 1.0            # 大角减速系数：大=不减速，小=大角时更慢
+  corridor_ref_width: 4.0                     # “走廊”宽度：大=宽容，纠偏弱；小=严格，纠偏强
+  edge_speed_reduction: 1.0                   # 贴边减速系数：大=不减速，小=贴边变慢
+  recenter_speed_reduction: 1.0               # 重新居中减速：大=不减速，小=居中时更慢
 
   # 直行模式判定
-  straight_angle_enter_deg: 4.0        # 略大于死区
-  straight_angle_exit_deg: 8.0
-  straight_lat_enter: 3
-  straight_lat_exit: 6
+  straight_angle_enter_deg: 4.0               # 进入直行角度阈：大=更易进入直行，小=更严格
+  straight_angle_exit_deg: 8.0                # 退出直行角度阈：大=更宽松，小=更敏感
+  straight_lat_enter: 3                       # 进入直行横向误差：大=宽松，小=严格
+  straight_lat_exit: 6                        # 退出直行横向误差：大=宽松，小=严格
 
-  # === MoveExecutor ===
-  smoothing_alpha_forward: 0.2         # [新增] 前进滤波系数（慢响应，模拟惯性）
-  smoothing_alpha_turn: 0.6            # [新增] 转向滤波系数（快响应）
-  smoothing_alpha: 0.5                 # [废弃] 旧参数保留兼容
-  turn_deadzone: 0.05                  # [修改] 降低死区，配合非线性控制
-  min_hold_time_ms: 6.0
-  forward_hysteresis_on: 0.40
-  forward_hysteresis_off: 0.10
+  # MoveExecutor
+  smoothing_alpha_forward: 0.2                # 前进滤波：大=更平滑响应慢，小=更灵敏但抖
+  smoothing_alpha_turn: 0.6                   # 转向滤波：大=更平滑，小=更灵敏
+  smoothing_alpha: 0.5                        # 废弃兼容占位
+  turn_deadzone: 0.05                         # 转向死区：大=抗噪但响应慢，小=灵敏
+  min_hold_time_ms: 6.0                       # 最短按键保持：大=动作更稳，小=更灵活
+  forward_hysteresis_on: 0.40                 # 前进开启滞回：大=不易开始，小=易开始
+  forward_hysteresis_off: 0.10                # 前进关闭滞回：大=不易关闭，小=易关闭
 
-  # === PathFollower ===
-  max_lateral_error: 3.0               # [修改] 收紧走廊宽度，3px即认为偏离
-  lookahead_distance: 12.0             # [修改] 缩短前瞻，防止切弯切墙
-  waypoint_switch_radius: 6.0          # [修改] 减小切换半径，适应窄道密集路点
+  # PathFollower
+  max_lateral_error: 3.0                      # 允许横向误差：大=宽松，纠偏少；小=严格，纠偏多
+  lookahead_distance: 12.0                    # 前瞻距离：大=更平滑但可能切弯，路少转；小=谨慎贴点
+  waypoint_switch_radius: 6.0                 # 路点切换半径：大=提前切，路径更直；小=贴近切，曲率更大
 
+# 小地图角度检测
+angle_detection:
+  smoothing_alpha: 0.5                        # 平滑系数：大=更稳更慢，小=更灵敏
+  max_step_deg: 30.0                          # 单帧最大跳变：大=容忍抖动，小=严格限制
+  noise_threshold_deg: 5.0                    # 噪声阈值：大=更多视为噪声，小=更早响应
+  normal_threshold_deg: 10.0                  # 正常转向阈值：大=更宽松，小=更敏感
+  noise_alpha_factor: 0.3                     # 噪声时响应衰减：大=抑制多，小=抑制少
+  large_turn_alpha_factor: 2.0                # 大幅转向加速系数：大=遇大角更快响应，小=更平滑
+  min_area_ratio: 0.2                         # 检测区域最小占比：大=过滤更多小目标，小=更易触发
+  max_area_ratio: 0.9                         # 检测区域最大占比：大=允许大目标，小=过滤大面积
+  min_aspect_ratio: 0.3                       # 最小宽高比：大=过滤细长，小=更宽松
+  max_aspect_ratio: 3.0                       # 最大宽高比：大=更宽松，小=过滤扁平
 
-angle_detection:               # 小地图角度检测限制
-  smoothing_alpha: 0.5                          # [修改] 降低平滑系数，更平滑减少抖动
-  max_step_deg: 30.0                            # 单帧允许的最大角度跳变限制(°)
-  noise_threshold_deg: 5.0                      # [新增] 小于此角度变化视为噪声
-  normal_threshold_deg: 10.0                    # [新增] 正常转向阈值
-  noise_alpha_factor: 0.3                       # [新增] 噪声时降低响应系数
-  large_turn_alpha_factor: 2.0                  # [新增] 大幅转向时加快响应
-  min_area_ratio: 0.2                           # 检测区域需占小地图面积的最小比例
-  max_area_ratio: 0.9                           # 检测区域允许的最大面积比例
-  min_aspect_ratio: 0.3                         # 箭头最小宽高比（排除细长异常）
-  max_aspect_ratio: 3.0                         # 箭头最大宽高比（排除过于扁平异常）
-
-# 卡顿检测与脱困配置
+# 卡死检测与脱困
 stuck_detection:
-  time_window_s: 15.0              # 检测时间窗口（秒），窗口内位移小于阈值则判定卡顿
-  dist_threshold_px: 3.0         # 位移阈值（像素）
-  reverse_duration_s: 2.0         # 脱困倒退时间（秒）
-  max_stuck_count: 5              # 连续卡顿N次后采用随机转向策略
+  time_window_s: 15.0              # 检测窗口：大=更耐心，小=更快判卡
+  dist_threshold_px: 3.0           # 位移阈值：大=易视为移动，小=易视为卡住
+  reverse_duration_s: 2.0          # 倒退时间：大=退得更久，小=更快结束
+  max_stuck_count: 5               # 连续卡死次数：大=更晚随机转向，小=更早尝试随机转向
 
 # 车辆配置
 vehicle:
-  screenshot_dir: "resource/vehicle_screenshots"  # 车辆截图目录（相对路径基于程序目录）
+  screenshot_dir: "resource/vehicle_screenshots"  # 车辆截图目录
 
 # UI配置
 ui:
-  overlay_fps: 30  # 覆盖层FPS
-  overlay_alpha: 180  # 覆盖层透明度 (0-255)aw
-  enable: true  # 是否启用调试视图
+  overlay_fps: 30         # 覆盖层FPS：大=更流畅更耗资源，小=更省资源
+  overlay_alpha: 180      # 覆盖层透明度(0-255)：大=更不透明，小=更透明
+  enable: true            # 是否启用调试视图
 
 # 屏幕捕获配置
-monitor_index: 1  # 屏幕捕获监视器索引
+monitor_index: 1          # 监视器索引：多屏环境选择目标屏

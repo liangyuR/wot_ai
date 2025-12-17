@@ -564,29 +564,6 @@ class DpgNavDebugView(NavDebugView):
                     parent=self._drawlist_minimap,
                 )
 
-                # 绘制箭头
-                # tip = (
-                #     cx + length * math.cos(angle),
-                #     cy + length * math.sin(angle),
-                # )
-                # left = (
-                #     cx + width * math.cos(angle + 2.5),
-                #     cy + width * math.sin(angle + 2.5),
-                # )
-                # right = (
-                #     cx + width * math.cos(angle - 2.5),
-                #     cy + width * math.sin(angle - 2.5),
-                # )
-
-                # dpg.draw_triangle(
-                #     p1=tip,
-                #     p2=left,
-                #     p3=right,
-                #     color=(255, 255, 0, 255),
-                #     fill=(255, 255, 0, 128),
-                #     parent=self._drawlist_minimap,
-                # )
-
             # 终点绘制为一个空心圆
             if goal_pos is not None:
                 gx, gy = goal_pos
