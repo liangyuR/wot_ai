@@ -1,80 +1,64 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MinimapDetector：小地图检测器
-
-检测流程：
-1. 使用 detect_engine_（检测模型）在全图上检测 self_arrow 和 enemy_flag
-2. 如果找到 self_arrow bbox，裁剪后优先使用 pose_engine_（姿态模型）检测关键点
-3. 通过关键点计算精确的位置和朝向（Head=0, Tail=1）
-4. 如果 pose_engine_ 检测失败，回退到 OpencvArrowDetector 检测中心和角度
-
-输入：一张完整的小地图图像 (frame_minimap)
-输出：self_pos, self_angle, enemy_flag_pos 以及原始检测结果列表
+Minimap detector: detect self arrow and enemy flag, with optional failure frame dump.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
-from typing import Optional, Dict, Tuple, List
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 from loguru import logger
-import cv2
 
-from src.vision.detection_engine import DetectionEngine
-from src.vision.opencv_arrow_detector import OpencvArrowDetector
 from src.utils.angle_smoother import AngleSmoother
 from src.utils.global_path import GetGlobalConfig
+from src.vision.detection_engine import DetectionEngine
+from src.vision.opencv_arrow_detector import OpencvArrowDetector
 
 
 @dataclass
 class MinimapDetectionResult:
-    """MinimapDetector 的统一输出结构"""
-    self_pos: Optional[Tuple[float, float]]        # 自身位置 (x, y)
-    self_angle: Optional[float]                     # 自身朝向角度
-    enemy_flag_pos: Optional[Tuple[float, float]]  # 敌方基地位置
-    raw_detections: List[Dict]                      # 原始检测结果
+    """Unified output for minimap detection."""
+
+    self_pos: Optional[Tuple[float, float]]
+    self_angle: Optional[float]
+    enemy_flag_pos: Optional[Tuple[float, float]]
+    raw_detections: List[Dict]
 
 
 class MinimapDetector:
-    """双模型小地图检测器
-
-    检测流程：
-    1. 使用 detect_engine_（检测模型）在全图上检测 self_arrow 和 enemy_flag
-    2. 如果找到 self_arrow bbox，裁剪后优先使用 pose_engine_（姿态模型）检测关键点
-    3. 通过关键点计算精确的位置和朝向（Head, L, R）
-    4. 如果 pose_engine_ 检测失败，回退到 OpencvArrowDetector 检测中心和角度
-
-    支持 YOLO 追踪模式（可选）：
-    - 启用后使用 model.track() 代替 model.predict()
-    - 在帧之间保持对象 ID，提高追踪稳定性
+    """
+    Dual-model minimap detector:
+    1) detect_engine_: detect arrow + enemy flag on the full minimap
+    2) pose_engine_: refine arrow pose (keypoints) after cropping
+    Fallback to OpenCV arrow detector if pose detection fails.
     """
 
     def __init__(self, enable_tracking: bool = True):
-        """初始化小地图检测器
-
-        Args:
-            enable_tracking: 是否启用 YOLO 追踪模式（默认启用）
-        """
         config = GetGlobalConfig()
 
-        # 检测参数
+        # Detection params
         self.conf_threshold_ = config.model.conf_threshold
         self.iou_threshold_ = config.model.iou_threshold
-        self.crop_size_ = getattr(config.model, 'crop_size', 36)
-        self.min_keypoint_conf_ = getattr(config.model, 'min_keypoint_conf', 0.5)
+        self.crop_size_ = getattr(config.model, "crop_size", 36)
+        self.min_keypoint_conf_ = getattr(config.model, "min_keypoint_conf", 0.5)
 
-        # 追踪模式配置
+        # Tracking
         self.enable_tracking_ = enable_tracking
-        self.tracker_type_ = getattr(config.model, 'tracker', 'bytetrack.yaml')
+        self.tracker_type_ = getattr(config.model, "tracker", "bytetrack.yaml")
 
-        # 检测引擎
+        # Engines
         self.detect_engine_ = DetectionEngine(config.model.base_path)
         self.pose_engine_ = DetectionEngine(config.model.arrow_path)
         self.arrow_detector_ = OpencvArrowDetector()
 
-        # 角度平滑器
+        # Angle smoother
         angle_cfg = config.angle_detection
         self.angle_smoother_ = AngleSmoother(
             alpha=angle_cfg.smoothing_alpha,
@@ -85,43 +69,49 @@ class MinimapDetector:
             large_turn_alpha_factor=angle_cfg.large_turn_alpha_factor,
         )
 
-        # 基地位置缓存
+        # Cached positions
         self.base_position_: Optional[Tuple[float, float]] = None
 
-        # 类别 ID
+        # Classes
         self.arrow_class_id_: int = config.model.class_id_arrow
         self.flag_class_id_: int = config.model.class_id_flag
+
+        # Failure frame dump (for training hard samples)
+        fail_cfg = getattr(config, "failure_dump", None)
+        self.fail_capture_enabled_ = bool(getattr(fail_cfg, "enable", False)) if fail_cfg else False
+        self.fail_capture_interval_s_ = float(getattr(fail_cfg, "interval_s", 10.0)) if fail_cfg else 10.0
+        minimap_dir = getattr(fail_cfg, "minimap_dir", "Logs/fail_minimap") if fail_cfg else "Logs/fail_minimap"
+        arrow_dir = getattr(fail_cfg, "arrow_dir", "Logs/fail_arrow") if fail_cfg else "Logs/fail_arrow"
+        self.fail_minimap_dir_ = Path(minimap_dir)
+        self.fail_arrow_dir_ = Path(arrow_dir)
+        self._last_fail_save_ts = 0.0
+        if self.fail_capture_enabled_:
+            self.fail_minimap_dir_.mkdir(parents=True, exist_ok=True)
+            self.fail_arrow_dir_.mkdir(parents=True, exist_ok=True)
 
     # -----------------------------------------------------------
     # Public API
     # -----------------------------------------------------------
     def LoadModel(self) -> bool:
-        """加载模型"""
+        """Load detection and pose models."""
         if not self.detect_engine_.LoadModel():
-            logger.error("MinimapDetector: detect_engine 模型加载失败")
+            logger.error("MinimapDetector: detect_engine load failed")
             return False
 
         if not self.pose_engine_.LoadModel():
-            logger.error("MinimapDetector: pose_engine 模型加载失败")
+            logger.error("MinimapDetector: pose_engine load failed")
             return False
 
-        logger.info("MinimapDetector: 模型加载成功")
+        logger.info("MinimapDetector: models loaded")
         return True
 
     def Detect(self, frame: np.ndarray) -> MinimapDetectionResult:
-        """检测小地图中的目标
-
-        Args:
-            frame: 小地图 BGR 图像
-
-        Returns:
-            MinimapDetectionResult 包含位置、角度和原始检测结果
-        """
+        """Detect targets on minimap image (BGR)."""
         if frame is None or frame.size == 0:
-            logger.debug("MinimapDetector: frame 为空或无效")
+            logger.debug("MinimapDetector: empty frame")
             return MinimapDetectionResult(None, None, None, [])
 
-        # === 第一步：全局检测（支持追踪模式）===
+        # Step 1: global detection
         if self.enable_tracking_:
             detect_result = self.detect_engine_.Track(
                 frame,
@@ -136,45 +126,48 @@ class MinimapDetector:
                 frame,
                 confidence_threshold=self.conf_threshold_,
                 iou_threshold=self.iou_threshold_,
-                max_det=10
+                max_det=10,
             )
 
         if not detect_result or len(detect_result) == 0:
-            logger.debug("MinimapDetector: detect_engine 检测结果为空")
+            logger.debug("MinimapDetector: detect_engine empty result")
+            self._maybe_save_failure(frame, None, kind="minimap")
             return MinimapDetectionResult(None, None, self.base_position_, [])
 
-        # 解析检测结果
+        # Parse detections
         raw_detections = self._parseResults(detect_result)
 
-        # 检测并缓存 enemy_flag 位置（只需一次）
+        # Cache enemy flag position once
         if self.base_position_ is None:
-            self.base_position_ = self._findDetectionCenter(
-                detect_result, self.flag_class_id_
-            )
+            self.base_position_ = self._findDetectionCenter(detect_result, self.flag_class_id_)
             if self.base_position_ is not None:
-                logger.info(f"检测到 enemy_flag 位置并缓存: {self.base_position_}")
+                logger.info(f"enemy_flag detected and cached at {self.base_position_}")
 
-        # 查找 self_arrow 的 bbox
+        # Find self arrow bbox
         arrow_bbox = self._findDetectionBbox(detect_result, self.arrow_class_id_)
         if arrow_bbox is None:
-            logger.debug("MinimapDetector: 未检测到 self_arrow")
+            logger.debug("MinimapDetector: self_arrow not found")
+            self._maybe_save_failure(frame, None, kind="minimap")
             return MinimapDetectionResult(None, None, self.base_position_, raw_detections)
 
-        # === 第二步：裁剪箭头区域 ===
+        # Step 2: crop arrow region
         crop, crop_offset = self._cropArrowRegion(frame, arrow_bbox)
         if crop is None:
+            self._maybe_save_failure(frame, None, kind="minimap")
             return MinimapDetectionResult(None, None, self.base_position_, raw_detections)
 
-        # === 第三步：检测箭头姿态 ===
+        # Step 3: detect arrow pose
         local_center, raw_angle = self._detectArrowPose(crop)
+        if local_center is None:
+            self._maybe_save_failure(frame, crop, kind="arrow")
 
-        # 转换为全局坐标
+        # Convert to global coords
         self_pos = None
         if local_center is not None:
             cx_local, cy_local = local_center
             self_pos = (cx_local + crop_offset[0], cy_local + crop_offset[1])
 
-        # 应用角度平滑
+        # Smooth angle (AngleSmoother handles None)
         self_angle = self.angle_smoother_.Update(raw_angle)
 
         return MinimapDetectionResult(
@@ -185,20 +178,19 @@ class MinimapDetector:
         )
 
     def Reset(self) -> None:
-        """重置检测器状态（包括追踪器）"""
+        """Reset detector state (including trackers)."""
         self.angle_smoother_.Reset()
         self.base_position_ = None
 
-        # 重置追踪器状态
         if self.enable_tracking_:
             self.detect_engine_.ResetTracker()
             self.pose_engine_.ResetTracker()
 
     # -----------------------------------------------------------
-    # Private: YOLO 结果解析
+    # Private helpers: YOLO parsing
     # -----------------------------------------------------------
     def _parseResults(self, yolo_results) -> List[Dict]:
-        """解析 YOLO Results 对象为字典列表"""
+        """Convert YOLO Results to list of dicts."""
         detections: List[Dict] = []
 
         for result in yolo_results:
@@ -211,28 +203,20 @@ class MinimapDetector:
             cls_ids = boxes.cls.cpu().numpy()
 
             for i in range(len(xyxy)):
-                detections.append({
-                    "cls": int(cls_ids[i]),
-                    "confidence": float(conf[i]),
-                    "bbox": tuple(xyxy[i].tolist()),
-                })
+                detections.append(
+                    {
+                        "cls": int(cls_ids[i]),
+                        "confidence": float(conf[i]),
+                        "bbox": tuple(xyxy[i].tolist()),
+                    }
+                )
 
         return detections
 
     def _findDetectionByClass(
-        self,
-        yolo_results: List,
-        class_id: int
+        self, yolo_results: List, class_id: int
     ) -> Optional[Tuple[np.ndarray, np.ndarray, int]]:
-        """从 YOLO Results 中查找指定类别的第一个检测
-
-        Args:
-            yolo_results: YOLO Results 对象列表
-            class_id: 类别 ID
-
-        Returns:
-            (xyxy_array, cls_array, index) 或 None
-        """
+        """Find the first detection of a given class."""
         for result in yolo_results:
             boxes = result.boxes
             if boxes is None or boxes.shape[0] == 0:
@@ -248,11 +232,9 @@ class MinimapDetector:
         return None
 
     def _findDetectionCenter(
-        self,
-        yolo_results: List,
-        class_id: int
+        self, yolo_results: List, class_id: int
     ) -> Optional[Tuple[float, float]]:
-        """从 YOLO Results 中提取指定类别的第一个检测框的中心点"""
+        """Get center of first detection of given class."""
         found = self._findDetectionByClass(yolo_results, class_id)
         if found is None:
             return None
@@ -262,11 +244,9 @@ class MinimapDetector:
         return (float((x1 + x2) / 2.0), float((y1 + y2) / 2.0))
 
     def _findDetectionBbox(
-        self,
-        yolo_results: List,
-        class_id: int
+        self, yolo_results: List, class_id: int
     ) -> Optional[Tuple[float, float, float, float]]:
-        """从 YOLO Results 中提取指定类别的第一个检测框"""
+        """Get bbox of first detection of given class."""
         found = self._findDetectionByClass(yolo_results, class_id)
         if found is None:
             return None
@@ -276,85 +256,53 @@ class MinimapDetector:
         return (float(x1), float(y1), float(x2), float(y2))
 
     # -----------------------------------------------------------
-    # Private: 箭头裁剪与姿态检测
+    # Private: arrow crop and pose detection
     # -----------------------------------------------------------
     def _cropArrowRegion(
-        self,
-        frame: np.ndarray,
-        bbox: Tuple[float, float, float, float]
+        self, frame: np.ndarray, bbox: Tuple[float, float, float, float]
     ) -> Tuple[Optional[np.ndarray], Tuple[int, int]]:
-        """裁剪箭头区域（直接根据 BBOX 裁剪）
-
-        Args:
-            frame: 原始图像
-            bbox: 边界框 (x1, y1, x2, y2)
-
-        Returns:
-            (crop_image, (offset_x, offset_y)) 或 (None, (0, 0))
-        """
+        """Crop arrow region based on bbox."""
         x1, y1, x2, y2 = bbox
         h, w = frame.shape[:2]
 
-        # 直接使用 bbox 坐标，并确保在图像范围内
         crop_x1 = int(max(0, x1))
         crop_y1 = int(max(0, y1))
         crop_x2 = int(min(w, x2))
         crop_y2 = int(min(h, y2))
 
-        # 检查裁剪区域是否有效
         if crop_x1 >= crop_x2 or crop_y1 >= crop_y2:
-            logger.debug("MinimapDetector: 裁剪区域无效")
+            logger.debug("MinimapDetector: invalid crop region")
             return None, (0, 0)
 
         crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
         if crop.size == 0:
-            logger.debug("MinimapDetector: 裁剪区域为空")
+            logger.debug("MinimapDetector: empty crop")
             return None, (0, 0)
 
         return crop, (crop_x1, crop_y1)
 
     def _detectArrowPose(
-        self,
-        crop: np.ndarray
+        self, crop: np.ndarray
     ) -> Tuple[Optional[Tuple[float, float]], Optional[float]]:
-        """检测箭头姿态（中心和角度）
-
-        优先使用 pose_engine_，失败则回退到 OpenCV 检测
-
-        Args:
-            crop: 裁剪后的箭头图像
-
-        Returns:
-            (local_center, raw_angle) 或 (None, None)
-        """
-        # 优先使用 pose_engine_
+        """Detect arrow pose (center and angle) with pose model then fallback to OpenCV."""
         pose_result = self.pose_engine_.Detect(
             crop,
             confidence_threshold=self.conf_threshold_,
             iou_threshold=self.iou_threshold_,
-            max_det=10
+            max_det=10,
         )
 
         pose_data = self._parsePoseResult(pose_result)
         if pose_data is not None:
             return pose_data
 
-        # 回退：使用 OpenCV 箭头检测
         local_center, raw_angle = self.arrow_detector_.detect(crop)
         return local_center, raw_angle
 
     def _parsePoseResult(
-        self,
-        pose_results: List
+        self, pose_results: List
     ) -> Optional[Tuple[Tuple[float, float], float]]:
-        """解析 Pose 模型的关键点结果（三个关键点：head, L, R）
-
-        Args:
-            pose_results: YOLO pose Results 对象列表
-
-        Returns:
-            (local_center, raw_angle) 或 None
-        """
+        """Parse pose model keypoints (head, L, R)."""
         if not pose_results or len(pose_results) == 0:
             return None
 
@@ -370,7 +318,7 @@ class MinimapDetector:
         kpts = keypoints.data[0]
 
         if kpts.shape[0] < 3:
-            logger.debug("MinimapDetector: pose 模型关键点数量不足（需要3个：head, L, R）")
+            logger.debug("MinimapDetector: pose keypoints < 3 (need head, L, R)")
             return None
 
         if hasattr(kpts, "cpu"):
@@ -378,30 +326,26 @@ class MinimapDetector:
         else:
             kpts = np.array(kpts)
 
-        # Head (index 0): 箭头顶端
-        # L (index 1): 左下角
-        # R (index 2): 右下角
-        head = kpts[0]
-        L = kpts[1]
-        R = kpts[2]
-
+        head, L, R = kpts[0], kpts[1], kpts[2]
         head_conf = head[2] if len(head) > 2 else 1.0
         L_conf = L[2] if len(L) > 2 else 1.0
         R_conf = R[2] if len(R) > 2 else 1.0
 
-        if head_conf < self.min_keypoint_conf_ or L_conf < self.min_keypoint_conf_ or R_conf < self.min_keypoint_conf_:
+        if (
+            head_conf < self.min_keypoint_conf_
+            or L_conf < self.min_keypoint_conf_
+            or R_conf < self.min_keypoint_conf_
+        ):
             logger.debug(
-                f"MinimapDetector: 关键点置信度不足 "
+                "MinimapDetector: keypoint confidence too low "
                 f"(head={head_conf:.2f}, L={L_conf:.2f}, R={R_conf:.2f})"
             )
             return None
 
-        # 中心点：使用三个关键点的平均值
         center_x = (head[0] + L[0] + R[0]) / 3.0
         center_y = (head[1] + L[1] + R[1]) / 3.0
         local_center = (float(center_x), float(center_y))
 
-        # 角度：从底部中心（L和R的中点）指向 head 的方向
         bottom_center_x = (L[0] + R[0]) / 2.0
         bottom_center_y = (L[1] + R[1]) / 2.0
         dx = head[0] - bottom_center_x
@@ -410,3 +354,35 @@ class MinimapDetector:
         raw_angle = np.degrees(angle_rad) % 360.0
 
         return (local_center, float(raw_angle))
+
+    # -----------------------------------------------------------
+    # Private: failure frame capture
+    # -----------------------------------------------------------
+    def _maybe_save_failure(self, minimap_frame: Optional[np.ndarray], arrow_crop: Optional[np.ndarray], kind: str) -> None:
+        """Save failure samples at a limited rate for training."""
+        if not self.fail_capture_enabled_:
+            return
+
+        now = time.perf_counter()
+        if now - self._last_fail_save_ts < self.fail_capture_interval_s_:
+            return
+
+        if minimap_frame is None and arrow_crop is None:
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+        try:
+            if kind == "arrow" and arrow_crop is not None:
+                out_path = self.fail_arrow_dir_ / f"{ts}.png"
+                cv2.imwrite(str(out_path), arrow_crop)
+            elif minimap_frame is not None:
+                out_path = self.fail_minimap_dir_ / f"{ts}.png"
+                cv2.imwrite(str(out_path), minimap_frame)
+            else:
+                return
+
+            self._last_fail_save_ts = now
+            logger.debug(f"Failure frame saved: {out_path}")
+        except Exception as e:
+            logger.error(f"Failed to save failure frame: {e}")

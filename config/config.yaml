@@ -28,6 +28,13 @@ mask:
   inflation_radius_px: 1                                  # 障碍膨胀半径：大=更保守远离障碍，小=更贴近障碍
   cost_alpha: 1                                           # 代价图权重：大=更倾向远离障碍，小=更自由
 
+# 检测失败样本保存（用于强化训练）
+failure_dump:
+  enable: false                                           # 开/关保存失败帧；true=保存，false=关闭
+  interval_s: 10                                          # 失败保存冷却时间：大=更少样本，小=更频繁
+  minimap_dir: "Logs/fail_minimap"                        # 小地图失败帧保存目录
+  arrow_dir: "Logs/fail_arrow"                            # 箭头裁剪失败帧保存目录
+
 # 栅格配置
 grid:
   size: [512, 512]                                        # 网格分辨率：大=更细更准但耗时，小=更快但精度低
