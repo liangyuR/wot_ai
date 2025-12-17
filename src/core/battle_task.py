@@ -29,7 +29,8 @@ class BattleTask:
         self,
         selection_retry_interval: float = 10.0,
         selection_timeout: float = 120.0,
-        state_check_interval: float = 3
+        state_check_interval: float = 3,
+        enable_silver_reserve: bool = False,
     ):
         """
         初始化战斗任务
@@ -39,6 +40,7 @@ class BattleTask:
             selection_retry_interval: 选择失败后的重试间隔
             selection_timeout: 选择超时时间
             state_check_interval: 状态检测间隔（秒）
+            enable_silver_reserve: 是否启用银币储备功能
         """
         self.tank_selector_ = TankSelector()
         self.state_machine_ = StateMachine()
@@ -73,6 +75,12 @@ class BattleTask:
         # 状态监测
         self.last_state_ = GameState.UNKNOWN
         self.last_state_change_time_ = time.time()
+        
+        # 银币储备功能
+        self._silver_reserve_enabled = enable_silver_reserve
+        self._silver_reserve_interval = 3600.0  # 1小时 = 3600秒
+        self._silver_reserve_template = "silver_reserve.png"  # 模板名称
+        self._last_silver_reserve_time: Optional[float] = None  # 上次激活时间
     
     def start(self) -> bool:
         """
@@ -222,6 +230,10 @@ class BattleTask:
         if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
 
+        # 检查是否需要激活银币储备
+        if self._shouldActivateSilverReserve():
+            self._activateSilverReserve()
+
         # 关闭结算页面并返回车库
         if not self.enter_garage():
             logger.error("返回车库失败，将在下次循环重试")
@@ -230,6 +242,69 @@ class BattleTask:
         # 重置战斗状态标志，为下一局做准备
         self.battle_handled_ = False
         logger.info("结束状态处理完成")
+
+    def _shouldActivateSilverReserve(self) -> bool:
+        """
+        检查是否需要激活银币储备
+        
+        Returns:
+            是否需要激活
+        """
+        if not self._silver_reserve_enabled:
+            return False
+        
+        # 首次激活（从未激活过）
+        if self._last_silver_reserve_time is None:
+            return True
+        
+        # 检查是否已过1小时
+        elapsed = time.time() - self._last_silver_reserve_time
+        if elapsed >= self._silver_reserve_interval:
+            return True
+        
+        return False
+
+    def _activateSilverReserve(self) -> bool:
+        """
+        激活银币储备
+        
+        流程：
+        1. 按下 B 键打开储备界面
+        2. 等待界面响应（2~3秒）
+        3. 点击银币储备模板（点两下防止点击失败）
+        
+        Returns:
+            是否激活成功
+        """
+        logger.info("开始激活银币储备...")
+        
+        # 1. 按下 B 键打开储备界面
+        self.key_controller_.tap('b')
+        logger.info("已按下 B 键，等待界面响应...")
+        
+        # 2. 等待界面响应
+        time.sleep(3.0)
+        
+        # 3. 点击银币储备模板（点两下防止点击失败）
+        for attempt in range(2):
+            success = self.template_matcher_.click_template(
+                self._silver_reserve_template, 
+                confidence=0.85
+            )
+            if success is not None:
+                logger.info(f"银币储备模板点击成功（第 {attempt + 1} 次）")
+            else:
+                logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
+            time.sleep(0.5)  # 两次点击之间短暂等待
+        
+        # 等待操作完成
+        time.sleep(1.0)
+        
+        # 更新激活时间
+        self._last_silver_reserve_time = time.time()
+        logger.info("银币储备激活完成，下次激活将在1小时后")
+        
+        return True
     
     def _handle_result_page_state(self) -> None:
         """
@@ -340,7 +415,7 @@ class BattleTask:
             是否正在运行
         """
         return self.running_
-    
+
     def __del__(self):
         """析构函数：确保资源清理"""
         self.stop()

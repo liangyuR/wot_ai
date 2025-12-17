@@ -1,402 +1,446 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""Main window using Tkinter."""
+
 import sys
 import os
 import shutil
-import tempfile
 import threading
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+
+import cv2
+import numpy as np
+from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from loguru import logger
-import cv2
 
 from src.core.task_manager import TaskManager
 from src.utils.global_path import GetVehicleScreenshotsDir, GetLogDir, GetConfigPath
 
+
 class MainWindow:
+    """Main control window using Tkinter."""
+
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("TANK ROBOT")
-        self.root.geometry("720x1000")
-        self.root.configure(bg="#F0F0F0")
+        self._title = "TANK ROBOT"
+        self._window_size = (480, 820)
 
         # State
-        self.is_running = False
-        self.run_hours = tk.IntVar(value=4)
-        self.auto_stop = tk.BooleanVar(value=False)
-        self.auto_shutdown = tk.BooleanVar(value=False)
-        self.silver_reserve = tk.BooleanVar(value=False)
-        
-        self.vehicle_images = []  # List of (path, thumbnail) tuples
-        self.vehicle_screenshot_dir = self._init_vehicle_screenshot_dir()
-        
+        self._is_running = False
+        self._run_hours = 4
+        self._auto_stop = False
+        self._auto_shutdown = False
+        self._silver_reserve = False
+        self._start_time: Optional[datetime] = None
+
+        # Vehicle images: {filename: PhotoImage}
+        self._vehicle_images: Dict[str, ImageTk.PhotoImage] = {}
+        self._vehicle_screenshot_dir = self._initVehicleScreenshotDir()
+
         # TaskManager
-        self.task_manager_ = None
-        self.task_thread_ = None
+        self._task_manager: Optional[TaskManager] = None
+        self._task_thread: Optional[threading.Thread] = None
+
+        # Tkinter widgets
+        self._root: Optional[tk.Tk] = None
+        self._status_label: Optional[tk.Label] = None
+        self._end_time_label: Optional[tk.Label] = None
+        self._vehicle_frame: Optional[ttk.Frame] = None
+        self._vehicle_canvas: Optional[tk.Canvas] = None
+        self._vehicle_scrollbar: Optional[ttk.Scrollbar] = None
 
         # InitLog
-        self._init_log()
+        self._initLog()
 
-        # Setup UI
-        self._build_ui()
-        self._update_status()
-
-    def _init_log(self):
-        """Initialize logging configuration"""
+    def _initLog(self) -> None:
+        """Initialize logging configuration."""
         log_dir = GetLogDir()
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.remove()  # Remove default handler
-        
+        logger.remove()
+
         # Console handler
         logger.add(
             sys.stderr,
             level="INFO",
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+                   "<level>{level: <8}</level> | "
+                   "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+                   "<level>{message}</level>"
         )
         
-        # File handler
-        log_file = log_dir / "wot_ai_{time:YYYY-MM-DD}.log"
+        # DEBUG file handler - only DEBUG level
+        debug_log_file = log_dir / "wot_ai_debug_{time:YYYY-MM-DD}.log"
         logger.add(
-            str(log_file),
+            str(debug_log_file),
             rotation="00:00",  # New file every day at midnight
             retention="10 days",  # Keep logs for 10 days
             level="DEBUG",
+            filter=lambda record: record["level"].name == "DEBUG",
             encoding="utf-8",
             format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
         )
         
+        # INFO file handler - INFO and above (INFO, WARNING, ERROR, CRITICAL)
+        info_log_file = log_dir / "wot_ai_info_{time:YYYY-MM-DD}.log"
+        logger.add(
+            str(info_log_file),
+            rotation="00:00",  # New file every day at midnight
+            retention="10 days",  # Keep logs for 10 days
+            level="INFO",
+            encoding="utf-8",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+                   "{name}:{function}:{line} - {message}"
+        )
+
         logger.info(f"Log initialized, saving to: {log_dir}")
 
-    def _create_section(self, parent, title=None):
-        """Create a section frame with optional title"""
-        frame = tk.Frame(parent, bg="#F0F0F0", relief=tk.RAISED, bd=1)
-        frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        if title:
-            title_label = tk.Label(
-                frame, text=title, font=("Microsoft YaHei", 10, "bold"),
-                bg="#F0F0F0", anchor="w"
-            )
-            title_label.pack(fill=tk.X, padx=5, pady=2)
-            tk.Frame(frame, height=1, bg="#CCCCCC").pack(fill=tk.X, padx=5)
-        
-        content = tk.Frame(frame, bg="#F0F0F0")
-        content.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        return content
-
-    def _build_ui(self):
-        # 使用提示区
-        tips_section = self._create_section(self.root, "使用提示区")
-        tips = [
-            "· 请将游戏设置为\"窗口化 1920x1080\"",
-            "· 推荐画质：中–低",
-            ". 使用截图软件，截取需要使用的车辆卡片，按照 1，2，3，4，5 的方式命名，",
-            "程序会按照优先级选用，即当优先级更高的车辆可用时，优先选用",
-            "· 在游戏车库状态下，点击启动按钮开始运行",
-        ]
-        for tip in tips:
-            tk.Label(
-                tips_section, text=tip, font=("Microsoft YaHei", 9),
-                bg="#F0F0F0", anchor="w"
-            ).pack(anchor="w", padx=10, pady=2)
-
-        # 核心控制区
-        ctrl_section = self._create_section(self.root, "核心控制区")
-        btn_frame = tk.Frame(ctrl_section, bg="#F0F0F0")
-        btn_frame.pack(pady=10)
-        
-        tk.Button(
-            btn_frame, text="● 启动", command=self._start,
-            font=("Microsoft YaHei", 10), width=15
-        ).pack(side=tk.LEFT, padx=10)
-        
-        tk.Button(
-            btn_frame, text="■ 停止", command=self._stop,
-            font=("Microsoft YaHei", 10), width=15
-        ).pack(side=tk.LEFT, padx=10)
-        
-        self.status_label = tk.Label(
-            ctrl_section, text="状态：● 已停止",
-            font=("Microsoft YaHei", 10), bg="#F0F0F0"
-        )
-        self.status_label.pack(pady=5)
-
-        # 时长 & 结束行为配置区
-        time_section = self._create_section(self.root, "时长 & 结束行为配置区（未实现）")
-        
-        time_row = tk.Frame(time_section, bg="#F0F0F0")
-        time_row.pack(anchor="w", pady=5)
-        tk.Label(
-            time_row, text="运行时长限制：", font=("Microsoft YaHei", 9),
-            bg="#F0F0F0"
-        ).pack(side=tk.LEFT, padx=5)
-        tk.Entry(
-            time_row, textvariable=self.run_hours, width=6,
-            font=("Microsoft YaHei", 9)
-        ).pack(side=tk.LEFT, padx=5)
-        tk.Label(
-            time_row, text="小时", font=("Microsoft YaHei", 9),
-            bg="#F0F0F0"
-        ).pack(side=tk.LEFT, padx=5)
-        
-        tk.Checkbutton(
-            time_section, text="达到时长后自动停止",
-            variable=self.auto_stop, font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", anchor="w"
-        ).pack(anchor="w", padx=5, pady=2)
-        
-        tk.Checkbutton(
-            time_section, text="达到时长后自动关机（需要管理员权限）",
-            variable=self.auto_shutdown, font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", anchor="w"
-        ).pack(anchor="w", padx=5, pady=2)
-        
-        self.end_time_label = tk.Label(
-            time_section, text="预计结束时间：--",
-            font=("Microsoft YaHei", 9), bg="#F0F0F0", anchor="w"
-        )
-        self.end_time_label.pack(anchor="w", padx=5, pady=5)
-
-        # 功能扩展区
-        feature_section = self._create_section(self.root, "功能扩展区（未实现）")
-        
-        tk.Checkbutton(
-            feature_section, text="是否启用启动银币储备",
-            variable=self.silver_reserve, font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", anchor="w"
-        ).pack(anchor="w", padx=5, pady=2)
-
-        # 车辆优先级设置区
-        vehicle_section = self._create_section(self.root, "车辆优先级设置区")
-        desc_text = (
-            "描述：按优先级顺序选择可出战车辆\n"
-            " 1.png → 2.png → 3.png …\n"
-            "（若当前车辆模板检测不到，则顺延至下一辆车）"
-        )
-        tk.Label(
-            vehicle_section, text=desc_text, font=("Microsoft YaHei", 9),
-            bg="#F0F0F0", anchor="w", justify=tk.LEFT
-        ).pack(anchor="w", padx=5, pady=5)
-        
-        btn_row = tk.Frame(vehicle_section, bg="#F0F0F0")
-        btn_row.pack(pady=5)
-        tk.Button(
-            btn_row, text="添加车辆截图", command=self._add_vehicle_screenshot,
-            font=("Microsoft YaHei", 9), width=15
-        ).pack(side=tk.LEFT, padx=5)
-        tk.Button(
-            btn_row, text="打开车辆截图目录", command=self._open_screenshot_dir,
-            font=("Microsoft YaHei", 9), width=15
-        ).pack(side=tk.LEFT, padx=5)
-        
-        tk.Label(
-            vehicle_section, text="当前车辆优先级",
-            font=("Microsoft YaHei", 9), bg="#F0F0F0", anchor="w"
-        ).pack(anchor="w", padx=5, pady=5)
-        
-        # Vehicle list frame with scrollbar
-        list_frame = tk.Frame(vehicle_section, bg="#F0F0F0", relief=tk.SUNKEN, bd=1)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        canvas = tk.Canvas(list_frame, bg="white", height=150)
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
-        self.vehicle_list_frame = tk.Frame(canvas, bg="white")
-        
-        canvas.create_window((0, 0), window=self.vehicle_list_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.vehicle_canvas = canvas
-        self._refresh_vehicle_list()
-
-        # 底部栏
-        footer = tk.Frame(self.root, bg="#F0F0F0")
-        footer.pack(fill=tk.X, pady=10)
-        
-        tk.Label(
-            footer, text="版本：v0.1.0", font=("Microsoft YaHei", 9),
-            bg="#F0F0F0"
-        ).pack(side=tk.LEFT, padx=10)
-        
-        tk.Button(
-            footer, text="打开日志目录", command=self._view_logs,
-            font=("Microsoft YaHei", 9), relief=tk.FLAT
-        ).pack(side=tk.LEFT, padx=5)
-        
-        tk.Button(
-            footer, text="打开配置文件", command=self._open_config_dir,
-            font=("Microsoft YaHei", 9), relief=tk.FLAT
-        ).pack(side=tk.LEFT, padx=5)
-
-    def _start(self):
-        if self.is_running:
-            logger.warning("任务已在运行")
-            return
-
-        # 创建TaskManager
-        self.task_manager_ = TaskManager(
-            run_hours=int(self.run_hours.get()),
-            auto_stop=self.auto_stop.get(),
-            auto_shutdown=self.auto_shutdown.get(),
-        )
-        
-        # 在独立线程中运行TaskManager
-        self.is_running = True
-        self.task_thread_ = threading.Thread(target=self.task_manager_.run_forever, daemon=True)
-        self.task_thread_.start()
-        
-        logger.info("任务管理器已启动")
-        self._update_status()
-
-    def _stop(self):
-        if not self.is_running:
-            return
-        
-        self.is_running = False
-        
-        if self.task_manager_:
-            self.task_manager_.stop()
-        
-        if self.task_thread_ and self.task_thread_.is_alive():
-            self.task_thread_.join(timeout=2.0)
-        
-        self.task_manager_ = None
-        logger.info("任务管理器已停止")
-        self._update_status()
-    
-    def _init_vehicle_screenshot_dir(self) -> Path:
-        """根据配置初始化车辆截图目录"""
+    def _initVehicleScreenshotDir(self) -> Path:
+        """Initialize vehicle screenshot directory."""
         default_dir = GetVehicleScreenshotsDir()
         default_dir.mkdir(parents=True, exist_ok=True)
         return default_dir
 
-    def _update_status(self):
-        if self.is_running:
-            try:
-                hrs = int(self.run_hours.get())
-                if hrs > 0:
-                    end = datetime.now() + timedelta(hours=hrs)
-                    remaining = end - datetime.now()
-                    hours = int(remaining.total_seconds() // 3600)
-                    minutes = int((remaining.total_seconds() % 3600) // 60)
-                    seconds = int(remaining.total_seconds() % 60)
-                    status_text = f"状态：○ 运行中 (剩余 {hours:02d}:{minutes:02d}:{seconds:02d})"
-                    self.status_label.config(text=status_text)
-                    self.end_time_label.config(text=f"预计结束时间：{end:%Y-%m-%d %H:%M}")
-            except:
-                status_text = "状态：○ 运行中"
-                self.status_label.config(text=status_text)
-        else:
-            self.status_label.config(text="状态：● 已停止")
-            self.end_time_label.config(text="预计结束时间：--")
-        
-        self.root.after(3000, self._update_status)
+    # -------------------------------------------------------------------------
+    # UI Building
+    # -------------------------------------------------------------------------
 
-    def _add_vehicle_screenshot(self):
+    def _buildUI(self) -> None:
+        """Build the main UI layout."""
+        self._root = tk.Tk()
+        self._root.title(self._title)
+        self._root.geometry(f"{self._window_size[0]}x{self._window_size[1]}")
+        self._root.resizable(False, False)
+
+        # Main container with padding
+        main_frame = ttk.Frame(self._root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # === Tips Section ===
+        tips_frame = ttk.LabelFrame(main_frame, text="Tips", padding="5")
+        tips_frame.pack(fill=tk.X, pady=5)
+
+        tips_text = [
+            "* Set game to windowed 1920x1080",
+            "* Recommended graphics: Medium-Low",
+            "* Screenshot vehicle cards, name as 1.png, 2.png...",
+            "* Higher priority vehicles are selected first",
+            "* Start from garage screen"
+        ]
+        for tip in tips_text:
+            ttk.Label(tips_frame, text=tip, anchor="w").pack(anchor="w", padx=5, pady=2)
+
+        # === Control Section ===
+        control_frame = ttk.LabelFrame(main_frame, text="Control", padding="5")
+        control_frame.pack(fill=tk.X, pady=5)
+
+        button_frame = ttk.Frame(control_frame)
+        button_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(button_frame, text="Start", width=15, command=self._onStart).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Stop", width=15, command=self._onStop).pack(side=tk.LEFT, padx=5)
+
+        self._status_label = ttk.Label(control_frame, text="Status: Stopped", foreground="red")
+        self._status_label.pack(pady=5)
+
+        # === Duration & End Behavior Section ===
+        duration_frame = ttk.LabelFrame(main_frame, text="Duration & End Behavior (Not Implemented)", padding="5")
+        duration_frame.pack(fill=tk.X, pady=5)
+
+        hours_frame = ttk.Frame(duration_frame)
+        hours_frame.pack(fill=tk.X, pady=2)
+
+        ttk.Label(hours_frame, text="Run duration limit:").pack(side=tk.LEFT, padx=5)
+        hours_var = tk.IntVar(value=self._run_hours)
+        hours_spinbox = ttk.Spinbox(hours_frame, from_=1, to=24, width=10, textvariable=hours_var,
+                                    command=lambda: setattr(self, '_run_hours', hours_var.get()))
+        hours_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(hours_frame, text="hours").pack(side=tk.LEFT, padx=5)
+
+        auto_stop_var = tk.BooleanVar(value=self._auto_stop)
+        ttk.Checkbutton(duration_frame, text="Auto stop when duration reached",
+                       variable=auto_stop_var,
+                       command=lambda: setattr(self, '_auto_stop', auto_stop_var.get())).pack(anchor="w", padx=5, pady=2)
+
+        auto_shutdown_var = tk.BooleanVar(value=self._auto_shutdown)
+        ttk.Checkbutton(duration_frame, text="Auto shutdown when duration reached (Admin required)",
+                       variable=auto_shutdown_var,
+                       command=lambda: setattr(self, '_auto_shutdown', auto_shutdown_var.get())).pack(anchor="w", padx=5, pady=2)
+
+        self._end_time_label = ttk.Label(duration_frame, text="Estimated end time: --")
+        self._end_time_label.pack(pady=2)
+
+        # === Feature Expansion Section ===
+        feature_frame = ttk.LabelFrame(main_frame, text="Feature Expansion (Not Implemented)", padding="5")
+        feature_frame.pack(fill=tk.X, pady=5)
+
+        silver_reserve_var = tk.BooleanVar(value=self._silver_reserve)
+        ttk.Checkbutton(feature_frame, text="Enable silver reserve on start",
+                       variable=silver_reserve_var,
+                       command=lambda: setattr(self, '_silver_reserve', silver_reserve_var.get())).pack(anchor="w", padx=5, pady=2)
+
+        # === Vehicle Priority Section ===
+        vehicle_frame = ttk.LabelFrame(main_frame, text="Vehicle Priority", padding="5")
+        vehicle_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        ttk.Label(vehicle_frame, text="Select vehicles in priority order:").pack(anchor="w", padx=5)
+        ttk.Label(vehicle_frame, text="1.png -> 2.png -> 3.png ...", foreground="gray").pack(anchor="w", padx=5)
+
+        button_frame2 = ttk.Frame(vehicle_frame)
+        button_frame2.pack(fill=tk.X, pady=5)
+
+        ttk.Button(button_frame2, text="Add Screenshot", command=self._onAddScreenshot).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame2, text="Open Screenshot Folder", command=self._onOpenScreenshotDir).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame2, text="Refresh", command=self._refreshVehicleList).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(vehicle_frame, text="Current vehicle priority:").pack(anchor="w", padx=5, pady=5)
+
+        # Scrollable vehicle list
+        list_container = ttk.Frame(vehicle_frame)
+        list_container.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        self._vehicle_canvas = tk.Canvas(list_container, height=200, borderwidth=1, relief=tk.SUNKEN)
+        self._vehicle_scrollbar = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self._vehicle_canvas.yview)
+        self._vehicle_frame = ttk.Frame(self._vehicle_canvas)
+
+        self._vehicle_canvas.configure(yscrollcommand=self._vehicle_scrollbar.set)
+        self._vehicle_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._vehicle_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._vehicle_canvas.create_window((0, 0), window=self._vehicle_frame, anchor="nw")
+        self._vehicle_frame.bind("<Configure>", lambda e: self._vehicle_canvas.configure(scrollregion=self._vehicle_canvas.bbox("all")))
+
+        # === Footer ===
+        footer_frame = ttk.Frame(main_frame)
+        footer_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(footer_frame, text="Version: v0.1.0", foreground="gray").pack(side=tk.LEFT, padx=5)
+        ttk.Button(footer_frame, text="Open Log Folder", command=self._onOpenLogDir).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(footer_frame, text="Open Config", command=self._onOpenConfigDir).pack(side=tk.RIGHT, padx=5)
+
+    # -------------------------------------------------------------------------
+    # Vehicle List Management
+    # -------------------------------------------------------------------------
+
+    def _refreshVehicleList(self) -> None:
+        """Refresh the vehicle thumbnail list."""
+        if self._vehicle_frame is None:
+            return
+
+        # Clear existing widgets
+        for widget in self._vehicle_frame.winfo_children():
+            widget.destroy()
+
+        # Clear old images
+        self._vehicle_images.clear()
+
+        # Load images from directory
+        if not self._vehicle_screenshot_dir.exists():
+            return
+
+        image_files = sorted(self._vehicle_screenshot_dir.glob("*.png"))
+
+        for img_path in image_files:
+            try:
+                img = cv2.imread(str(img_path))
+                if img is None:
+                    continue
+
+                # Create thumbnail
+                h, w = img.shape[:2]
+                max_thumb_size = 80
+                scale = min(max_thumb_size / w, max_thumb_size / h, 1.0)
+                new_w, new_h = int(w * scale), int(h * scale)
+                thumbnail = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+                # Convert BGR to RGB for PIL
+                thumbnail_rgb = cv2.cvtColor(thumbnail, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(thumbnail_rgb)
+                photo = ImageTk.PhotoImage(pil_image)
+                self._vehicle_images[img_path.name] = photo
+
+                # Create item frame
+                item_frame = ttk.Frame(self._vehicle_frame)
+                item_frame.pack(fill=tk.X, padx=5, pady=2)
+
+                # Image label
+                img_label = ttk.Label(item_frame, image=photo)
+                img_label.pack(side=tk.LEFT, padx=5)
+
+                # Filename label
+                ttk.Label(item_frame, text=img_path.name).pack(side=tk.LEFT, padx=5)
+
+                # Delete button
+                ttk.Button(item_frame, text="Delete", width=10,
+                          command=lambda p=img_path: self._onDeleteScreenshot(p)).pack(side=tk.RIGHT, padx=5)
+
+            except Exception as e:
+                logger.error(f"Failed to load image {img_path}: {e}")
+
+        # Update scroll region
+        self._vehicle_frame.update_idletasks()
+        self._vehicle_canvas.configure(scrollregion=self._vehicle_canvas.bbox("all"))
+
+    # -------------------------------------------------------------------------
+    # Callbacks
+    # -------------------------------------------------------------------------
+
+    def _onStart(self) -> None:
+        """Start task manager."""
+        if self._is_running:
+            logger.warning("Task already running")
+            return
+
+        self._task_manager = TaskManager(
+            run_hours=self._run_hours,
+            auto_stop=self._auto_stop,
+            auto_shutdown=self._auto_shutdown,
+            enable_silver_reserve=self._silver_reserve,
+        )
+
+        self._is_running = True
+        self._start_time = datetime.now()
+        self._task_thread = threading.Thread(
+            target=self._task_manager.run_forever, daemon=True
+        )
+        self._task_thread.start()
+
+        logger.info("Task manager started")
+
+    def _onStop(self) -> None:
+        """Stop task manager."""
+        if not self._is_running:
+            return
+
+        self._is_running = False
+
+        if self._task_manager:
+            self._task_manager.stop()
+
+        if self._task_thread and self._task_thread.is_alive():
+            self._task_thread.join(timeout=2.0)
+
+        self._task_manager = None
+        self._start_time = None
+        logger.info("Task manager stopped")
+
+    def _onAddScreenshot(self) -> None:
+        """Open file dialog to add screenshot."""
         file_path = filedialog.askopenfilename(
-            title="选择车辆截图",
-            filetypes=[("图片文件", "*.png"), ("所有文件", "*.*")]
+            title="Select Vehicle Screenshot",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
         )
         if file_path:
             try:
-                dest_path = self.vehicle_screenshot_dir / Path(file_path).name
-                shutil.copy2(file_path, dest_path)
-                self._refresh_vehicle_list()
-                logger.info(f"已添加车辆截图: {dest_path}")
+                src_path = Path(file_path)
+                dest_path = self._vehicle_screenshot_dir / src_path.name
+                shutil.copy2(src_path, dest_path)
+                self._refreshVehicleList()
+                logger.info(f"Added vehicle screenshot: {dest_path}")
             except Exception as e:
-                messagebox.showerror("错误", f"添加截图失败: {e}")
-                logger.error(f"添加截图失败: {e}")
+                logger.error(f"Failed to add screenshot: {e}")
 
-    def _open_screenshot_dir(self):
+    def _onDeleteScreenshot(self, img_path: Path) -> None:
+        """Show delete confirmation dialog."""
+        result = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete {img_path.name}?",
+            parent=self._root
+        )
+        if result:
+            try:
+                if img_path.exists():
+                    img_path.unlink()
+                    self._refreshVehicleList()
+                    logger.info(f"Deleted vehicle screenshot: {img_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete screenshot: {e}")
+
+    def _onOpenScreenshotDir(self) -> None:
+        """Open vehicle screenshot directory."""
         try:
             if sys.platform == "win32":
-                os.startfile(str(self.vehicle_screenshot_dir))
+                os.startfile(str(self._vehicle_screenshot_dir))
         except Exception as e:
-            messagebox.showerror("错误", f"打开目录失败: {e}")
-            logger.error(f"打开目录失败: {e}")
+            logger.error(f"Failed to open directory: {e}")
 
-    def _refresh_vehicle_list(self):
-        """Refresh the vehicle list display"""
-        # Clear existing widgets
-        for widget in self.vehicle_list_frame.winfo_children():
-            widget.destroy()
-        
-        # Load images from directory
-        self.vehicle_images = []
-        if self.vehicle_screenshot_dir.exists():
-            image_files = sorted(self.vehicle_screenshot_dir.glob("*.png"))
-            
-            for idx, img_path in enumerate(image_files):
-                try:
-                    # Create thumbnail using OpenCV and save to temp file
-                    img = cv2.imread(str(img_path))
-                    if img is not None:
-                        h, w = img.shape[:2]
-                        scale = min(80/w, 60/h, 1.0)
-                        new_w, new_h = int(w*scale), int(h*scale)
-                        thumbnail = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                        
-                        # Save thumbnail to temp file
-                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-                        cv2.imwrite(temp_file.name, thumbnail)
-                        temp_file.close()
-                        
-                        # Load as PhotoImage
-                        photo = tk.PhotoImage(file=temp_file.name)
-                        
-                        # Create item frame
-                        item_frame = tk.Frame(self.vehicle_list_frame, bg="white", relief=tk.RAISED, bd=1)
-                        item_frame.pack(side=tk.LEFT, padx=5, pady=5)
-                        
-                        # Thumbnail
-                        thumb_label = tk.Label(item_frame, image=photo, bg="white")
-                        thumb_label.image = photo  # Keep a reference
-                        thumb_label.temp_file = temp_file.name  # Keep temp file path
-                        thumb_label.pack(padx=2, pady=2)
-                        
-                        # Filename
-                        tk.Label(
-                            item_frame, text=img_path.name, font=("Microsoft YaHei", 8),
-                            bg="white"
-                        ).pack()
-                        
-                        # Delete button
-                        del_btn = tk.Button(
-                            item_frame, text="删除 ❌", font=("Microsoft YaHei", 7),
-                            command=lambda p=img_path: self._delete_vehicle_screenshot(p),
-                            bg="#FFCCCC", width=10
-                        )
-                        del_btn.pack(pady=2)
-                        
-                        self.vehicle_images.append((img_path, photo))
-                except Exception as e:
-                    logger.error(f"加载图片失败 {img_path}: {e}")
-        
-        # Update scroll region
-        self.vehicle_list_frame.update_idletasks()
-        self.vehicle_canvas.configure(scrollregion=self.vehicle_canvas.bbox("all"))
-
-    def _delete_vehicle_screenshot(self, img_path):
+    def _onOpenLogDir(self) -> None:
+        """Open log directory."""
         try:
-            if messagebox.askyesno("确认", f"确定要删除 {img_path.name} 吗？"):
-                img_path.unlink()
-                self._refresh_vehicle_list()
-                logger.info(f"已删除车辆截图: {img_path}")
+            if sys.platform == "win32":
+                os.startfile(str(GetLogDir()))
         except Exception as e:
-            messagebox.showerror("错误", f"删除失败: {e}")
-            logger.error(f"删除失败: {e}")
+            logger.error(f"Failed to open log directory: {e}")
 
-    def _view_logs(self):
-        os.startfile(str(GetLogDir()))
+    def _onOpenConfigDir(self) -> None:
+        """Open config file location."""
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(GetConfigPath()))
+        except Exception as e:
+            logger.error(f"Failed to open config: {e}")
 
-    def _open_config_dir(self):
-        os.startfile(str(GetConfigPath()))
+    # -------------------------------------------------------------------------
+    # Status Update
+    # -------------------------------------------------------------------------
 
-    def run(self):
-        self.root.mainloop()
+    def _updateStatus(self) -> None:
+        """Update status display."""
+        if self._status_label is None:
+            return
+
+        if self._is_running:
+            if self._start_time and self._run_hours > 0:
+                end_time = self._start_time + timedelta(hours=self._run_hours)
+                remaining = end_time - datetime.now()
+
+                if remaining.total_seconds() > 0:
+                    hours = int(remaining.total_seconds() // 3600)
+                    minutes = int((remaining.total_seconds() % 3600) // 60)
+                    seconds = int(remaining.total_seconds() % 60)
+                    status_text = f"Status: Running (Remaining {hours:02d}:{minutes:02d}:{seconds:02d})"
+                    end_text = f"Estimated end time: {end_time:%Y-%m-%d %H:%M}"
+                else:
+                    status_text = "Status: Running (Time exceeded)"
+                    end_text = "Estimated end time: --"
+
+                self._status_label.config(text=status_text, foreground="green")
+
+                if self._end_time_label:
+                    self._end_time_label.config(text=end_text)
+            else:
+                self._status_label.config(text="Status: Running", foreground="green")
+        else:
+            self._status_label.config(text="Status: Stopped", foreground="red")
+
+            if self._end_time_label:
+                self._end_time_label.config(text="Estimated end time: --")
+
+        # Schedule next update
+        if self._root:
+            self._root.after(1000, self._updateStatus)
+
+    # -------------------------------------------------------------------------
+    # Main Entry
+    # -------------------------------------------------------------------------
+
+    def run(self) -> None:
+        """Create Tkinter window and start UI loop (blocking)."""
+        # Build UI
+        self._buildUI()
+
+        # Load initial vehicle list
+        self._refreshVehicleList()
+
+        # Start status update loop
+        self._updateStatus()
+
+        # Start main loop
+        self._root.mainloop()
 
 
 def main():
@@ -405,10 +449,11 @@ def main():
         window.run()
         return 0
     except Exception as e:
-        logger.error(f"主程序运行错误: {e}")
+        logger.error(f"Main program error: {e}")
         import traceback
         traceback.print_exc()
         return -1
+
 
 if __name__ == "__main__":
     main()

@@ -23,14 +23,9 @@ class StuckDetector:
         config = GetGlobalConfig()
         stuck_cfg = getattr(config, "stuck_detection", None)
         
-        # 从配置读取参数，提供默认值
-        if stuck_cfg is not None:
-            self.time_window_ = getattr(stuck_cfg, "time_window_s", 7.0)
-            self.dist_threshold_ = getattr(stuck_cfg, "dist_threshold_px", 10.0)
-        else:
-            # 默认参数：7秒内位移小于10px视为卡死
-            self.time_window_ = 7.0
-            self.dist_threshold_ = 10.0
+        # 从配置读取参数，兼容 dict 和 object 两种访问方式
+        self.time_window_ = self._getConfigValue(stuck_cfg, "time_window_s", 7.0)
+        self.dist_threshold_ = self._getConfigValue(stuck_cfg, "dist_threshold_px", 10.0)
 
         # 记录历史位置（用于时间窗口检测）
         # 存储 (pos, timestamp) 元组
@@ -43,6 +38,19 @@ class StuckDetector:
         
         # 连续卡顿计数（每次检测到卡顿并处理后由上层调用 incrementStuckCount）
         self.stuck_count_: int = 0
+
+    @staticmethod
+    def _getConfigValue(cfg, key: str, default):
+        """兼容 dict 和 object 两种配置访问方式"""
+        if cfg is None:
+            return default
+        # 优先尝试属性访问（OmegaConf/dataclass 等）
+        if hasattr(cfg, key):
+            return getattr(cfg, key, default)
+        # 尝试 dict 访问
+        if isinstance(cfg, dict):
+            return cfg.get(key, default)
+        return default
 
     def update(self, pos: Tuple[float, float]) -> bool:
         """
