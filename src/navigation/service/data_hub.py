@@ -75,6 +75,21 @@ class DataHub:
 
         return det
 
+    def get_detection_age(self) -> float:
+        """获取检测帧的年龄（秒），未有检测返回 inf"""
+        with self._lock:
+            if self._latest_det is None:
+                return float("inf")
+            return time.perf_counter() - self._latest_ts
+
+    def reset(self) -> None:
+        """重置所有数据（用于恢复/重启场景）"""
+        with self._lock:
+            self._latest_det = None
+            self._latest_ts = 0.0
+            self._path = None
+            self._nav_status = None
+
    # ---------------- 路径 ----------------
     def set_current_path(
         self,

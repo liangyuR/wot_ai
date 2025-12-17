@@ -18,7 +18,7 @@ import cv2
 from loguru import logger
 
 from src.core.task_manager import TaskManager
-from src.utils.global_path import GetConfigPath, GetLogDir, GetVehicleScreenshotsDir
+from src.utils.global_path import GetConfigPath, GetGlobalConfig, GetLogDir, GetVehicleScreenshotsDir
 
 
 class MainWindow:
@@ -335,6 +335,66 @@ class MainWindow:
         self._task_thread.start()
 
         logger.info("任务管理器已启动")
+
+        # 将焦点切换到游戏窗口
+        self._focusGameWindow()
+
+    def _focusGameWindow(self) -> None:
+        """将焦点切换到游戏窗口"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            # 获取游戏进程名
+            config = GetGlobalConfig()
+            process_name = getattr(config.game, "process_name", "WorldOfTanks.exe")
+
+            # EnumWindows 回调
+            EnumWindowsProc = ctypes.WINFUNCTYPE(
+                wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+            )
+
+            target_hwnd = None
+
+            def enum_callback(hwnd, lparam):
+                nonlocal target_hwnd
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+
+                # 获取窗口进程 ID
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+                # 获取进程名
+                try:
+                    h_process = kernel32.OpenProcess(0x0410, False, pid.value)  # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+                    if h_process:
+                        exe_path = ctypes.create_unicode_buffer(260)
+                        size = wintypes.DWORD(260)
+                        if kernel32.QueryFullProcessImageNameW(h_process, 0, exe_path, ctypes.byref(size)):
+                            if process_name.lower() in exe_path.value.lower():
+                                target_hwnd = hwnd
+                                kernel32.CloseHandle(h_process)
+                                return False  # 停止枚举
+                        kernel32.CloseHandle(h_process)
+                except Exception:
+                    pass
+                return True
+
+            user32.EnumWindows(EnumWindowsProc(enum_callback), 0)
+
+            if target_hwnd:
+                # 激活窗口
+                user32.SetForegroundWindow(target_hwnd)
+                logger.info(f"已将焦点切换到游戏窗口 (hwnd={target_hwnd})")
+            else:
+                logger.warning(f"未找到游戏窗口: {process_name}")
+
+        except Exception as e:
+            logger.error(f"切换游戏窗口焦点失败: {e}")
 
     def _onStop(self) -> None:
         """Stop task manager."""
