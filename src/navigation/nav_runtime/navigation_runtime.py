@@ -10,7 +10,9 @@ import math
 import random
 import time
 import threading
-from typing import Optional
+from typing import Optional, Tuple
+
+import numpy as np
 
 from loguru import logger
 from src.navigation.service.data_hub import DataHub
@@ -30,6 +32,26 @@ from src.vision.minimap_detector import MinimapDetector
 from src.vision.map_name_detector import MapNameDetector
 # View
 from src.gui.debug_view import DpgNavDebugView
+
+
+class FrameBuffer:
+    """线程安全的最新帧缓冲（单生产者-多消费者）"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._frame: Optional[np.ndarray] = None
+        self._timestamp: float = 0.0
+
+    def put(self, frame: np.ndarray) -> None:
+        """写入最新帧（由捕获线程调用）"""
+        with self._lock:
+            self._frame = frame
+            self._timestamp = time.perf_counter()
+
+    def get(self) -> Tuple[Optional[np.ndarray], float]:
+        """获取最新帧和时间戳（由检测线程调用）"""
+        with self._lock:
+            return self._frame, self._timestamp
 
 
 class NavigationRuntime:
@@ -73,9 +95,13 @@ class NavigationRuntime:
 
         # 线程
         self._running = False
+        self._capture_thread: Optional[threading.Thread] = None
         self._det_thread: Optional[threading.Thread] = None
         self._ctrl_thread: Optional[threading.Thread] = None
         self._view_thread: Optional[threading.Thread] = None
+
+        # 帧缓冲（捕获线程 -> 检测线程）
+        self._frame_buffer: Optional[FrameBuffer] = None
 
     # ============================================================
     # 外部接口
@@ -124,6 +150,11 @@ class NavigationRuntime:
 
         self._running = True
 
+        # 初始化帧缓冲并启动捕获线程（必须在检测线程之前）
+        self._frame_buffer = FrameBuffer()
+        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self._capture_thread.start()
+
         self._det_thread = threading.Thread(target=self._det_loop, daemon=True)
         self._ctrl_thread = threading.Thread(target=self._ctrl_loop, daemon=True)
 
@@ -134,7 +165,7 @@ class NavigationRuntime:
             self._view_thread = threading.Thread(target=self.view.run, daemon=True)
             self._view_thread.start()
 
-        logger.info("NavigationRuntime 已启动（检测 + 控制）")
+        logger.info("NavigationRuntime 已启动（捕获 + 检测 + 控制）")
         return True
 
     def stop(self) -> None:
@@ -144,6 +175,9 @@ class NavigationRuntime:
 
         logger.info("正在停止 NavigationRuntime ...")
         self._running = False
+
+        if self._capture_thread and self._capture_thread.is_alive():
+            self._capture_thread.join(timeout=1.0)
 
         if self._det_thread and self._det_thread.is_alive():
             self._det_thread.join(timeout=1.0)
@@ -182,40 +216,61 @@ class NavigationRuntime:
         return self._running
 
     # ============================================================
-    # 检测线程：产生最新 detection（限最高 FPS）
+    # 捕获线程：持续抓取小地图区域，写入帧缓冲
+    # ============================================================
+    def _capture_loop(self) -> None:
+        """捕获线程：持续抓取小地图区域"""
+        logger.info("捕获线程启动")
+
+        m = self.minimap_region
+        x, y, w, h = m["x"], m["y"], m["width"], m["height"]
+
+        while self._running:
+            try:
+                frame = self.capture.grab_region(x, y, w, h)
+                if frame is not None:
+                    self._frame_buffer.put(frame)
+                # 全速捕获，不做 sleep
+            except Exception as e:
+                logger.error(f"捕获线程错误: {e}")
+                time.sleep(0.01)
+
+        logger.info("捕获线程退出")
+
+    # ============================================================
+    # 检测线程：从帧缓冲取帧，YOLO 检测，输出到 DataHub
     # ============================================================
     def _det_loop(self) -> None:
         logger.info("检测线程启动")
 
-        # 检测线程不限速，全速运行以减少相位滞后
-        m = self.minimap_region
-        x, y, w, h = m["x"], m["y"], m["width"], m["height"]
+        # View 更新降频：每 VIEW_UPDATE_INTERVAL 帧更新一次
+        VIEW_UPDATE_INTERVAL = 2
+        view_update_counter = 0
 
-        # 控制线程固定 60 FPS
-        detect_fps = 60
-        interval = 1.0 / detect_fps
+        # 记录上一次处理的帧时间戳，避免重复检测同一帧
+        last_processed_ts = 0.0
 
         while self._running:
             try:
-                # t0 = time.perf_counter()
-
-                frame = self.capture.grab_region(x, y, w, h)
-                if frame is None:
+                frame, ts = self._frame_buffer.get()
+                if frame is None or ts <= last_processed_ts:
+                    # 无新帧，短暂等待
                     time.sleep(0.001)
                     continue
-                
-                if self.view is not None:
+
+                last_processed_ts = ts
+
+                # View 更新（降频）
+                view_update_counter += 1
+                if self.view is not None and view_update_counter >= VIEW_UPDATE_INTERVAL:
                     self.view.update_minimap_frame(frame)
+                    view_update_counter = 0
 
                 det = self.minimap_detector.Detect(frame)
                 if det is None or getattr(det, "self_pos", None) is None:
                     continue
 
                 self.data_hub.set_latest_detection(det)
-
-                # dt = time.perf_counter() - t0
-                # if dt < interval:
-                #     time.sleep(interval - dt)
 
             except Exception as e:
                 logger.error(f"检测线程错误: {e}")
@@ -255,6 +310,10 @@ class NavigationRuntime:
         current_path_grid = []
         current_path_world = []
         current_target_idx = 0
+
+        # View 更新降频：每 VIEW_UPDATE_INTERVAL 帧更新一次（约 10 FPS）
+        VIEW_UPDATE_INTERVAL = 3
+        view_update_counter = 0
 
         while self._running:
             t0 = time.perf_counter()
@@ -359,10 +418,12 @@ class NavigationRuntime:
             goal_reached = follow_result.goal_reached
             current_target_idx = follow_result.current_idx
 
-            # ---- 调试 UI：更新导航状态 + 路径 ----
-            if self.view is not None:
+            # ---- 调试 UI：更新导航状态 + 路径（降频）----
+            view_update_counter += 1
+            if self.view is not None and view_update_counter >= VIEW_UPDATE_INTERVAL:
+                view_update_counter = 0
                 try:
-                    goal_pos = getattr(det, "goal_pos", None)  # 或者从 cfg / planner_service 拿
+                    goal_pos = getattr(det, "goal_pos", None)
                     self.view.update_nav_state(
                         self_pos_mmap=pos,
                         heading_rad=heading,
@@ -376,7 +437,7 @@ class NavigationRuntime:
                         goal_reached=goal_reached,
                     )
                 except Exception:
-                    logger.exception("view.update_nav_state 失败")
+                    pass  # 静默处理，避免影响控制性能
 
             # 5) 更新 DataHub 状态
             try:

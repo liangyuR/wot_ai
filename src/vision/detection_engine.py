@@ -101,7 +101,7 @@ class DetectionEngine:
         frame: np.ndarray,
         confidence_threshold: float = 0.25,
         iou_threshold: float = 0.25,
-        max_det: int = 100,  # 添加此参数，限制最大检测数量
+        max_det: int = 100,
     ) -> List[Dict]:
         """检测帧中的目标（向后兼容版）
 
@@ -130,9 +130,62 @@ class DetectionEngine:
                 frame,
                 conf=confidence_threshold,
                 iou=iou_threshold,
-                max_det=max_det,  # 添加此参数
+                max_det=max_det,
                 verbose=False,
             )
         except Exception as e:
             logger.error(f"检测失败: {e}")
             return []
+
+    def Track(
+        self,
+        frame: np.ndarray,
+        confidence_threshold: float = 0.25,
+        iou_threshold: float = 0.25,
+        max_det: int = 100,
+        persist: bool = True,
+        tracker: str = "bytetrack.yaml",
+    ) -> List:
+        """追踪帧中的目标（支持跨帧 ID 持久化）
+
+        Args:
+            frame: BGR 格式图像 (H, W, 3)
+            confidence_threshold: 置信度阈值
+            iou_threshold: NMS 的 IoU 阈值
+            max_det: 最大检测数量
+            persist: 是否在帧之间保持追踪（设为 True 以维护 track ID）
+            tracker: 追踪器配置文件（"bytetrack.yaml" 或 "botsort.yaml"）
+
+        Returns:
+            YOLO Results 对象列表，包含追踪 ID
+        """
+        if frame is None or frame.size == 0:
+            logger.error("输入帧为空或无效")
+            return []
+
+        if not self.LoadModel():
+            logger.error("模型加载失败")
+            return []
+
+        try:
+            return self.model_.track(
+                frame,
+                conf=confidence_threshold,
+                iou=iou_threshold,
+                max_det=max_det,
+                persist=persist,
+                tracker=tracker,
+                verbose=False,
+            )
+        except Exception as e:
+            logger.error(f"追踪失败: {e}")
+            return []
+
+    def ResetTracker(self) -> None:
+        """重置追踪器状态（切换场景或重新开始追踪时调用）"""
+        if self.model_ is not None:
+            try:
+                # 通过设置 persist=False 执行一次空检测来重置追踪器
+                self.model_.predictor = None
+            except Exception as e:
+                logger.debug(f"重置追踪器: {e}")
