@@ -56,7 +56,7 @@ control:
   goal_arrival_threshold: 15.0                # 到点判定半径：大=更易判到达，小=更严格
   path_deviation_tolerance: 3                 # 路径偏离容忍：大=容忍更宽，抖动少；小=紧跟路径，易频繁纠偏
   stuck_threshold: 3                          # 单帧位移阈值：大=更易判移动，小=更易判停滞
-  stuck_frames_threshold: 200                 # 连续帧阈值：大=更晚判卡死，小=更早脱困
+  stuck_frames_threshold: 400                 # 连续帧阈值：大=更晚判卡死，小=更早脱困
   debug_log_interval: 30                      # 调试日志间隔帧
 
   # MovementController
@@ -94,7 +94,7 @@ control:
 
 # 小地图角度检测
 angle_detection:
-  smoothing_alpha: 0.5                        # 平滑系数：大=更稳更慢，小=更灵敏
+  smoothing_alpha: 0.75                        # 平滑系数：大=更稳更慢，小=更灵敏
   max_step_deg: 30.0                          # 单帧最大跳变：大=容忍抖动，小=严格限制
   noise_threshold_deg: 5.0                    # 噪声阈值：大=更多视为噪声，小=更早响应
   normal_threshold_deg: 10.0                  # 正常转向阈值：大=更宽松，小=更敏感

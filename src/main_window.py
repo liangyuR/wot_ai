@@ -451,18 +451,36 @@ class MainWindow:
     # Main Entry
     # -------------------------------------------------------------------------
 
-    def run(self) -> None:
-        """Create Tkinter window and start UI loop (blocking)."""
+    def run(self, auto_start: bool = False) -> None:
+        """Create Tkinter window and start UI loop (blocking).
+
+        Args:
+            auto_start: 是否在启动后自动开始任务（用于 CUDA 错误重启后恢复）
+        """
         self._buildUI()
         self._refreshVehicleList()
         self._updateStatus()
+
+        # 自动启动（延迟执行，确保 UI 完全初始化）
+        if auto_start:
+            logger.info("检测到 --auto-start 参数，将在 2 秒后自动启动...")
+            self._root.after(2000, self._onStart)
+
+        # Start main loop
         self._root.mainloop()
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="WoT AI Tank Robot")
+    parser.add_argument("--auto-start", action="store_true", 
+                       help="自动启动任务（用于 CUDA 错误重启后恢复）")
+    args = parser.parse_args()
+
     try:
         window = MainWindow()
-        window.run()
+        window.run(auto_start=args.auto_start)
         return 0
     except Exception as e:
         logger.error(f"Main program error: {e}")
