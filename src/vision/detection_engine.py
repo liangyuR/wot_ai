@@ -23,6 +23,10 @@ from ultralytics import YOLO
 class DetectionEngine:
     """YOLO 检测引擎"""
 
+    # CUDA 错误恢复配置
+    MAX_CUDA_ERRORS_BEFORE_RESTART = 3   # 连续失败次数后重启程序
+    MAX_CUDA_ERRORS_BEFORE_RELOAD = 1    # 连续失败次数后尝试重载模型
+
     def __init__(
         self,
         model_path: str,
@@ -47,22 +51,25 @@ class DetectionEngine:
         self.actual_device_: Optional[str] = None
         self.warmed_up_: bool = False
 
+        # CUDA 错误恢复状态
+        self._cuda_error_count: int = 0
+
     # ------------------------------------------------------------------
     # 模型加载 & 预热
     # ------------------------------------------------------------------
     def LoadModel(self) -> bool:
         if self.model_ is not None:
             return True
-    
+
         try:
             model_path_obj = Path(self.model_path_)
             if not model_path_obj.exists():
                 logger.error(f"模型文件不存在: {model_path_obj}")
                 return False
-    
+
             logger.info(f"加载 YOLO 模型: {model_path_obj.resolve()}")
             model = YOLO(str(model_path_obj))
-    
+
             # ===== 设备选择：优先用 cuda:0 =====
             if self.device_ == "auto":
                 if torch.cuda.is_available():
@@ -71,27 +78,109 @@ class DetectionEngine:
                     device = "cpu"
             else:
                 device = self.device_
-    
+
             logger.info(f"DetectionEngine 期望使用 device={device}")
             model.to(device)
             self.actual_device_ = str(device)
             self.model_ = model
-    
+
             # 打印实际 device
             if hasattr(model, "device"):
                 actual_device_str = str(model.device)
             else:
                 actual_device_str = self.actual_device_
-    
+
             logger.info(f"模型加载成功，实际 device={actual_device_str}")
             if "cpu" in actual_device_str.lower():
                 logger.warning("⚠️ YOLO模型实际运行在CPU上，性能会显著下降")
-    
+
             return True
         except Exception as e:
             logger.error(f"加载模型失败: {e}")
             self.model_ = None
             return False
+
+    # ------------------------------------------------------------------
+    # CUDA 错误恢复
+    # ------------------------------------------------------------------
+    def _isCudaError(self, error: Exception) -> bool:
+        """判断是否为 CUDA 相关错误"""
+        error_str = str(error).lower()
+        cuda_keywords = ["cuda", "gpu", "device", "cudnn", "cublas", "nccl"]
+        return any(kw in error_str for kw in cuda_keywords)
+
+    def _handleCudaError(self, error: Exception) -> bool:
+        """处理 CUDA 错误，尝试恢复
+        
+        Returns:
+            True 如果应该重试，False 如果应该放弃
+        """
+        self._cuda_error_count += 1
+        logger.warning(f"CUDA 错误 #{self._cuda_error_count}: {error}")
+
+        # 策略1：首次错误，尝试清理 CUDA 缓存并重载模型
+        if self._cuda_error_count <= self.MAX_CUDA_ERRORS_BEFORE_RELOAD:
+            logger.info("尝试恢复：清理 CUDA 缓存并重载模型...")
+            try:
+                self._cleanupCuda()
+                self.model_ = None  # 强制重载
+                if self.LoadModel():
+                    logger.info("CUDA 恢复成功，模型已重载")
+                    return True
+            except Exception as e:
+                logger.error(f"CUDA 恢复失败: {e}")
+
+        # 策略2：多次失败后，重启程序
+        if self._cuda_error_count >= self.MAX_CUDA_ERRORS_BEFORE_RESTART:
+            logger.error(f"连续 {self._cuda_error_count} 次 CUDA 错误，CUDA 无法恢复，重启程序...")
+            self._restartProgram()
+
+        return False
+
+    def _cleanupCuda(self) -> None:
+        """清理 CUDA 资源"""
+        try:
+            if self.model_ is not None:
+                # 尝试将模型移到 CPU 再删除
+                try:
+                    self.model_.to("cpu")
+                except Exception:
+                    pass
+                self.model_ = None
+
+            # 清理 PyTorch CUDA 缓存
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.info("CUDA 缓存已清理")
+        except Exception as e:
+            logger.debug(f"清理 CUDA 资源时出错: {e}")
+
+    def _restartProgram(self) -> None:
+        """重启程序（带 --auto-start 参数）"""
+        import sys
+        import os
+
+        logger.info("正在重启程序...")
+
+        # 获取当前 Python 解释器和脚本路径
+        python = sys.executable
+        script = sys.argv[0]
+        args = sys.argv[1:]
+
+        # 添加 --auto-start 参数（如果不存在）
+        if "--auto-start" not in args:
+            args.append("--auto-start")
+
+        # 记录重启信息
+        logger.info(f"重启命令: {python} {script} {' '.join(args)}")
+
+        # 使用 os.execv 替换当前进程（不会返回）
+        try:
+            os.execv(python, [python, script] + args)
+        except Exception as e:
+            logger.error(f"重启失败: {e}，尝试退出程序...")
+            sys.exit(1)
 
     # ------------------------------------------------------------------
     # 核心检测接口
@@ -126,14 +215,21 @@ class DetectionEngine:
             return []
 
         try:
-            return self.model_(
+            result = self.model_(
                 frame,
                 conf=confidence_threshold,
                 iou=iou_threshold,
                 max_det=max_det,
                 verbose=False,
             )
+            # 成功，重置错误计数
+            self._cuda_error_count = 0
+            return result
         except Exception as e:
+            if self._isCudaError(e):
+                if self._handleCudaError(e):
+                    # 恢复成功，重试一次
+                    return self.Detect(frame, confidence_threshold, iou_threshold, max_det)
             logger.error(f"检测失败: {e}")
             return []
 
@@ -168,7 +264,7 @@ class DetectionEngine:
             return []
 
         try:
-            return self.model_.track(
+            result = self.model_.track(
                 frame,
                 conf=confidence_threshold,
                 iou=iou_threshold,
@@ -177,7 +273,14 @@ class DetectionEngine:
                 tracker=tracker,
                 verbose=False,
             )
+            # 成功，重置错误计数
+            self._cuda_error_count = 0
+            return result
         except Exception as e:
+            if self._isCudaError(e):
+                if self._handleCudaError(e):
+                    # 恢复成功，重试一次
+                    return self.Track(frame, confidence_threshold, iou_threshold, max_det, persist, tracker)
             logger.error(f"追踪失败: {e}")
             return []
 
@@ -185,7 +288,11 @@ class DetectionEngine:
         """重置追踪器状态（切换场景或重新开始追踪时调用）"""
         if self.model_ is not None:
             try:
-                # 通过设置 persist=False 执行一次空检测来重置追踪器
                 self.model_.predictor = None
             except Exception as e:
                 logger.debug(f"重置追踪器: {e}")
+
+    def ResetCudaState(self) -> None:
+        """手动重置 CUDA 状态（可在战斗结束后调用，清理显存）"""
+        self._cuda_error_count = 0
+        self._cleanupCuda()
