@@ -9,7 +9,7 @@ model:
   iou_threshold: 0.5                                      # IoU阈值：大=去重更严格，小=容忍重叠
   class_id_flag: 0                                        # 旗帜类别ID（按模型而定）
   class_id_arrow: 1                                       # 箭头类别ID（按模型而定）
-  enable_tracking: true                                  # 是否启用追踪（模型不兼容时设为 false）
+  enable_tracking: false                                  # 是否启用追踪（模型不兼容时设为 false）
   tracker: "bytetrack.yaml"                              # 跟踪器配置；也可用 "botsort.yaml"
 
 # 游戏配置
