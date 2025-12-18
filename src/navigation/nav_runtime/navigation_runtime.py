@@ -5,6 +5,7 @@ Navigation runtime without UI thread manager.
 Capture + detection run on dedicated threads; control loop runs on a fixed tick.
 """
 
+import gc
 import math
 import random
 import threading
@@ -12,6 +13,7 @@ import time
 from typing import Optional, Tuple
 
 import numpy as np
+import torch
 from loguru import logger
 
 from src.gui.debug_view import DpgNavDebugView
@@ -90,6 +92,13 @@ class NavigationRuntime:
         if self._running:
             logger.warning("NavigationRuntime already running")
             return False
+
+        # Cleanup old resources to avoid CUDA memory leak
+        self._cleanup_resources()
+
+        # Recreate detectors and view
+        self.minimap_detector = MinimapDetector()
+        self.stuck_detector = StuckDetector()
 
         if not self.minimap_detector.LoadModel():
             logger.error("Failed to load minimap model")
@@ -173,14 +182,29 @@ class NavigationRuntime:
         except Exception:
             pass
 
-        self._reset_internal_state()
+        self._cleanup_resources()
         logger.info("NavigationRuntime stopped")
 
-    def _reset_internal_state(self) -> None:
-        if self.minimap_detector:
-            self.minimap_detector.Reset()
-        if self.stuck_detector:
-            self.stuck_detector.reset()
+    def _cleanup_resources(self) -> None:
+        """Cleanup all resources to release CUDA memory."""
+        # 1. Cleanup minimap_detector YOLO models
+        if hasattr(self, "minimap_detector") and self.minimap_detector is not None:
+            try:
+                self.minimap_detector.Cleanup()
+            except Exception as e:
+                logger.debug(f"Cleanup minimap_detector error: {e}")
+            self.minimap_detector = None
+
+        # 2. Cleanup stuck_detector
+        if hasattr(self, "stuck_detector") and self.stuck_detector is not None:
+            self.stuck_detector = None
+
+        # 4. Force GC and CUDA cache cleanup (only once after all engines cleaned)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.info("CUDA cache cleared")
 
     def is_running(self) -> bool:
         return self._running

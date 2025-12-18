@@ -186,6 +186,18 @@ class MinimapDetector:
             self.detect_engine_.ResetTracker()
             self.pose_engine_.ResetTracker()
 
+    def Cleanup(self) -> None:
+        """Cleanup all CUDA resources (call before destroying detector)."""
+        try:
+            self.detect_engine_.ResetCudaState()
+        except Exception as e:
+            logger.debug(f"Cleanup detect_engine error: {e}")
+
+        try:
+            self.pose_engine_.ResetCudaState()
+        except Exception as e:
+            logger.debug(f"Cleanup pose_engine error: {e}")
+
     # -----------------------------------------------------------
     # Private helpers: YOLO parsing
     # -----------------------------------------------------------

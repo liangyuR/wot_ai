@@ -10,12 +10,12 @@ model:
   class_id_flag: 0                                        # 旗帜类别ID（按模型而定）
   class_id_arrow: 1                                       # 箭头类别ID（按模型而定）
   enable_tracking: false                                  # 是否启用追踪（模型不兼容时设为 false）
-  tracker: "bytetrack.yaml"                              # 跟踪器配置；也可用 "botsort.yaml"
+  tracker: "bytetrack.yaml"                               # 跟踪器配置；也可用 "botsort.yaml"
 
 # 游戏配置
 game:
-  process_name: "WorldOfTanks.exe"                       # 进程名；错误则无法定位窗口
-  exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe"# 可执行路径；改成你的安装路径
+  process_name: "WorldOfTanks.exe"                        # 进程名；错误则无法定位窗口
+  exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe" # 可执行路径；改成你的安装路径
   restart_wait_seconds: 15                                # 重启等待秒数：大=更稳妥，小=更快重启
   stuck_timeout_seconds: 480                              # 判定卡死的总超时时间：大=更耐心，小=更快重启
 
