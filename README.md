@@ -16,10 +16,9 @@ poetry shell
 ```
 
 ## Configuration
-1) Copy `config/config.yaml.template` to `config/config.yaml`.
-2) Fill required fields: `model.path` (YOLO weights), `game.exe_path`, `minimap.template_path`.
-3) Optional: set `mask.directory` or `mask.path` for custom obstacle masks; adjust `path_planning` smoothing/simplify options; pick `monitor_index` for screen capture.
-4) Keep assets (templates/models) in `resource/` or any folder, and point to them via absolute or relative paths.
+1) Create `config/config.yaml` and fill required fields: `model.path` (YOLO weights), `game.exe_path`, `minimap.template_path`.
+2) Optional: set `mask.directory` or `mask.path` for custom obstacle masks; adjust `path_planning` smoothing/simplify options; pick `monitor_index` for screen capture.
+3) Keep assets (templates/models) in `resource/` or any folder, and point to them via absolute or relative paths.
 
 ## Run
 - Main UI with debug view:
@@ -40,7 +39,7 @@ poetry run python src/navigation/navigation_main.py
 - `src/listeners/`: input listeners and hotkeys
 - `src/gui/`: debug view utilities
 - `src/utils/`: shared utilities and `global_path.py`
-- `config/`: runtime settings and template
+- `config/`: runtime settings
 - `resource/`: static assets; `utest/`: pytest cases and minimap fixtures; `Logs/`: runtime logs
 
 ## Development and Testing

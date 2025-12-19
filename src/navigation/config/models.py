@@ -207,15 +207,6 @@ class ControlConfig(BaseModel):
     path_deviation_tolerance: float = Field(..., description="路径偏离容忍度（像素）")
     goal_arrival_threshold: float = Field(..., description="终点到达阈值（像素）")
     stuck_threshold: float = Field(..., description="卡顿检测阈值（像素）")
-    stuck_frames_threshold: int = Field(..., description="连续卡顿帧数阈值")
-
-    @field_validator('stuck_frames_threshold')
-    @classmethod
-    def validate_stuck_frames_threshold(cls, v: int) -> int:
-        """验证连续卡顿帧数阈值"""
-        if v <= 0:
-            raise ValueError(f"连续卡顿帧数阈值必须大于0: {v}")
-        return v
 
     # MovementController 参数
     angle_dead_zone_deg: float = Field(3.0, description="角度死区（度）")

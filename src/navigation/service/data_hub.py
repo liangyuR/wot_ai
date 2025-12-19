@@ -18,7 +18,6 @@ class PathSnapshot:
 @dataclass
 class NavStatus:
     is_stuck: bool                       # 是否处于卡顿状态
-    stuck_frames: int                    # 连续卡顿帧数
     path_deviation: float                # 当前偏离路径的距离
     distance_to_goal: float              # 距终点距离
     goal_reached: bool                   # 是否已到终点
@@ -109,14 +108,12 @@ class DataHub:
     def set_nav_status(
         self,
         is_stuck: bool,
-        stuck_frames: int,
         path_deviation: float,
         distance_to_goal: float,
         goal_reached: bool,
     ) -> None:
         status = NavStatus(
             is_stuck=is_stuck,
-            stuck_frames=stuck_frames,
             path_deviation=path_deviation,
             distance_to_goal=distance_to_goal,
             goal_reached=goal_reached,

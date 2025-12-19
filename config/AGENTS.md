@@ -2,7 +2,6 @@
 
 - Purpose: quick reference for adjusting `config/config.yaml` without breaking navigation.
 - Encoding: UTF-8 (ASCII chars only) to avoid garbled text.
-- Edit flow: copy `config.yaml.template` -> `config.yaml`, then tweak values.
 
 ## Path Planning Quick Tips
 - `enable_astar_smoothing`: keep `true` for smoother A* output.

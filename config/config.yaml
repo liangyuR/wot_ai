@@ -43,7 +43,7 @@ grid:
 # 路径规划（自身≈3px，典型道路宽≈12-15px）
 path_planning:
   enable_astar_smoothing: true                # 开A*内部平滑；关=折线硬、短；开=圆滑但需防贴边
-  astar_smooth_weight: 0.15                   # 大=更圆滑/可能绕远或贴边；小=更贴网格/折线硬；窄路推荐0.15-0.5
+  astar_smooth_weight: 0.3                   # 大=更圆滑/可能绕远或贴边；小=更贴网格/折线硬；窄路推荐0.15-0.5
   post_smoothing_method: "catmull_rom"        # catmull_rom=曲线平滑；los=直线简化，直但贴障碍风险高
   simplify_method: "rdp"                      # rdp降点数；none不简化；los按视线连线（更直但贴边）
   simplify_threshold: 1.5                     # 大=更激进简化、点少但弯被削；小=保留细节更安全但点多
@@ -57,7 +57,6 @@ control:
   goal_arrival_threshold: 15.0                # 到点判定半径：大=更易判到达，小=更严格
   path_deviation_tolerance: 3                 # 路径偏离容忍：大=容忍更宽，抖动少；小=紧跟路径，易频繁纠偏
   stuck_threshold: 3                          # 单帧位移阈值：大=更易判移动，小=更易判停滞
-  stuck_frames_threshold: 400                 # 连续帧阈值：大=更晚判卡死，小=更早脱困
   debug_log_interval: 30                      # 调试日志间隔帧
 
   # MovementController

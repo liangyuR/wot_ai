@@ -229,7 +229,7 @@ class NavigationRuntime:
     def _det_loop(self) -> None:
         logger.info("Detection thread started")
 
-        view_update_interval = 2
+        view_update_interval = 0 # TODO(@liangyu) 暂时不限制更新
         view_update_counter = 0
         last_processed_ts = 0.0
 
@@ -399,7 +399,6 @@ class NavigationRuntime:
             try:
                 self.data_hub.set_nav_status(
                     is_stuck=is_stuck,
-                    stuck_frames=self.stuck_detector.stuck_frames,
                     path_deviation=dev,
                     distance_to_goal=dist_goal,
                     goal_reached=goal_reached,
@@ -437,13 +436,14 @@ class NavigationRuntime:
         logger.info("Control thread exited")
 
 
+'''
+测试Demo
+使用说明：
+F9: 启动导航运行时
+F10: 停止导航运行时
+ESC: 停止并退出
+'''
 if __name__ == "__main__":
-    """
-    Hotkeys:
-    - F9: start runtime if not running
-    - F10: stop runtime if running
-    - ESC: stop and exit
-    """
     import os
     from pynput import keyboard
 
