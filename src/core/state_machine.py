@@ -58,7 +58,6 @@ class StateMachine:
             GameState.IN_END: ["pingjia.png","jie_suan_1.png","jie_suan_2.png","jie_suan_3.png"], # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
             GameState.IN_GARAGE: ["in_garage.png"],
             GameState.IN_BATTLE: ["in_battle.png"],
-            # TODO(@ly) 勋章获取页面没有hack
         }
         self._initialized = True
     
