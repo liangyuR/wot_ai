@@ -156,7 +156,7 @@ class StateMachine:
         
         for state, templates in self.state_templates_.items():
             for template_name in templates:
-                if self.template_matcher_.match_template(template_name, confidence=0.85):
+                if self.template_matcher_.match_template(template_name, confidence=0.90):
                     logger.debug(f"检测到状态: {state.value} (模板: {template_name})")
                     return state
 
