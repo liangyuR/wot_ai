@@ -120,7 +120,7 @@ class PathFollowerWrapper:
                 new_current_idx = min(new_current_idx + 1, len(path_world) - 1)
 
         if deviation > self._dev_tol * 2:
-            logger.warning(f"路径偏离较大: {deviation:.1f}px (tol={self._dev_tol})")
+            logger.debug(f"路径偏离较大: {deviation:.1f}px (tol={self._dev_tol})")
 
         # 3. 终点判断
         goal = path_world[-1]

@@ -31,7 +31,7 @@ mask:
 
 # 检测失败样本保存（用于强化训练）
 failure_dump:
-  enable: false                                           # 开/关保存失败帧；true=保存，false=关闭
+  enable: true                                           # 开/关保存失败帧；true=保存，false=关闭
   interval_s: 10                                          # 失败保存冷却时间：大=更少样本，小=更频繁
   minimap_dir: "Logs/fail_minimap"                        # 小地图失败帧保存目录
   arrow_dir: "Logs/fail_arrow"                            # 箭头裁剪失败帧保存目录
@@ -43,10 +43,10 @@ grid:
 # 路径规划（自身≈3px，典型道路宽≈12-15px）
 path_planning:
   enable_astar_smoothing: true                # 开A*内部平滑；关=折线硬、短；开=圆滑但需防贴边
-  astar_smooth_weight: 0.3                   # 大=更圆滑/可能绕远或贴边；小=更贴网格/折线硬；窄路推荐0.15-0.5
+  astar_smooth_weight: 0.15                   # 大=更圆滑/可能绕远或贴边；小=更贴网格/折线硬；窄路推荐0.15-0.5
   post_smoothing_method: "catmull_rom"        # catmull_rom=曲线平滑；los=直线简化，直但贴障碍风险高
   simplify_method: "rdp"                      # rdp降点数；none不简化；los按视线连线（更直但贴边）
-  simplify_threshold: 1.5                     # 大=更激进简化、点少但弯被削；小=保留细节更安全但点多
+  simplify_threshold: 2                     # 大=更激进简化、点少但弯被削；小=保留细节更安全但点多
   num_points_per_segment: 8                   # Catmull-Rom采样：大=更细腻/开销高；小=更硬朗/点少
   curvature_threshold_deg: 30.0               # 判急弯阈值：小=更敏感、提前减速；大=容忍急弯
   check_curvature: true                       # 曲率检查；窄道建议开，防平滑出界

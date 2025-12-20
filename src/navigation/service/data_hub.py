@@ -69,7 +69,7 @@ class DataHub:
 
         age = now - ts
         if age > max_age:
-            logger.warning(f"DataHub: 检测帧过旧 age={age:.2f}s (max={max_age})")
+            logger.debug(f"DataHub: 检测帧过旧 age={age:.2f}s (max={max_age})")
             return None
 
         return det
