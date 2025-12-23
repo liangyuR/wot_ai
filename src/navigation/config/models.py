@@ -288,6 +288,33 @@ class StuckDetectionConfig(BaseModel):
     max_stuck_count: int = Field(3, description="连续卡顿帧数阈值")
 
 
+class DetectionConfig(BaseModel):
+    """检测配置"""
+    max_fps: float = Field(60.0, description="检测帧率上限")
+
+    @field_validator('max_fps')
+    @classmethod
+    def validate_max_fps(cls, v: float) -> float:
+        """验证检测帧率"""
+        if v <= 0:
+            raise ValueError(f"检测帧率必须大于0: {v}")
+        return v
+
+
+class ScheduledRestartConfig(BaseModel):
+    """定时重启配置"""
+    enable: bool = Field(False, description="是否启用定时重启")
+    interval_hours: float = Field(1.0, description="重启间隔（小时）")
+
+    @field_validator('interval_hours')
+    @classmethod
+    def validate_interval_hours(cls, v: float) -> float:
+        """验证重启间隔"""
+        if v <= 0:
+            raise ValueError(f"重启间隔必须大于0: {v}")
+        return v
+
+
 class NavigationConfig(BaseModel):
     """导航主配置"""
     model: ModelConfig = Field(..., description="YOLO模型配置")
@@ -301,6 +328,8 @@ class NavigationConfig(BaseModel):
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     ui: UiConfig = Field(..., description="UI配置")
     stuck_detection: StuckDetectionConfig = Field(..., description="卡顿脱困配置")
+    detection: DetectionConfig = Field(default_factory=DetectionConfig, description="检测配置")
+    scheduled_restart: ScheduledRestartConfig = Field(default_factory=ScheduledRestartConfig, description="定时重启配置")
     
     @field_validator('monitor_index')
     @classmethod

@@ -229,11 +229,16 @@ class NavigationRuntime:
     def _det_loop(self) -> None:
         logger.info("Detection thread started")
 
-        view_update_interval = 0 # TODO(@liangyu) 暂时不限制更新
+        # FPS 限制
+        det_fps = self.cfg.detection.max_fps
+        min_interval = 1.0 / det_fps
+
+        view_update_interval = 0  # TODO(@liangyu) 暂时不限制更新
         view_update_counter = 0
         last_processed_ts = 0.0
 
         while self._running:
+            loop_start = time.perf_counter()
             try:
                 frame, ts = self._frame_buffer.get(timeout=0.05)
                 if frame is None or ts <= last_processed_ts:
@@ -254,6 +259,11 @@ class NavigationRuntime:
             except Exception as e:
                 logger.error(f"Detection thread error: {e}")
                 time.sleep(0.01)
+            finally:
+                # FPS 限速
+                elapsed = time.perf_counter() - loop_start
+                if elapsed < min_interval:
+                    time.sleep(min_interval - elapsed)
 
         logger.info("Detection thread exited")
 

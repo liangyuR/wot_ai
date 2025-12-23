@@ -272,14 +272,13 @@ class BattleTask:
         logger.info("开始激活银币储备...")
         
         # 1. 按下 B 键打开储备界面
-        self.key_controller_.tap('b')
+        key_controller = KeyController()
+        key_controller.press("b")
+        time.sleep(2)
         logger.info("已按下 B 键，等待界面响应...")
         
-        # 2. 等待界面响应
-        time.sleep(3.0)
-        
         # 3. 点击银币储备模板（点两下防止点击失败）
-        for attempt in range(2):
+        for attempt in range(5):
             success = self.template_matcher_.click_template(
                 self._silver_reserve_template, 
                 confidence=0.85
@@ -290,9 +289,8 @@ class BattleTask:
                 logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
             time.sleep(0.5)  # 两次点击之间短暂等待
         
-        # 等待操作完成
-        time.sleep(1.0)
-        
+        key_controller.release("b")
+
         # 更新激活时间
         self._last_silver_reserve_time = time.time()
         logger.info("银币储备激活完成，下次激活将在1小时后")
@@ -375,7 +373,28 @@ class BattleTask:
             return True
         
         # 2. 结算页面
+        success = self.template_matcher_.match_template("jie_suan_1.png", confidence=0.85)
+        if success is not None:
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+
+        # 2. 结算页面
         success = self.template_matcher_.match_template("jie_suan_2.png", confidence=0.85)
+        if success is not None:
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+
+        # 2. 结算页面 2
+        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
+        if success is not None:
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+
+        # 3. 结算页面 3
+        success = self.template_matcher_.match_template("jie_suan_4.png", confidence=0.85)
         if success is not None:
             logger.info("在结算页面，按下esc键退出结算界面")
             self.key_controller_.tap(Key.esc)
