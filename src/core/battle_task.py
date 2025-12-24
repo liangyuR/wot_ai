@@ -272,13 +272,11 @@ class BattleTask:
         logger.info("开始激活银币储备...")
         
         # 1. 按下 B 键打开储备界面
-        key_controller = KeyController()
-        key_controller.press("b")
+        self.key_controller_.press('b')
         time.sleep(2)
-        logger.info("已按下 B 键，等待界面响应...")
         
         # 3. 点击银币储备模板（点两下防止点击失败）
-        for attempt in range(5):
+        for attempt in range(2):
             success = self.template_matcher_.click_template(
                 self._silver_reserve_template, 
                 confidence=0.85
@@ -289,7 +287,7 @@ class BattleTask:
                 logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
             time.sleep(0.5)  # 两次点击之间短暂等待
         
-        key_controller.release("b")
+        self.key_controller_.release("b")
 
         # 更新激活时间
         self._last_silver_reserve_time = time.time()
