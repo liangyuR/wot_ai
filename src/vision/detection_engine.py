@@ -290,12 +290,39 @@ class DetectionEngine:
             return []
 
     def ResetTracker(self) -> None:
-        """重置追踪器状态（切换场景或重新开始追踪时调用）"""
-        if self.model_ is not None:
-            try:
+        """重置追踪器状态（切换场景或重新开始追踪时调用）
+        
+        This clears:
+        1. Tracker history (accumulated track trajectories)
+        2. Predictor internal state
+        
+        Call this at match end to prevent memory accumulation from tracker history.
+        """
+        if self.model_ is None:
+            return
+            
+        try:
+            predictor = getattr(self.model_, "predictor", None)
+            if predictor is not None:
+                # Clear tracker list if exists (ByteTrack/BotSort stores tracks here)
+                if hasattr(predictor, "trackers"):
+                    predictor.trackers = []
+                    logger.debug("Cleared predictor.trackers")
+                
+                # Clear any cached results
+                if hasattr(predictor, "results"):
+                    predictor.results = None
+                
+                # Clear batch data
+                if hasattr(predictor, "batch"):
+                    predictor.batch = None
+                
+                # Finally, reset the predictor itself
                 self.model_.predictor = None
-            except Exception as e:
-                logger.debug(f"重置追踪器: {e}")
+                logger.debug("Reset model.predictor to None")
+                
+        except Exception as e:
+            logger.debug(f"ResetTracker error (non-fatal): {e}")
 
     def ResetCudaState(self, clear_cache: bool = False) -> None:
         """手动重置 CUDA 状态（可在战斗结束后调用，清理显存）

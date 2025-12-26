@@ -186,6 +186,48 @@ class MinimapDetector:
             self.detect_engine_.ResetTracker()
             self.pose_engine_.ResetTracker()
 
+    def resetSession(self) -> None:
+        """Reset session-level state and clean CUDA cache.
+        
+        Call this at end of each game match to:
+        1. Reset angle smoother and cached positions
+        2. Clear tracker history (prevents memory accumulation)
+        3. Clean CUDA cache (prevents VRAM leak)
+        
+        Note: This keeps the model loaded on GPU for fast restart.
+        """
+        # Reset state
+        self.angle_smoother_.Reset()
+        self.base_position_ = None
+        
+        # Reset trackers (clears accumulated track history)
+        if self.enable_tracking_:
+            self.detect_engine_.ResetTracker()
+            self.pose_engine_.ResetTracker()
+        
+        # Clean CUDA cache
+        self._cleanupCudaCache()
+        
+        logger.info("MinimapDetector: session reset complete")
+
+    def _cleanupCudaCache(self) -> None:
+        """Clean CUDA cache while keeping models loaded.
+        
+        This releases intermediate tensors and tracker history from VRAM
+        without unloading the model weights.
+        """
+        import gc
+        import torch
+        
+        # Force Python garbage collection first
+        gc.collect()
+        
+        # Clear PyTorch CUDA cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.debug("MinimapDetector: CUDA cache cleared")
+
     def Cleanup(self) -> None:
         """Cleanup all CUDA resources (call before destroying detector)."""
         try:
