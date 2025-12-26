@@ -25,6 +25,11 @@ from src.utils.global_path import GetGlobalConfig
 class BattleTask:
     """战斗任务（事件驱动模式）"""
     
+    # 常量
+    SILVER_RESERVE_INTERVAL = 3600.0  # 1小时
+    KEYBOARD_WAIT_AFTER_STOP = 0.5    # 停止导航后等待时间（秒）
+    SETTLEMENT_TEMPLATE_CONFIDENCE = 0.85  # 结算页面模板匹配置信度
+    
     def __init__(
         self,
         selection_retry_interval: float = 10.0,
@@ -73,7 +78,7 @@ class BattleTask:
         
         # 银币储备功能
         self._silver_reserve_enabled = enable_silver_reserve
-        self._silver_reserve_interval = 3600.0  # 1小时 = 3600秒
+        self._silver_reserve_interval = self.SILVER_RESERVE_INTERVAL
         self._silver_reserve_template = "silver_reserve.png"  # 模板名称
         self._last_silver_reserve_time: Optional[float] = None  # 上次激活时间
     
@@ -90,12 +95,7 @@ class BattleTask:
         
         logger.info("启动事件驱动循环...")
         self.running_ = True
-        
-        # 重置状态标志
-        self.garage_handled_ = False
-        self.battle_handled_ = False
-        self.end_handled_ = False
-        self.result_page_handled_ = False
+        self.battle_handled_ = False  # 重置战斗状态标志
         
         # 启动事件循环线程
         self.event_thread_ = threading.Thread(target=self._event_loop, daemon=True)
@@ -239,73 +239,40 @@ class BattleTask:
         logger.info("结束状态处理完成")
 
     def _shouldActivateSilverReserve(self) -> bool:
-        """
-        检查是否需要激活银币储备
-        
-        Returns:
-            是否需要激活
-        """
+        """检查是否需要激活银币储备"""
         if not self._silver_reserve_enabled:
             return False
         
-        # 首次激活（从未激活过）
         if self._last_silver_reserve_time is None:
-            return True
+            return True  # 首次激活
         
-        # 检查是否已过1小时
-        elapsed = time.time() - self._last_silver_reserve_time
-        if elapsed >= self._silver_reserve_interval:
-            return True
-        
-        return False
+        return (time.time() - self._last_silver_reserve_time) >= self._silver_reserve_interval
 
     def _activateSilverReserve(self) -> bool:
-        """
-        激活银币储备
-        
-        流程：
-        1. 确保导航已完全停止（避免键盘冲突）
-        2. 按下 B 键打开储备界面
-        3. 等待界面响应（2~3秒）
-        4. 点击银币储备模板（点两下防止点击失败）
-        
-        Returns:
-            是否激活成功
-        """
+        """激活银币储备"""
         logger.info("开始激活银币储备...")
         
-        # 1. 使用 tap() 而不是 press/release，更可靠
-        # 先释放可能残留的 B 键状态
-        try:
-            self.key_controller_.release('b')
-        except Exception:
-            pass
-        time.sleep(0.1)
         
-        # 2. 按下 B 键打开储备界面
+        # 按住 B 键打开储备界面
         self.key_controller_.press('b')
         time.sleep(2)
         
-        # 3. 点击银币储备模板（点两下防止点击失败）
+        # 点击银币储备模板（最多2次）
         for attempt in range(2):
-            success = self.template_matcher_.click_template(
+            if self.template_matcher_.click_template(
                 self._silver_reserve_template, 
-                confidence=0.85
-            )
-            if success is not None:
+                confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+            ):
                 logger.info(f"银币储备模板点击成功（第 {attempt + 1} 次）")
-            else:
-                logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
-            time.sleep(0.5)  # 两次点击之间短暂等待
+                break
+            logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
+            time.sleep(0.5)
         
-        # 4. 释放 B 键
-        self.key_controller_.release("b")
-        time.sleep(0.1)  # 确保按键释放完成
-
-        # 更新激活时间
+        # 关闭储备界面
+        self.key_controller_.release('b')
+        
         self._last_silver_reserve_time = time.time()
         logger.info("银币储备激活完成，下次激活将在1小时后")
-        
         return True
     
     def _handle_result_page_state(self) -> None:
@@ -344,10 +311,10 @@ class BattleTask:
     
     def _try_select_candidate(self, candidate: TankTemplate) -> bool:
         """尝试点击单个候选车辆"""
-        success = self.template_matcher_.click_template(candidate.name, confidence=candidate.confidence)
-        if success is not None:
-            return True
-        return False
+        return self.template_matcher_.click_template(
+            candidate.name, 
+            confidence=candidate.confidence
+        ) is not None
     
     def enter_battle(self) -> bool:
         """
@@ -358,7 +325,10 @@ class BattleTask:
         """
         logger.info("点击加入战斗...")
         
-        success = self.template_matcher_.click_template("join_battle.png", confidence=0.85)
+        success = self.template_matcher_.click_template(
+            "join_battle.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        )
         if not success:
             logger.error("未找到加入战斗按钮")
             return False
@@ -368,66 +338,56 @@ class BattleTask:
         return True
     
     def enter_garage(self) -> bool:
-        """
-        返回车库
-        
-        Returns:
-            是否成功
-        """
+        """返回车库"""
         logger.info("退出结算界面，返回车库...")
-
-        # 1. 奖励页面，按下esc键退出奖励页面
-        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
-        if success is not None:
-            logger.info("在奖励页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
         
-        # 2. 结算页面
-        success = self.template_matcher_.match_template("jie_suan_1.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-
-        # 2. 结算页面
-        success = self.template_matcher_.match_template("jie_suan_2.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-
-        # 2. 结算页面 2
-        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-
-        # 3. 结算页面 3
-        success = self.template_matcher_.match_template("jie_suan_4.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-            
-        # 2.当被击毁时，点击"返回车库"按钮
-        # press esc
-        success = self.template_matcher_.match_template("pingjia.png", confidence=0.85)
-        if success is not None:
-            logger.info("被击毁状态，需要按下 ESC 然后点击返回车库按钮")
-            self.key_controller_.tap(Key.esc)
-            time.sleep(3.0)
-            success = self.template_matcher_.click_template("return_garage.png", confidence=0.85)
-            if success is None:
-                logger.error("未找到返回车库按钮")
-                return False
-
-            success = self.template_matcher_.click_template("leave_confirmation.png", confidence=0.85)
-            if success is None:
-                logger.error("未找到离开确认按钮")
-                return False
-
+        # 结算页面模板列表（按优先级）
+        settlement_templates = [
+            "jie_suan_1.png",
+            "jie_suan_2.png",
+            "jie_suan_3.png",
+            "jie_suan_4.png"
+        ]
+        
+        # 检查并退出结算页面
+        for template in settlement_templates:
+            if self.template_matcher_.match_template(
+                template, 
+                confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+            ):
+                logger.info(f"检测到结算页面 ({template})，按下 ESC 退出")
+                self.key_controller_.tap(Key.esc)
+                return True
+        
+        # 处理被击毁状态
+        if self.template_matcher_.match_template(
+            "pingjia.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        ):
+            return self._handle_destroyed_state()
+        
+        return True
+    
+    def _handle_destroyed_state(self) -> bool:
+        """处理被击毁状态：返回车库"""
+        logger.info("被击毁状态，按下 ESC 然后点击返回车库按钮")
+        self.key_controller_.tap(Key.esc)
+        time.sleep(3.0)
+        
+        if not self.template_matcher_.click_template(
+            "return_garage.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        ):
+            logger.error("未找到返回车库按钮")
+            return False
+        
+        if not self.template_matcher_.click_template(
+            "leave_confirmation.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        ):
+            logger.error("未找到离开确认按钮")
+            return False
+        
         return True
     
     def is_running(self) -> bool:
