@@ -27,6 +27,7 @@ game:
   exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe" # 可执行路径；改成你的安装路径
   restart_wait_seconds: 15                                # 重启等待秒数：大=更稳妥，小=更快重启
   stuck_timeout_seconds: 480                              # 判定卡死的总超时时间：大=更耐心，小=更快重启
+  enable_silver_reserve: true                             # 是否启用银币储备
 
 # 小地图配置
 minimap:

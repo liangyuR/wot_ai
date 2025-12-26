@@ -280,6 +280,7 @@ class GameConfig(BaseModel):
     exe_path: str = Field("C:/Games/World_of_Tanks_CN/WorldOfTanks.exe", description="游戏可执行文件路径")
     restart_wait_seconds: int = Field(10, description="重启等待时间（秒）")
     stuck_timeout_seconds: int = Field(480, description="卡死判定超时时间（秒）")
+    enable_silver_reserve: bool = Field(False, description="是否启用银币储备")
 
 
 class StuckDetectionConfig(BaseModel):

@@ -6,10 +6,9 @@
 import os
 import shutil
 import sys
-import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -24,29 +23,65 @@ from src.utils.global_path import GetConfigPath, GetGlobalConfig, GetLogDir, Get
 class MainWindow:
     """Main control window using Tkinter."""
 
-    def __init__(self):
-        self._title = "坦克助手控制台"
-        self._window_size = (560, 1080)
+    # UI Constants
+    WINDOW_WIDTH = 560
+    WINDOW_HEIGHT = 1080
+    COLOR_BG = "#0f1115"
+    COLOR_CARD = "#161920"
+    COLOR_ACCENT = "#4f9cff"
+    COLOR_TEXT = "#e5e7eb"
+    COLOR_SUBTLE = "#9ca3af"
+    COLOR_STATUS_STOPPED = "#ff6b6b"
+    COLOR_STATUS_RUNNING = "#1dd1a1"
+    COLOR_BUTTON_ACTIVE = "#1f2937"
+    COLOR_ACCENT_ACTIVE = "#78b5ff"
+    COLOR_ACCENT_FG = "#0b1220"
+
+    FONT_FAMILY = "Microsoft YaHei UI"
+    FONT_SIZE_NORMAL = 10
+    FONT_SIZE_TITLE = 16
+    FONT_SIZE_SUBTITLE = 10
+    FONT_SIZE_CARD_TITLE = 11
+    FONT_SIZE_STATUS = 12
+
+    # Business Constants
+    MAX_THUMBNAIL_SIZE = 80
+    AUTO_START_DELAY_MS = 2000
+    STATUS_UPDATE_INTERVAL_MS = 1000
+    DEFAULT_RUN_HOURS = 4
+
+    # Windows API Constants
+    PROCESS_QUERY_INFORMATION = 0x0410
+    MAX_PATH_LENGTH = 260
+
+    def __init__(self) -> None:
+        """Initialize MainWindow."""
+        self._title: str = "坦克助手控制台"
+        self._window_size: Tuple[int, int] = (self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
 
         # State
-        self._is_running = False
-        self._run_hours = 4
-        self._auto_stop = False
-        self._auto_shutdown = False
-        self._silver_reserve = False
+        self._is_running: bool = False
+        self._run_hours: int = self.DEFAULT_RUN_HOURS
+        self._auto_stop: bool = False
+        self._auto_shutdown: bool = False
         self._start_time: Optional[datetime] = None
+
+        # UI Variables (Tkinter variables)
+        self._auto_stop_var: Optional[tk.BooleanVar] = None
+        self._auto_shutdown_var: Optional[tk.BooleanVar] = None
+        self._silver_reserve: Optional[tk.BooleanVar] = None
 
         # Vehicle images: {filename: PhotoImage}
         self._vehicle_images: Dict[str, ImageTk.PhotoImage] = {}
-        self._vehicle_screenshot_dir = self._initVehicleScreenshotDir()
+        self._vehicle_screenshot_dir: Path = self._initVehicleScreenshotDir()
 
         # BattleTask
         self._battle_task: Optional[BattleTask] = None
 
         # Tkinter widgets
         self._root: Optional[tk.Tk] = None
-        self._status_label: Optional[tk.Label] = None
-        self._end_time_label: Optional[tk.Label] = None
+        self._status_label: Optional[ttk.Label] = None
+        self._end_time_label: Optional[ttk.Label] = None
         self._vehicle_frame: Optional[ttk.Frame] = None
         self._vehicle_canvas: Optional[tk.Canvas] = None
         self._vehicle_scrollbar: Optional[ttk.Scrollbar] = None
@@ -114,29 +149,29 @@ class MainWindow:
         except Exception:
             pass
 
-        bg = "#0f1115"
-        card = "#161920"
-        accent = "#4f9cff"
-        text = "#e5e7eb"
-        subtle = "#9ca3af"
+        bg = self.COLOR_BG
+        card = self.COLOR_CARD
+        accent = self.COLOR_ACCENT
+        text = self.COLOR_TEXT
+        subtle = self.COLOR_SUBTLE
 
-        style.configure(".", background=bg, foreground=text, font=("Microsoft YaHei UI", 10))
+        style.configure(".", background=bg, foreground=text, font=(self.FONT_FAMILY, self.FONT_SIZE_NORMAL))
         style.configure("TFrame", background=bg)
         style.configure("TLabel", background=bg, foreground=text)
-        style.configure("Body.TLabel", background=bg, foreground=text, font=("Microsoft YaHei UI", 10))
-        style.configure("Title.TLabel", background=bg, foreground=text, font=("Microsoft YaHei UI", 16, "bold"))
-        style.configure("SubTitle.TLabel", background=bg, foreground=subtle, font=("Microsoft YaHei UI", 10))
+        style.configure("Body.TLabel", background=bg, foreground=text, font=(self.FONT_FAMILY, self.FONT_SIZE_NORMAL))
+        style.configure("Title.TLabel", background=bg, foreground=text, font=(self.FONT_FAMILY, self.FONT_SIZE_TITLE, "bold"))
+        style.configure("SubTitle.TLabel", background=bg, foreground=subtle, font=(self.FONT_FAMILY, self.FONT_SIZE_SUBTITLE))
         style.configure("Card.TFrame", background=card, relief="flat", borderwidth=0)
-        style.configure("CardTitle.TLabel", background=card, foreground=text, font=("Microsoft YaHei UI", 11, "bold"))
-        style.configure("StatusStopped.TLabel", background=card, foreground="#ff6b6b", font=("Microsoft YaHei UI", 12, "bold"))
-        style.configure("StatusRunning.TLabel", background=card, foreground="#1dd1a1", font=("Microsoft YaHei UI", 12, "bold"))
+        style.configure("CardTitle.TLabel", background=card, foreground=text, font=(self.FONT_FAMILY, self.FONT_SIZE_CARD_TITLE, "bold"))
+        style.configure("StatusStopped.TLabel", background=card, foreground=self.COLOR_STATUS_STOPPED, font=(self.FONT_FAMILY, self.FONT_SIZE_STATUS, "bold"))
+        style.configure("StatusRunning.TLabel", background=card, foreground=self.COLOR_STATUS_RUNNING, font=(self.FONT_FAMILY, self.FONT_SIZE_STATUS, "bold"))
 
-        style.configure("TButton", padding=8, relief="flat", background=card, foreground=text, font=("Microsoft YaHei UI", 10))
-        style.map("TButton", background=[("active", "#1f2937")])
-        style.configure("Accent.TButton", background=accent, foreground="#0b1220", font=("Microsoft YaHei UI", 10, "bold"))
-        style.map("Accent.TButton", background=[("active", "#78b5ff")], foreground=[("active", "#0b1220")])
+        style.configure("TButton", padding=8, relief="flat", background=card, foreground=text, font=(self.FONT_FAMILY, self.FONT_SIZE_NORMAL))
+        style.map("TButton", background=[("active", self.COLOR_BUTTON_ACTIVE)])
+        style.configure("Accent.TButton", background=accent, foreground=self.COLOR_ACCENT_FG, font=(self.FONT_FAMILY, self.FONT_SIZE_NORMAL, "bold"))
+        style.map("Accent.TButton", background=[("active", self.COLOR_ACCENT_ACTIVE)], foreground=[("active", self.COLOR_ACCENT_FG)])
 
-        self._root.option_add("*TCombobox*Listbox*Font", ("Microsoft YaHei UI", 10))
+        self._root.option_add("*TCombobox*Listbox*Font", (self.FONT_FAMILY, self.FONT_SIZE_NORMAL))
 
     def _buildUI(self) -> None:
         """Build the main UI layout."""
@@ -144,21 +179,32 @@ class MainWindow:
         self._root.title(self._title)
         self._root.geometry(f"{self._window_size[0]}x{self._window_size[1]}")
         self._root.resizable(False, False)
-        self._root.configure(bg="#0f1115")
+        self._root.configure(bg=self.COLOR_BG)
         self._initStyle()
 
         # Main container with padding
         main_frame = ttk.Frame(self._root, padding="12")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Header
-        header = ttk.Frame(main_frame, padding="8")
+        # Build UI components
+        self._buildHeader(main_frame)
+        self._buildTips(main_frame)
+        self._buildControlPanel(main_frame)
+        self._buildDurationSettings(main_frame)
+        self._buildFeatureSettings(main_frame)
+        self._buildVehiclePriority(main_frame)
+        self._buildFooter(main_frame)
+
+    def _buildHeader(self, parent: ttk.Frame) -> None:
+        """Build header section."""
+        header = ttk.Frame(parent, padding="8")
         header.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(header, text="坦克世界 · 自动导航助手", style="Title.TLabel").pack(anchor="w")
         ttk.Label(header, text="启动导航、管理载具优先级、查看运行状态", style="SubTitle.TLabel").pack(anchor="w", pady=(2, 0))
 
-        # Tips
-        tips_frame = ttk.LabelFrame(main_frame, text="快速提示", padding="10")
+    def _buildTips(self, parent: ttk.Frame) -> None:
+        """Build tips section."""
+        tips_frame = ttk.LabelFrame(parent, text="快速提示", padding="10")
         tips_frame.pack(fill=tk.X, pady=6)
         tips_text = [
             "1) 游戏窗口化 1920x1080，画质中低。",
@@ -169,8 +215,9 @@ class MainWindow:
         for tip in tips_text:
             ttk.Label(tips_frame, text=tip, anchor="w", style="Body.TLabel").pack(anchor="w", padx=4, pady=1)
 
-        # Control
-        control_frame = ttk.LabelFrame(main_frame, text="控制中心", padding="10")
+    def _buildControlPanel(self, parent: ttk.Frame) -> None:
+        """Build control panel section."""
+        control_frame = ttk.LabelFrame(parent, text="控制中心", padding="10")
         control_frame.pack(fill=tk.X, pady=6)
 
         button_frame = ttk.Frame(control_frame)
@@ -187,8 +234,9 @@ class MainWindow:
         self._status_label = ttk.Label(status_card, text="未运行", style="StatusStopped.TLabel")
         self._status_label.pack(anchor="w", pady=(4, 2))
 
-        # Duration
-        duration_frame = ttk.LabelFrame(main_frame, text="运行时长与结束动作（预留）", padding="10")
+    def _buildDurationSettings(self, parent: ttk.Frame) -> None:
+        """Build duration settings section."""
+        duration_frame = ttk.LabelFrame(parent, text="运行时长与结束动作（预留）", padding="10")
         duration_frame.pack(fill=tk.X, pady=6)
 
         hours_frame = ttk.Frame(duration_frame)
@@ -200,30 +248,33 @@ class MainWindow:
         hours_spinbox.pack(side=tk.LEFT, padx=5)
         ttk.Label(hours_frame, text="小时").pack(side=tk.LEFT, padx=5)
 
-        auto_stop_var = tk.BooleanVar(value=self._auto_stop)
+        self._auto_stop_var = tk.BooleanVar(value=self._auto_stop)
         ttk.Checkbutton(duration_frame, text="到达时长后自动停止",
-                        variable=auto_stop_var,
-                        command=lambda: setattr(self, '_auto_stop', auto_stop_var.get())).pack(anchor="w", padx=5, pady=2)
+                        variable=self._auto_stop_var,
+                        command=lambda: setattr(self, '_auto_stop', self._auto_stop_var.get())).pack(anchor="w", padx=5, pady=2)
 
-        auto_shutdown_var = tk.BooleanVar(value=self._auto_shutdown)
+        self._auto_shutdown_var = tk.BooleanVar(value=self._auto_shutdown)
         ttk.Checkbutton(duration_frame, text="到达时长后自动关机（需管理员）",
-                        variable=auto_shutdown_var,
-                        command=lambda: setattr(self, '_auto_shutdown', auto_shutdown_var.get())).pack(anchor="w", padx=5, pady=2)
+                        variable=self._auto_shutdown_var,
+                        command=lambda: setattr(self, '_auto_shutdown', self._auto_shutdown_var.get())).pack(anchor="w", padx=5, pady=2)
 
         self._end_time_label = ttk.Label(duration_frame, text="预计结束时间：--")
         self._end_time_label.pack(pady=2)
 
-        # Feature (placeholder)
-        feature_frame = ttk.LabelFrame(main_frame, text="功能扩展（预留）", padding="10")
+    def _buildFeatureSettings(self, parent: ttk.Frame) -> None:
+        """Build feature settings section."""
+        feature_frame = ttk.LabelFrame(parent, text="功能扩展（预留）", padding="10")
         feature_frame.pack(fill=tk.X, pady=6)
 
-        silver_reserve_var = tk.BooleanVar(value=self._silver_reserve)
-        ttk.Checkbutton(feature_frame, text="启动时开启银币储备（预留）",
-                        variable=silver_reserve_var,
-                        command=lambda: setattr(self, '_silver_reserve', silver_reserve_var.get())).pack(anchor="w", padx=5, pady=2)
+        config = GetGlobalConfig()
+        self._silver_reserve = tk.BooleanVar(value=config.game.enable_silver_reserve)
+        ttk.Checkbutton(feature_frame, text="启动时开启银币储备",
+                        variable=self._silver_reserve,
+                        command=lambda: setattr(config.game, 'enable_silver_reserve', self._silver_reserve.get())).pack(anchor="w", padx=5, pady=2)
 
-        # Vehicle Priority
-        vehicle_frame = ttk.LabelFrame(main_frame, text="载具优先级", padding="10")
+    def _buildVehiclePriority(self, parent: ttk.Frame) -> None:
+        """Build vehicle priority section."""
+        vehicle_frame = ttk.LabelFrame(parent, text="载具优先级", padding="10")
         vehicle_frame.pack(fill=tk.BOTH, expand=True, pady=6)
 
         ttk.Label(vehicle_frame, text="按优先级选择载具：1.png → 2.png → 3.png ...").pack(anchor="w", padx=5)
@@ -241,7 +292,7 @@ class MainWindow:
         list_container = ttk.Frame(vehicle_frame)
         list_container.pack(fill=tk.BOTH, expand=True, pady=4)
 
-        self._vehicle_canvas = tk.Canvas(list_container, height=240, borderwidth=0, highlightthickness=0, bg="#0f1115")
+        self._vehicle_canvas = tk.Canvas(list_container, height=240, borderwidth=0, highlightthickness=0, bg=self.COLOR_BG)
         self._vehicle_scrollbar = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self._vehicle_canvas.yview)
         self._vehicle_frame = ttk.Frame(self._vehicle_canvas)
 
@@ -252,8 +303,9 @@ class MainWindow:
         self._vehicle_canvas.create_window((0, 0), window=self._vehicle_frame, anchor="nw")
         self._vehicle_frame.bind("<Configure>", lambda e: self._vehicle_canvas.configure(scrollregion=self._vehicle_canvas.bbox("all")))
 
-        # Footer
-        footer_frame = ttk.Frame(main_frame)
+    def _buildFooter(self, parent: ttk.Frame) -> None:
+        """Build footer section."""
+        footer_frame = ttk.Frame(parent)
         footer_frame.pack(fill=tk.X, pady=6)
         ttk.Label(footer_frame, text="版本 v0.1.0", foreground="gray").pack(side=tk.LEFT, padx=5)
         ttk.Label(footer_frame, text="配置路径：config/config.yaml", foreground="gray").pack(side=tk.RIGHT, padx=5)
@@ -284,8 +336,7 @@ class MainWindow:
                     continue
 
                 h, w = img.shape[:2]
-                max_thumb_size = 80
-                scale = min(max_thumb_size / w, max_thumb_size / h, 1.0)
+                scale = min(self.MAX_THUMBNAIL_SIZE / w, self.MAX_THUMBNAIL_SIZE / h, 1.0)
                 new_w, new_h = int(w * scale), int(h * scale)
                 thumbnail = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
@@ -319,8 +370,12 @@ class MainWindow:
             logger.warning("任务已在运行")
             return
 
+        if self._silver_reserve is None:
+            logger.error("银币储备变量未初始化")
+            return
+
         self._battle_task = BattleTask(
-            enable_silver_reserve=self._silver_reserve,
+            enable_silver_reserve=self._silver_reserve.get(),
             run_hours=self._run_hours,
             auto_stop=self._auto_stop,
             auto_shutdown=self._auto_shutdown,
@@ -371,10 +426,10 @@ class MainWindow:
 
                 # 获取进程名
                 try:
-                    h_process = kernel32.OpenProcess(0x0410, False, pid.value)  # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+                    h_process = kernel32.OpenProcess(self.PROCESS_QUERY_INFORMATION, False, pid.value)
                     if h_process:
-                        exe_path = ctypes.create_unicode_buffer(260)
-                        size = wintypes.DWORD(260)
+                        exe_path = ctypes.create_unicode_buffer(self.MAX_PATH_LENGTH)
+                        size = wintypes.DWORD(self.MAX_PATH_LENGTH)
                         if kernel32.QueryFullProcessImageNameW(h_process, 0, exe_path, ctypes.byref(size)):
                             if process_name.lower() in exe_path.value.lower():
                                 target_hwnd = hwnd
@@ -443,29 +498,25 @@ class MainWindow:
             except Exception as e:
                 logger.error(f"删除截图失败: {e}")
 
-    def _onOpenScreenshotDir(self) -> None:
-        """Open vehicle screenshot directory."""
+    def _openDirectory(self, path: Path) -> None:
+        """Open directory in file explorer (Windows only)."""
         try:
             if sys.platform == "win32":
-                os.startfile(str(self._vehicle_screenshot_dir))
+                os.startfile(str(path))
         except Exception as e:
             logger.error(f"打开目录失败: {e}")
 
+    def _onOpenScreenshotDir(self) -> None:
+        """Open vehicle screenshot directory."""
+        self._openDirectory(self._vehicle_screenshot_dir)
+
     def _onOpenLogDir(self) -> None:
         """Open log directory."""
-        try:
-            if sys.platform == "win32":
-                os.startfile(str(GetLogDir()))
-        except Exception as e:
-            logger.error(f"打开日志目录失败: {e}")
+        self._openDirectory(GetLogDir())
 
     def _onOpenConfigDir(self) -> None:
         """Open config file location."""
-        try:
-            if sys.platform == "win32":
-                os.startfile(str(GetConfigPath()))
-        except Exception as e:
-            logger.error(f"打开配置失败: {e}")
+        self._openDirectory(GetConfigPath())
 
     # -------------------------------------------------------------------------
     # Status Update
@@ -503,7 +554,7 @@ class MainWindow:
                 self._end_time_label.config(text="预计结束时间：--")
 
         if self._root:
-            self._root.after(1000, self._updateStatus)
+            self._root.after(self.STATUS_UPDATE_INTERVAL_MS, self._updateStatus)
 
     # -------------------------------------------------------------------------
     # Main Entry
@@ -522,13 +573,13 @@ class MainWindow:
         # 自动启动（延迟执行，确保 UI 完全初始化）
         if auto_start:
             logger.info("检测到 --auto-start 参数，将在 2 秒后自动启动...")
-            self._root.after(2000, self._onStart)
+            self._root.after(self.AUTO_START_DELAY_MS, self._onStart)
 
         # Start main loop
         self._root.mainloop()
 
 
-def main():
+def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="WoT AI Tank Robot")
