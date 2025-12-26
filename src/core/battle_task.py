@@ -222,6 +222,8 @@ class BattleTask:
         # 停止导航AI运行循环（保留实例以便下次复用）
         if  self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
+            # 等待键盘操作完全停止，避免与后续按键操作冲突
+            time.sleep(0.5)
 
         # 检查是否需要激活银币储备
         if self._shouldActivateSilverReserve():
@@ -262,16 +264,25 @@ class BattleTask:
         激活银币储备
         
         流程：
-        1. 按下 B 键打开储备界面
-        2. 等待界面响应（2~3秒）
-        3. 点击银币储备模板（点两下防止点击失败）
+        1. 确保导航已完全停止（避免键盘冲突）
+        2. 按下 B 键打开储备界面
+        3. 等待界面响应（2~3秒）
+        4. 点击银币储备模板（点两下防止点击失败）
         
         Returns:
             是否激活成功
         """
         logger.info("开始激活银币储备...")
         
-        # 1. 按下 B 键打开储备界面
+        # 1. 使用 tap() 而不是 press/release，更可靠
+        # 先释放可能残留的 B 键状态
+        try:
+            self.key_controller_.release('b')
+        except Exception:
+            pass
+        time.sleep(0.1)
+        
+        # 2. 按下 B 键打开储备界面
         self.key_controller_.press('b')
         time.sleep(2)
         
@@ -287,7 +298,9 @@ class BattleTask:
                 logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
             time.sleep(0.5)  # 两次点击之间短暂等待
         
+        # 4. 释放 B 键
         self.key_controller_.release("b")
+        time.sleep(0.1)  # 确保按键释放完成
 
         # 更新激活时间
         self._last_silver_reserve_time = time.time()
