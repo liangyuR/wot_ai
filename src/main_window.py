@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 import cv2
 from loguru import logger
 
-from src.core.task_manager import TaskManager
+from src.core.battle_task import BattleTask
 from src.utils.global_path import GetConfigPath, GetGlobalConfig, GetLogDir, GetVehicleScreenshotsDir
 
 
@@ -40,9 +40,8 @@ class MainWindow:
         self._vehicle_images: Dict[str, ImageTk.PhotoImage] = {}
         self._vehicle_screenshot_dir = self._initVehicleScreenshotDir()
 
-        # TaskManager
-        self._task_manager: Optional[TaskManager] = None
-        self._task_thread: Optional[threading.Thread] = None
+        # BattleTask
+        self._battle_task: Optional[BattleTask] = None
 
         # Tkinter widgets
         self._root: Optional[tk.Tk] = None
@@ -315,26 +314,28 @@ class MainWindow:
     # -------------------------------------------------------------------------
 
     def _onStart(self) -> None:
-        """Start task manager."""
+        """Start battle task."""
         if self._is_running:
             logger.warning("任务已在运行")
             return
 
-        self._task_manager = TaskManager(
+        self._battle_task = BattleTask(
+            enable_silver_reserve=self._silver_reserve,
             run_hours=self._run_hours,
             auto_stop=self._auto_stop,
             auto_shutdown=self._auto_shutdown,
-            enable_silver_reserve=self._silver_reserve,
         )
 
         self._is_running = True
         self._start_time = datetime.now()
-        self._task_thread = threading.Thread(
-            target=self._task_manager.run_forever, daemon=True
-        )
-        self._task_thread.start()
+        
+        if not self._battle_task.start():
+            logger.error("战斗任务启动失败")
+            self._is_running = False
+            self._battle_task = None
+            return
 
-        logger.info("任务管理器已启动")
+        logger.info("战斗任务已启动")
 
         # 将焦点切换到游戏窗口
         self._focusGameWindow()
@@ -397,21 +398,18 @@ class MainWindow:
             logger.error(f"切换游戏窗口焦点失败: {e}")
 
     def _onStop(self) -> None:
-        """Stop task manager."""
+        """Stop battle task."""
         if not self._is_running:
             return
 
         self._is_running = False
 
-        if self._task_manager:
-            self._task_manager.stop()
+        if self._battle_task:
+            self._battle_task.stop()
 
-        if self._task_thread and self._task_thread.is_alive():
-            self._task_thread.join(timeout=2.0)
-
-        self._task_manager = None
+        self._battle_task = None
         self._start_time = None
-        logger.info("任务管理器已停止")
+        logger.info("战斗任务已停止")
 
     def _onAddScreenshot(self) -> None:
         """Open file dialog to add screenshot."""
