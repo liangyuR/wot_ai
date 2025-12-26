@@ -117,7 +117,7 @@ class TemplateMatcher:
             center_x = max_loc[0] + tpl_w // 2 + top_left_offset[0]
             center_y = max_loc[1] + tpl_h // 2 + top_left_offset[1]
             center = (center_x, center_y)
-            logger.info(f"找到模板 {template_path} 在位置: {center}")
+            logger.debug(f"找到模板 {template_path} 在位置: {center}")
             return center
         logger.debug(f"未在画面中找到模板: {template_path}")
         return None

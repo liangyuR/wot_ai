@@ -6,6 +6,8 @@
 持续执行多局战斗循环，处理UI配置的停止条件。
 """
 
+import os
+import sys
 import time
 import subprocess
 from datetime import datetime
@@ -48,12 +50,19 @@ class TaskManager:
             logger.error(f"Failed to load config: {e}")
             raise e
 
+        # 定时重启配置
+        restart_cfg = self.config_.scheduled_restart
+        self.scheduled_restart_enabled_ = restart_cfg.enable
+        self.scheduled_restart_hours_ = restart_cfg.interval_hours
+
     def run_forever(self) -> None:
         """持续执行战斗循环"""
         self.running_ = True
         self.start_time_ = datetime.now()
         
         logger.info(f"任务管理器启动，运行时长限制: {self.run_hours_} 小时")
+        if self.scheduled_restart_enabled_:
+            logger.info(f"定时重启已启用，间隔: {self.scheduled_restart_hours_} 小时")
         
         try:
             while self.running_:
@@ -61,6 +70,12 @@ class TaskManager:
                 if self._should_stop():
                     logger.info("达到停止条件，退出循环")
                     break
+
+                # 检查定时重启
+                if self._should_scheduled_restart():
+                    logger.info("达到定时重启时间，准备重启程序...")
+                    self._restart_program()
+                    return  # execv 会替换进程，不会返回
                 
                 # 创建战斗任务
                 task = BattleTask(enable_silver_reserve=self.enable_silver_reserve_)
@@ -78,6 +93,13 @@ class TaskManager:
                             logger.info("达到停止条件，停止战斗任务")
                             task.stop()
                             break
+                        # 检查定时重启
+                        if self._should_scheduled_restart():
+                            logger.info("达到定时重启时间，停止当前任务并重启程序...")
+                            task.stop()
+                            time.sleep(1.0)
+                            self._restart_program()
+                            return
                         time.sleep(2.0)
                 except Exception as e:
                     logger.error(f"战斗任务运行异常: {e}")
@@ -122,6 +144,49 @@ class TaskManager:
         elapsed_hours = elapsed.total_seconds() / 3600.0
         
         return elapsed_hours >= self.run_hours_
+
+    def _should_scheduled_restart(self) -> bool:
+        """
+        检查是否应该执行定时重启
+        
+        Returns:
+            是否应该重启
+        """
+        if not self.scheduled_restart_enabled_:
+            return False
+        
+        if self.start_time_ is None:
+            return False
+        
+        elapsed = datetime.now() - self.start_time_
+        elapsed_hours = elapsed.total_seconds() / 3600.0
+        
+        return elapsed_hours >= self.scheduled_restart_hours_
+
+    def _restart_program(self) -> None:
+        """重启程序（使用 os.execv 替换当前进程）"""
+        logger.info("正在重启程序...")
+
+        python = sys.executable
+        script = sys.argv[0]
+        args = sys.argv[1:]
+
+        # 添加 --auto-start 参数以便重启后自动启动
+        if "--auto-start" not in args:
+            args.append("--auto-start")
+
+        logger.info(f"重启命令: {python} {script} {' '.join(args)}")
+
+        try:
+            os.execv(python, [python, script] + args)
+        except Exception as e:
+            logger.error(f"重启失败: {e}")
+            # 如果 execv 失败，尝试使用 subprocess
+            try:
+                subprocess.Popen([python, script] + args)
+                sys.exit(0)
+            except Exception as e2:
+                logger.error(f"备用重启也失败: {e2}")
     
     def _shutdown(self) -> None:
         """执行关机操作（需要管理员权限）"""

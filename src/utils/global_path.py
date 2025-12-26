@@ -42,9 +42,6 @@ def GetVehicleScreenshotsDir() -> Path:
 def GetConfigPath() -> Path:
     return GetProgramDir() / "config" / "config.yaml"
 
-def GetConfigTemplatePath() -> Path:
-    return GetProgramDir() / "config" / "config.yaml.template"
-
 def GetLogDir() -> Path:
     return GetProgramDir() / "Logs"
 
@@ -55,4 +52,3 @@ if __name__ == "__main__":
     logger.info(GetMapTemplatePath())
     logger.info(GetVehicleScreenshotsDir())
     logger.info(GetConfigPath())
-    logger.info(GetConfigTemplatePath())

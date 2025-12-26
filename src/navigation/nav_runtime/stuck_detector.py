@@ -12,7 +12,7 @@
 
 import math
 import time
-from typing import Optional, Tuple, List
+from typing import Tuple
 from collections import deque
 from loguru import logger
 from src.utils.global_path import GetGlobalConfig
@@ -139,27 +139,6 @@ class StuckDetector:
             "time_window": self.time_window_,
             "history_size": len(self._history),
         }
-
-    # 兼容旧接口
-    @property
-    def is_stuck(self) -> bool:
-        return self._is_stuck
-
-    @property
-    def is_stuck_(self) -> bool:
-        return self._is_stuck
-
-    @property
-    def stuck_frames(self) -> int:
-        """兼容旧接口，返回估算帧数"""
-        if len(self._history) >= 2:
-            time_span = self._history[-1][2] - self._history[0][2]
-            return int(time_span * 30)
-        return 0
-
-    @property
-    def stuck_frames_(self) -> int:
-        return self.stuck_frames
 
     @property
     def stuck_count_(self) -> int:

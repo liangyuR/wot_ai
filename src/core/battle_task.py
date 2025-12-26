@@ -28,7 +28,6 @@ class BattleTask:
     def __init__(
         self,
         selection_retry_interval: float = 10.0,
-        selection_timeout: float = 120.0,
         state_check_interval: float = 3,
         enable_silver_reserve: bool = False,
     ):
@@ -36,9 +35,7 @@ class BattleTask:
         初始化战斗任务
         
         Args:
-            config: 配置对象
             selection_retry_interval: 选择失败后的重试间隔
-            selection_timeout: 选择超时时间
             state_check_interval: 状态检测间隔（秒）
             enable_silver_reserve: 是否启用银币储备功能
         """
@@ -47,7 +44,6 @@ class BattleTask:
         self.template_matcher_ = TemplateMatcher()
         self.map_name_detector_ = MapNameDetector()
         self.key_controller_ = KeyController()
-        # NavigationRuntime 只初始化一次，在整个生命周期内复用
         self.navigation_runtime_ = NavigationRuntime()
         
         config = GetGlobalConfig()
@@ -59,7 +55,6 @@ class BattleTask:
         self.stuck_timeout_ = config.game.stuck_timeout_seconds
 
         self.selection_retry_interval_ = selection_retry_interval
-        self.selection_timeout_ = selection_timeout
         self.state_check_interval_ = state_check_interval
         
         # 事件驱动相关
@@ -119,8 +114,7 @@ class BattleTask:
         logger.info("正在停止事件驱动循环...")
         self.running_ = False
         
-        # 停止导航AI（如果正在运行）
-        if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
+        if self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
         
         # 等待事件循环线程结束
@@ -210,7 +204,6 @@ class BattleTask:
             return
 
         logger.info("检测到战斗状态，开始启动导航...")
-        # 启动导航（NavigationRuntime.start() 内部会创建并启动线程）
         if not self.navigation_runtime_.start():
             logger.error("导航启动失败")
             return
@@ -227,7 +220,7 @@ class BattleTask:
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
         # 停止导航AI运行循环（保留实例以便下次复用）
-        if self.navigation_runtime_ is not None and self.navigation_runtime_.is_running():
+        if  self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
 
         # 检查是否需要激活银币储备
@@ -279,11 +272,8 @@ class BattleTask:
         logger.info("开始激活银币储备...")
         
         # 1. 按下 B 键打开储备界面
-        self.key_controller_.tap('b')
-        logger.info("已按下 B 键，等待界面响应...")
-        
-        # 2. 等待界面响应
-        time.sleep(3.0)
+        self.key_controller_.press('b')
+        time.sleep(2)
         
         # 3. 点击银币储备模板（点两下防止点击失败）
         for attempt in range(2):
@@ -297,9 +287,8 @@ class BattleTask:
                 logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
             time.sleep(0.5)  # 两次点击之间短暂等待
         
-        # 等待操作完成
-        time.sleep(1.0)
-        
+        self.key_controller_.release("b")
+
         # 更新激活时间
         self._last_silver_reserve_time = time.time()
         logger.info("银币储备激活完成，下次激活将在1小时后")
@@ -382,7 +371,28 @@ class BattleTask:
             return True
         
         # 2. 结算页面
+        success = self.template_matcher_.match_template("jie_suan_1.png", confidence=0.85)
+        if success is not None:
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+
+        # 2. 结算页面
         success = self.template_matcher_.match_template("jie_suan_2.png", confidence=0.85)
+        if success is not None:
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+
+        # 2. 结算页面 2
+        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
+        if success is not None:
+            logger.info("在结算页面，按下esc键退出结算界面")
+            self.key_controller_.tap(Key.esc)
+            return True
+
+        # 3. 结算页面 3
+        success = self.template_matcher_.match_template("jie_suan_4.png", confidence=0.85)
         if success is not None:
             logger.info("在结算页面，按下esc键退出结算界面")
             self.key_controller_.tap(Key.esc)

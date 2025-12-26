@@ -18,7 +18,6 @@ class PathSnapshot:
 @dataclass
 class NavStatus:
     is_stuck: bool                       # 是否处于卡顿状态
-    stuck_frames: int                    # 连续卡顿帧数
     path_deviation: float                # 当前偏离路径的距离
     distance_to_goal: float              # 距终点距离
     goal_reached: bool                   # 是否已到终点
@@ -70,10 +69,25 @@ class DataHub:
 
         age = now - ts
         if age > max_age:
-            logger.warning(f"DataHub: 检测帧过旧 age={age:.2f}s (max={max_age})")
+            logger.debug(f"DataHub: 检测帧过旧 age={age:.2f}s (max={max_age})")
             return None
 
         return det
+
+    def get_detection_age(self) -> float:
+        """获取检测帧的年龄（秒），未有检测返回 inf"""
+        with self._lock:
+            if self._latest_det is None:
+                return float("inf")
+            return time.perf_counter() - self._latest_ts
+
+    def reset(self) -> None:
+        """重置所有数据（用于恢复/重启场景）"""
+        with self._lock:
+            self._latest_det = None
+            self._latest_ts = 0.0
+            self._path = None
+            self._nav_status = None
 
    # ---------------- 路径 ----------------
     def set_current_path(
@@ -94,14 +108,12 @@ class DataHub:
     def set_nav_status(
         self,
         is_stuck: bool,
-        stuck_frames: int,
         path_deviation: float,
         distance_to_goal: float,
         goal_reached: bool,
     ) -> None:
         status = NavStatus(
             is_stuck=is_stuck,
-            stuck_frames=stuck_frames,
             path_deviation=path_deviation,
             distance_to_goal=distance_to_goal,
             goal_reached=goal_reached,

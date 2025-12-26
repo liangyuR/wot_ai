@@ -1,30 +1,31 @@
-﻿# Repository Guidelines
+# Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/` Python source: `core/` (state machine, task manager, actions), `navigation/` (path planning services/config/ui), `vision/` (detection), `attach/` (device hooks), `listeners/` (input), `ui_control/` (UI automation), `utils/global_path.py` for shared paths; entry scripts `main_window.py` and `navigation/navigation_main.py`.
-- `config/` runtime settings and model paths; `resource/` static assets; `utest/` pytest cases with minimap fixtures; `.vscode/` debug configs.
+- Source under `src/`: `core/` (state machine, task manager, actions), `navigation/` (path planning services/config/ui), `vision/` (detection), `attach/` (device hooks), `listeners/` (input), `ui_control/` (UI automation).
+- Config and assets in `config/` (runtime settings, model paths) and `resource/` (static files); shared paths via `src/utils/global_path.py`.
+- Entry points: `src/main_window.py` (main UI) and `src/navigation/navigation_main.py` (navigation-only); tests live in `utest/` with minimap fixtures.
 
-## Setup, Build, and Local Run
-- Install deps with `poetry install` (Python 3.11 expected). Activate the env via `poetry shell`.
-- Launch main UI: `poetry run python src/main_window.py`.
+## Build, Test, and Development Commands
+- Install deps (Python 3.11): `poetry install` then `poetry shell` to activate the venv.
+- Run main UI: `poetry run python src/main_window.py`.
 - Run navigation module standalone: `poetry run python src/navigation/navigation_main.py`.
-- Bundle (optional): `poetry run pyinstaller src/main_window.py` once a spec is prepared.
+- Execute tests: `poetry run pytest utest -q` (quiet run of the suite).
+- Optional bundle: `poetry run pyinstaller src/main_window.py` once a spec exists.
 
 ## Coding Style & Naming Conventions
-- Follow PEP 8 with 4-space indents; order imports stdlib/third-party/local.
-- Use `snake_case` for modules/functions/vars, `PascalCase` for classes, and align filenames with class purpose (e.g., `task_manager.py`).
-- Prefer `loguru` over bare prints; keep settings under `config/` and shared paths via `utils.global_path`.
+- Follow PEP 8; 4-space indents; imports ordered stdlib -> third-party -> local.
+- Naming: snake_case for modules/functions/vars, PascalCase for classes; align filenames with class purpose (e.g., `task_manager.py`).
+- Prefer `loguru` over bare prints; keep settings in `config/` and shared paths in `utils/global_path`.
 
 ## Testing Guidelines
-- Pytest-driven suite in `utest/`; name files/functions `test_*`.
-- Run checks with `poetry run pytest utest -q`; include fixtures (e.g., minimap images) when extending coverage.
-- Add regression cases for new states/tasks to keep navigation and detection stable.
+- Framework: pytest with tests in `utest/`; name files and functions `test_*`.
+- Run `poetry run pytest utest -q` before changes land; add regression cases for new states/tasks in navigation/detection.
+- Include fixtures (e.g., minimap images) when extending coverage to keep navigation stable.
 
 ## Commit & Pull Request Guidelines
-- Mirror recent history: short prefix + summary (e.g., `Refactor: adjust navigation path parsing`); keep commits scoped and descriptive. If using Chinese, keep the prefix then the concise summary.
-- PRs should list intent, key changes, how to reproduce/test, linked issues, and screenshots or logs for UI/vision changes.
-- Call out new assets/model weights and update `config` paths when necessary.
+- Commits: short prefix + summary (e.g., `Refactor: adjust navigation path parsing`); keep scope focused.
+- PRs: include intent, key changes, reproduction steps/commands, linked issues, and screenshots/logs for UI or vision updates; call out new assets/model weights and update `config` paths when needed.
 
 ## Security & Configuration Tips
-- Keep API keys or model paths outside code; use local env vars or ignored config files.
-- GPU and camera drivers (cu128, dxcam) must match the environment before running detections; document any hardware assumptions in PRs.
+- Do not hardcode API keys or model paths; use env vars or ignored config files.
+- Confirm GPU/camera drivers (cu128, dxcam) match environment before running detections; document hardware assumptions in PRs.

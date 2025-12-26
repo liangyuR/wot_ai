@@ -137,8 +137,13 @@ class DetectionEngine:
 
         return False
 
-    def _cleanupCuda(self) -> None:
-        """清理 CUDA 资源"""
+    def _cleanupCuda(self, clear_cache: bool = True) -> None:
+        """清理 CUDA 资源
+        
+        Args:
+            clear_cache: 是否调用 torch.cuda.empty_cache()，
+                         批量清理多个 engine 时可设为 False，最后统一清理
+        """
         try:
             if self.model_ is not None:
                 # 尝试将模型移到 CPU 再删除
@@ -149,10 +154,10 @@ class DetectionEngine:
                 self.model_ = None
 
             # 清理 PyTorch CUDA 缓存
-            if torch.cuda.is_available():
+            if clear_cache and torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
-                logger.info("CUDA 缓存已清理")
+                logger.debug("CUDA cache cleared for this engine")
         except Exception as e:
             logger.debug(f"清理 CUDA 资源时出错: {e}")
 
@@ -292,7 +297,12 @@ class DetectionEngine:
             except Exception as e:
                 logger.debug(f"重置追踪器: {e}")
 
-    def ResetCudaState(self) -> None:
-        """手动重置 CUDA 状态（可在战斗结束后调用，清理显存）"""
+    def ResetCudaState(self, clear_cache: bool = False) -> None:
+        """手动重置 CUDA 状态（可在战斗结束后调用，清理显存）
+        
+        Args:
+            clear_cache: 是否调用 torch.cuda.empty_cache()，
+                         批量清理多个 engine 时可设为 False，最后统一清理
+        """
         self._cuda_error_count = 0
-        self._cleanupCuda()
+        self._cleanupCuda(clear_cache=clear_cache)
