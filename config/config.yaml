@@ -37,7 +37,8 @@ minimap:
 # 掩码配置（可选）
 mask:
   inflation_radius_px: 1                                  # 障碍膨胀半径：大=更保守远离障碍，小=更贴近障碍
-  cost_alpha: 1                                           # 代价图权重：大=更倾向远离障碍，小=更自由
+  cost_alpha: 3                                           # 代价图权重：大=更倾向远离障碍，小=更自由
+  soft_obstacle_cost: 25.0                               # 软障碍（膨胀区域）代价：大=更强惩罚，小=更容易穿越
 
 # 检测失败样本保存（用于强化训练）
 failure_dump:

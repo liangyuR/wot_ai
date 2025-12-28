@@ -116,6 +116,7 @@ def load_mask(
     grid_size: Tuple[int, int],
     inflation_radius_px: int = 15,
     cost_alpha: float = 10.0,
+    soft_obstacle_cost: float = 500.0,
 ) -> MaskData:
     """加载掩码（无 NavigationConfig 依赖版）
 
@@ -125,6 +126,7 @@ def load_mask(
         grid_size: 栅格尺寸 (width, height)
         inflation_radius_px: 障碍膨胀半径（像素）
         cost_alpha: 靠近障碍的额外代价权重
+        soft_obstacle_cost: 软障碍（膨胀区域）的代价，默认 500.0
 
     Returns:
         MaskData 对象，包含对齐后的掩码、栅格地图、代价图和膨胀障碍图
@@ -179,11 +181,13 @@ def load_mask(
         grid,
         inflate_radius_px=inflation_radius_px,
         alpha=cost_alpha,
+        soft_obstacle_cost=soft_obstacle_cost,
     )
     logger.info(
-        "障碍膨胀和代价图构建完成: 膨胀半径=%d px, cost_alpha=%.2f",
+        "障碍膨胀和代价图构建完成: 膨胀半径=%d px, cost_alpha=%.2f, soft_obstacle_cost=%.1f",
         inflation_radius_px,
         cost_alpha,
+        soft_obstacle_cost,
     )
 
     return MaskData(
@@ -198,6 +202,7 @@ def build_inflated_and_cost_map(
     obstacle_map: np.ndarray,
     inflate_radius_px: int,
     alpha: float,
+    soft_obstacle_cost: float = 500.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     构建膨胀障碍图和代价图(cost map)。
@@ -206,10 +211,11 @@ def build_inflated_and_cost_map(
         obstacle_map: 0/1 二值图, 1 表示障碍
         inflate_radius_px: 障碍膨胀半径（像素）
         alpha: 靠近障碍的额外代价权重
+        soft_obstacle_cost: 软障碍（膨胀区域）的代价，默认 500.0
 
     Returns:
         inflated_obstacle: 0/1 二值图, 1 表示障碍（已膨胀）
-        cost_map: float32, free 区域的移动代价（>=1），障碍处为 np.inf
+        cost_map: float32, free 区域的移动代价（>=1），硬障碍为 np.inf，软障碍为 soft_obstacle_cost
     """
     assert obstacle_map.dtype == np.uint8, "建议用 uint8 二值图 (0/1 或 0/255)"
 
@@ -224,6 +230,7 @@ def build_inflated_and_cost_map(
     logger.info(f"障碍膨胀完成: 膨胀半径={inflate_radius_px}px, 椭圆核大小={k}x{k}")
 
     # 2) 距离变换（对 free 区域算离障碍的距离）
+    # 注意：这里使用膨胀后的障碍来计算距离，用于中心化代价
     free = (inflated == 0).astype(np.uint8)
     dist = cv2.distanceTransform(free, cv2.DIST_L2, 5)  # float32
 
@@ -234,11 +241,22 @@ def build_inflated_and_cost_map(
         dist_norm = dist
 
     # 基础代价 = 1，越远离障碍代价越接近 1，越靠近障碍代价越大
+    # 这会让路径更倾向于走道路中央
     cost_map = 1.0 + alpha * (1.0 - dist_norm)
     cost_map = cost_map.astype(np.float32, copy=False)
 
-    # 障碍处不可通行
-    cost_map[inflated != 0] = np.inf
+    # 3) 区分硬障碍和软障碍
+    # 硬障碍（原始障碍）→ np.inf（绝对不可穿越）
+    cost_map[obs != 0] = np.inf
+    
+    # 软障碍（膨胀区域，非原始障碍）→ 有限大值（紧急情况可穿越，但代价极高）
+    inflated_only = (inflated != 0) & (obs == 0)
+    cost_map[inflated_only] = soft_obstacle_cost
+    
+    logger.info(
+        f"障碍分类完成: 硬障碍={np.sum(obs != 0)}个格子(inf), "
+        f"软障碍={np.sum(inflated_only)}个格子({soft_obstacle_cost})"
+    )
 
     finite = np.isfinite(cost_map)
     if finite.any():
@@ -246,7 +264,7 @@ def build_inflated_and_cost_map(
     else:
         max_cost = float("nan")
 
-    logger.info(f"代价图构建完成: alpha={alpha}, 最大代价={max_cost:.2f}")
+    logger.info(f"代价图构建完成: alpha={alpha}, soft_obstacle_cost={soft_obstacle_cost}, 最大有限代价={max_cost:.2f}")
 
     return inflated, cost_map
 

@@ -247,6 +247,9 @@ class BattleTask:
             return
 
         logger.info("检测到战斗状态，开始启动导航...")
+
+        self._activateSilverReserve()
+
         if not self.navigation_runtime_.start():
             logger.error("导航启动失败")
             return
@@ -268,9 +271,9 @@ class BattleTask:
             # 等待键盘操作完全停止，避免与后续按键操作冲突
             time.sleep(0.5)
 
-        # 检查是否需要激活银币储备
-        if self._shouldActivateSilverReserve():
-            self._activateSilverReserve()
+        # TODO(@liangyu) 尝试改为开局启动检查是否需要激活银币储备
+        # if self._shouldActivateSilverReserve():
+        #     self._activateSilverReserve()
 
         # 关闭结算页面并返回车库
         if not self.enter_garage():
@@ -389,7 +392,8 @@ class BattleTask:
             "jie_suan_1.png",
             "jie_suan_2.png",
             "jie_suan_3.png",
-            "jie_suan_4.png"
+            "jie_suan_4.png",
+            "jie_suan_5.png"
         ]
         
         # 检查并退出结算页面
