@@ -7,7 +7,7 @@ detection:
 
 # 定时重启（防止长时间运行导致资源泄漏）
 scheduled_restart:
-  enable: true                                            # 是否启用定时重启
+  enable: false                                            # 是否启用定时重启
   interval_hours: 1                                     # 重启间隔（小时）
 
 # YOLO 模型配置
@@ -105,7 +105,7 @@ control:
 
 # 小地图角度检测
 angle_detection:
-  smoothing_alpha: 0.75                        # 平滑系数：大=更稳更慢，小=更灵敏
+  smoothing_alpha: 0.75                       # 平滑系数：大=更稳更慢，小=更灵敏
   max_step_deg: 30.0                          # 单帧最大跳变：大=容忍抖动，小=严格限制
   noise_threshold_deg: 5.0                    # 噪声阈值：大=更多视为噪声，小=更早响应
   normal_threshold_deg: 10.0                  # 正常转向阈值：大=更宽松，小=更敏感
