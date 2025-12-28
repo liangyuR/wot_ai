@@ -70,3 +70,7 @@ temp/
 Thumbs.db
 .DS_Store
 data_collection/WoTDataCollection.spec
+
+resource/vehicle_screenshots/
+
+poetry.lock
