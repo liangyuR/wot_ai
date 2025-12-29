@@ -83,6 +83,7 @@ class PathPlanningService:
                 grid_size=grid_size,
                 inflation_radius_px=self.cfg.mask.inflation_radius_px,
                 cost_alpha=self.cfg.mask.cost_alpha,
+                soft_obstacle_cost=self.cfg.mask.soft_obstacle_cost,
             )
 
             # 2) 构建 MapModel

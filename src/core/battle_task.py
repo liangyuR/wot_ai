@@ -6,8 +6,12 @@
 基于 hub state 的事件驱动模式，实现自动战斗循环。
 """
 
+import os
+import sys
 import time
 import threading
+import subprocess
+from datetime import datetime
 from typing import Optional
 from loguru import logger
 
@@ -25,11 +29,19 @@ from src.utils.global_path import GetGlobalConfig
 class BattleTask:
     """战斗任务（事件驱动模式）"""
     
+    # 常量
+    SILVER_RESERVE_INTERVAL = 3600.0  # 1小时
+    KEYBOARD_WAIT_AFTER_STOP = 0.5    # 停止导航后等待时间（秒）
+    SETTLEMENT_TEMPLATE_CONFIDENCE = 0.85  # 结算页面模板匹配置信度
+    
     def __init__(
         self,
         selection_retry_interval: float = 10.0,
         state_check_interval: float = 3,
         enable_silver_reserve: bool = False,
+        run_hours: int = 4,
+        auto_stop: bool = False,
+        auto_shutdown: bool = False,
     ):
         """
         初始化战斗任务
@@ -38,6 +50,9 @@ class BattleTask:
             selection_retry_interval: 选择失败后的重试间隔
             state_check_interval: 状态检测间隔（秒）
             enable_silver_reserve: 是否启用银币储备功能
+            run_hours: 运行时长限制（小时）
+            auto_stop: 达到时长后自动停止
+            auto_shutdown: 达到时长后自动关机（需要管理员权限）
         """
         self.tank_selector_ = TankSelector()
         self.state_machine_ = StateMachine()
@@ -73,9 +88,20 @@ class BattleTask:
         
         # 银币储备功能
         self._silver_reserve_enabled = enable_silver_reserve
-        self._silver_reserve_interval = 3600.0  # 1小时 = 3600秒
+        self._silver_reserve_interval = self.SILVER_RESERVE_INTERVAL
         self._silver_reserve_template = "silver_reserve.png"  # 模板名称
         self._last_silver_reserve_time: Optional[float] = None  # 上次激活时间
+        
+        # 时间限制与自动停止/关机
+        self.run_hours_ = run_hours
+        self.auto_stop_ = auto_stop
+        self.auto_shutdown_ = auto_shutdown
+        self.start_time_: Optional[datetime] = None
+        
+        # 定时重启配置
+        restart_cfg = config.scheduled_restart
+        self.scheduled_restart_enabled_ = restart_cfg.enable
+        self.scheduled_restart_hours_ = restart_cfg.interval_hours
     
     def start(self) -> bool:
         """
@@ -90,12 +116,12 @@ class BattleTask:
         
         logger.info("启动事件驱动循环...")
         self.running_ = True
+        self.battle_handled_ = False  # 重置战斗状态标志
+        self.start_time_ = datetime.now()  # 记录启动时间
         
-        # 重置状态标志
-        self.garage_handled_ = False
-        self.battle_handled_ = False
-        self.end_handled_ = False
-        self.result_page_handled_ = False
+        logger.info(f"任务启动，运行时长限制: {self.run_hours_} 小时")
+        if self.scheduled_restart_enabled_:
+            logger.info(f"定时重启已启用，间隔: {self.scheduled_restart_hours_} 小时")
         
         # 启动事件循环线程
         self.event_thread_ = threading.Thread(target=self._event_loop, daemon=True)
@@ -131,49 +157,66 @@ class BattleTask:
         self.last_state_change_time_ = time.time()
         self.last_state_ = GameState.UNKNOWN
         
-        while self.running_:
-            try:
-                # 更新状态机
-                self.state_machine_.update()
-                current_state = self.state_machine_.current_state()
-                
-                # 状态变化检测
-                if current_state != self.last_state_:
-                    self.last_state_ = current_state
-                    self.last_state_change_time_ = time.time()
-                
-                # 卡死检测
-                elapsed_since_change = time.time() - self.last_state_change_time_
-                if elapsed_since_change > self.stuck_timeout_:
-                    logger.error(f"游戏状态已 {elapsed_since_change:.1f} 秒未变化，判定为卡死，执行重启...")
-                    self.game_restarter_.RestartGame()
-                    # 重启后重置状态计时
-                    self.last_state_change_time_ = time.time()
-                    self.last_state_ = GameState.UNKNOWN
-                    # 等待游戏启动
-                    time.sleep(30)
-                    continue
+        try:
+            while self.running_:
+                try:
+                    # 检查停止条件
+                    if self._shouldStop():
+                        logger.info("达到停止条件，退出循环")
+                        break
+                    
+                    # 检查定时重启
+                    if self._shouldScheduledRestart():
+                        logger.info("达到定时重启时间，准备重启程序...")
+                        self._restartProgram()
+                        return  # execv 会替换进程，不会返回
+                    
+                    # 更新状态机
+                    self.state_machine_.update()
+                    current_state = self.state_machine_.current_state()
+                    
+                    # 状态变化检测
+                    if current_state != self.last_state_:
+                        self.last_state_ = current_state
+                        self.last_state_change_time_ = time.time()
+                    
+                    # 卡死检测
+                    elapsed_since_change = time.time() - self.last_state_change_time_
+                    if elapsed_since_change > self.stuck_timeout_:
+                        logger.error(f"游戏状态已 {elapsed_since_change:.1f} 秒未变化，判定为卡死，执行重启...")
+                        self.game_restarter_.RestartGame()
+                        # 重启后重置状态计时
+                        self.last_state_change_time_ = time.time()
+                        self.last_state_ = GameState.UNKNOWN
+                        # 等待游戏启动
+                        time.sleep(30)
+                        continue
 
-                # 根据当前状态执行相应操作
-                if current_state == GameState.IN_GARAGE:
-                    self._handle_garage_state()
-                elif current_state == GameState.IN_BATTLE:
-                    self._handle_battle_state()
-                elif current_state == GameState.IN_END:
-                    self._handle_end_state()
-                elif current_state == GameState.UNKNOWN:
-                    pass
-                
-                # 等待一段时间后再次检查
-                time.sleep(self.state_check_interval_)
-                
-            except Exception as e:
-                logger.error(f"事件循环异常: {e}")
-                import traceback
-                traceback.print_exc()
-                time.sleep(self.state_check_interval_)
-        
-        logger.info("事件循环结束")
+                    # 根据当前状态执行相应操作
+                    if current_state == GameState.IN_GARAGE:
+                        self._handle_garage_state()
+                    elif current_state == GameState.IN_BATTLE:
+                        self._handle_battle_state()
+                    elif current_state == GameState.IN_END:
+                        self._handle_end_state()
+                    elif current_state == GameState.UNKNOWN:
+                        pass
+                    
+                    # 等待一段时间后再次检查
+                    time.sleep(self.state_check_interval_)
+                    
+                except Exception as e:
+                    logger.error(f"事件循环异常: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    time.sleep(self.state_check_interval_)
+        finally:
+            self.running_ = False
+            logger.info("事件循环结束")
+            
+            # 如果配置了自动关机
+            if self.auto_shutdown_ and self._shouldStop():
+                self._shutdown()
     
     def _handle_garage_state(self) -> None:
         """
@@ -204,6 +247,13 @@ class BattleTask:
             return
 
         logger.info("检测到战斗状态，开始启动导航...")
+
+        # 对局结束后开启比较合适，省一点点
+        if self._shouldActivateSilverReserve():
+            self._activateSilverReserve()
+        else:
+            logger.info("不需要激活银币储备")
+
         if not self.navigation_runtime_.start():
             logger.error("导航启动失败")
             return
@@ -222,10 +272,8 @@ class BattleTask:
         # 停止导航AI运行循环（保留实例以便下次复用）
         if  self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
-
-        # 检查是否需要激活银币储备
-        if self._shouldActivateSilverReserve():
-            self._activateSilverReserve()
+            # 等待键盘操作完全停止，避免与后续按键操作冲突
+            time.sleep(0.5)
 
         # 关闭结算页面并返回车库
         if not self.enter_garage():
@@ -237,62 +285,40 @@ class BattleTask:
         logger.info("结束状态处理完成")
 
     def _shouldActivateSilverReserve(self) -> bool:
-        """
-        检查是否需要激活银币储备
+        """检查是否需要激活银币储备"""
+        return self._silver_reserve_enabled
+        # if not self._silver_reserve_enabled:
+        #     return False
         
-        Returns:
-            是否需要激活
-        """
-        if not self._silver_reserve_enabled:
-            return False
+        # if self._last_silver_reserve_time is None:
+        #     return True  # 首次激活
         
-        # 首次激活（从未激活过）
-        if self._last_silver_reserve_time is None:
-            return True
-        
-        # 检查是否已过1小时
-        elapsed = time.time() - self._last_silver_reserve_time
-        if elapsed >= self._silver_reserve_interval:
-            return True
-        
-        return False
+        # return (time.time() - self._last_silver_reserve_time) >= self._silver_reserve_interval
 
     def _activateSilverReserve(self) -> bool:
-        """
-        激活银币储备
-        
-        流程：
-        1. 按下 B 键打开储备界面
-        2. 等待界面响应（2~3秒）
-        3. 点击银币储备模板（点两下防止点击失败）
-        
-        Returns:
-            是否激活成功
-        """
+        """激活银币储备"""
         logger.info("开始激活银币储备...")
         
-        # 1. 按下 B 键打开储备界面
+        # 按住 B 键打开储备界面
         self.key_controller_.press('b')
         time.sleep(2)
         
-        # 3. 点击银币储备模板（点两下防止点击失败）
+        # 点击银币储备模板（最多2次）
         for attempt in range(2):
-            success = self.template_matcher_.click_template(
+            if self.template_matcher_.click_template(
                 self._silver_reserve_template, 
-                confidence=0.85
-            )
-            if success is not None:
+                confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+            ):
                 logger.info(f"银币储备模板点击成功（第 {attempt + 1} 次）")
-            else:
-                logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
-            time.sleep(0.5)  # 两次点击之间短暂等待
+                break
+            logger.warning(f"银币储备模板点击失败（第 {attempt + 1} 次）")
+            time.sleep(0.5)
         
-        self.key_controller_.release("b")
-
-        # 更新激活时间
+        # 关闭储备界面
+        self.key_controller_.release('b')
+        
         self._last_silver_reserve_time = time.time()
         logger.info("银币储备激活完成，下次激活将在1小时后")
-        
         return True
     
     def _handle_result_page_state(self) -> None:
@@ -331,10 +357,10 @@ class BattleTask:
     
     def _try_select_candidate(self, candidate: TankTemplate) -> bool:
         """尝试点击单个候选车辆"""
-        success = self.template_matcher_.click_template(candidate.name, confidence=candidate.confidence)
-        if success is not None:
-            return True
-        return False
+        return self.template_matcher_.click_template(
+            candidate.name, 
+            confidence=candidate.confidence
+        ) is not None
     
     def enter_battle(self) -> bool:
         """
@@ -345,7 +371,10 @@ class BattleTask:
         """
         logger.info("点击加入战斗...")
         
-        success = self.template_matcher_.click_template("join_battle.png", confidence=0.85)
+        success = self.template_matcher_.click_template(
+            "join_battle.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        )
         if not success:
             logger.error("未找到加入战斗按钮")
             return False
@@ -355,66 +384,57 @@ class BattleTask:
         return True
     
     def enter_garage(self) -> bool:
-        """
-        返回车库
-        
-        Returns:
-            是否成功
-        """
+        """返回车库"""
         logger.info("退出结算界面，返回车库...")
-
-        # 1. 奖励页面，按下esc键退出奖励页面
-        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
-        if success is not None:
-            logger.info("在奖励页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
         
-        # 2. 结算页面
-        success = self.template_matcher_.match_template("jie_suan_1.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-
-        # 2. 结算页面
-        success = self.template_matcher_.match_template("jie_suan_2.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-
-        # 2. 结算页面 2
-        success = self.template_matcher_.match_template("jie_suan_3.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-
-        # 3. 结算页面 3
-        success = self.template_matcher_.match_template("jie_suan_4.png", confidence=0.85)
-        if success is not None:
-            logger.info("在结算页面，按下esc键退出结算界面")
-            self.key_controller_.tap(Key.esc)
-            return True
-            
-        # 2.当被击毁时，点击"返回车库"按钮
-        # press esc
-        success = self.template_matcher_.match_template("pingjia.png", confidence=0.85)
-        if success is not None:
-            logger.info("被击毁状态，需要按下 ESC 然后点击返回车库按钮")
-            self.key_controller_.tap(Key.esc)
-            time.sleep(3.0)
-            success = self.template_matcher_.click_template("return_garage.png", confidence=0.85)
-            if success is None:
-                logger.error("未找到返回车库按钮")
-                return False
-
-            success = self.template_matcher_.click_template("leave_confirmation.png", confidence=0.85)
-            if success is None:
-                logger.error("未找到离开确认按钮")
-                return False
-
+        # 结算页面模板列表（按优先级）
+        settlement_templates = [
+            "jie_suan_1.png",
+            "jie_suan_2.png",
+            "jie_suan_3.png",
+            "jie_suan_4.png",
+            "jie_suan_5.png"
+        ]
+        
+        # 检查并退出结算页面
+        for template in settlement_templates:
+            if self.template_matcher_.match_template(
+                template, 
+                confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+            ):
+                logger.info(f"检测到结算页面 ({template})，按下 ESC 退出")
+                self.key_controller_.tap(Key.esc)
+                return True
+        
+        # 处理被击毁状态
+        if self.template_matcher_.match_template(
+            "pingjia.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        ):
+            return self._handle_destroyed_state()
+        
+        return True
+    
+    def _handle_destroyed_state(self) -> bool:
+        """处理被击毁状态：返回车库"""
+        logger.info("被击毁状态，按下 ESC 然后点击返回车库按钮")
+        self.key_controller_.tap(Key.esc)
+        time.sleep(3.0)
+        
+        if not self.template_matcher_.click_template(
+            "return_garage.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        ):
+            logger.error("未找到返回车库按钮")
+            return False
+        
+        if not self.template_matcher_.click_template(
+            "leave_confirmation.png", 
+            confidence=self.SETTLEMENT_TEMPLATE_CONFIDENCE
+        ):
+            logger.error("未找到离开确认按钮")
+            return False
+        
         return True
     
     def is_running(self) -> bool:
@@ -425,6 +445,78 @@ class BattleTask:
             是否正在运行
         """
         return self.running_
+    
+    def _shouldStop(self) -> bool:
+        """
+        检查是否应该停止
+        
+        Returns:
+            是否应该停止
+        """
+        if not self.auto_stop_ and not self.auto_shutdown_:
+            return False
+        
+        if self.start_time_ is None:
+            return False
+        
+        elapsed = datetime.now() - self.start_time_
+        elapsed_hours = elapsed.total_seconds() / 3600.0
+        
+        return elapsed_hours >= self.run_hours_
+    
+    def _shouldScheduledRestart(self) -> bool:
+        """
+        检查是否应该执行定时重启
+        
+        Returns:
+            是否应该重启
+        """
+        if not self.scheduled_restart_enabled_:
+            return False
+        
+        if self.start_time_ is None:
+            return False
+        
+        elapsed = datetime.now() - self.start_time_
+        elapsed_hours = elapsed.total_seconds() / 3600.0
+        
+        return elapsed_hours >= self.scheduled_restart_hours_
+    
+    def _restartProgram(self) -> None:
+        """重启程序（使用 os.execv 替换当前进程）"""
+        logger.info("正在重启程序...")
+
+        python = sys.executable
+        script = sys.argv[0]
+        args = sys.argv[1:]
+
+        # 添加 --auto-start 参数以便重启后自动启动
+        if "--auto-start" not in args:
+            args.append("--auto-start")
+
+        logger.info(f"重启命令: {python} {script} {' '.join(args)}")
+
+        try:
+            os.execv(python, [python, script] + args)
+        except Exception as e:
+            logger.error(f"重启失败: {e}")
+            # 如果 execv 失败，尝试使用 subprocess
+            try:
+                subprocess.Popen([python, script] + args)
+                sys.exit(0)
+            except Exception as e2:
+                logger.error(f"备用重启也失败: {e2}")
+    
+    def _shutdown(self) -> None:
+        """执行关机操作（需要管理员权限）"""
+        logger.info("执行自动关机...")
+        
+        try:
+            subprocess.run(['shutdown', '/s', '/t', '10'], check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"关机命令执行失败: {e}")
+        except Exception as e:
+            logger.error(f"关机操作异常: {e}")
 
     def __del__(self):
         """析构函数：确保资源清理"""

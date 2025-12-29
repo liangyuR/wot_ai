@@ -7,7 +7,7 @@ detection:
 
 # 定时重启（防止长时间运行导致资源泄漏）
 scheduled_restart:
-  enable: true                                            # 是否启用定时重启
+  enable: false                                            # 是否启用定时重启
   interval_hours: 1                                     # 重启间隔（小时）
 
 # YOLO 模型配置
@@ -27,6 +27,7 @@ game:
   exe_path: "C:/Games/World_of_Tanks_CN/WorldOfTanks.exe" # 可执行路径；改成你的安装路径
   restart_wait_seconds: 15                                # 重启等待秒数：大=更稳妥，小=更快重启
   stuck_timeout_seconds: 480                              # 判定卡死的总超时时间：大=更耐心，小=更快重启
+  enable_silver_reserve: true                             # 是否启用银币储备
 
 # 小地图配置
 minimap:
@@ -36,7 +37,8 @@ minimap:
 # 掩码配置（可选）
 mask:
   inflation_radius_px: 1                                  # 障碍膨胀半径：大=更保守远离障碍，小=更贴近障碍
-  cost_alpha: 1                                           # 代价图权重：大=更倾向远离障碍，小=更自由
+  cost_alpha: 3                                           # 代价图权重：大=更倾向远离障碍，小=更自由
+  soft_obstacle_cost: 25.0                               # 软障碍（膨胀区域）代价：大=更强惩罚，小=更容易穿越
 
 # 检测失败样本保存（用于强化训练）
 failure_dump:
@@ -103,7 +105,7 @@ control:
 
 # 小地图角度检测
 angle_detection:
-  smoothing_alpha: 0.75                        # 平滑系数：大=更稳更慢，小=更灵敏
+  smoothing_alpha: 0.75                       # 平滑系数：大=更稳更慢，小=更灵敏
   max_step_deg: 30.0                          # 单帧最大跳变：大=容忍抖动，小=严格限制
   noise_threshold_deg: 5.0                    # 噪声阈值：大=更多视为噪声，小=更早响应
   normal_threshold_deg: 10.0                  # 正常转向阈值：大=更宽松，小=更敏感

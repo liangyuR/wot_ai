@@ -125,6 +125,10 @@ class MaskConfig(BaseModel):
     )
     inflation_radius_px: int = Field(..., description="障碍膨胀半径（像素）")
     cost_alpha: float = Field(..., description="代价图权重")
+    soft_obstacle_cost: float = Field(
+        500.0,
+        description="软障碍（膨胀区域）的代价，允许紧急穿越但代价极高"
+    )
     
     @field_validator('inflation_radius_px')
     @classmethod
@@ -140,6 +144,14 @@ class MaskConfig(BaseModel):
         """验证代价图权重"""
         if v < 0:
             raise ValueError(f"代价图权重不能为负数: {v}")
+        return v
+    
+    @field_validator('soft_obstacle_cost')
+    @classmethod
+    def validate_soft_obstacle_cost(cls, v: float) -> float:
+        """验证软障碍代价"""
+        if v <= 0:
+            raise ValueError(f"软障碍代价必须为正数: {v}")
         return v
 
 
@@ -280,6 +292,7 @@ class GameConfig(BaseModel):
     exe_path: str = Field("C:/Games/World_of_Tanks_CN/WorldOfTanks.exe", description="游戏可执行文件路径")
     restart_wait_seconds: int = Field(10, description="重启等待时间（秒）")
     stuck_timeout_seconds: int = Field(480, description="卡死判定超时时间（秒）")
+    enable_silver_reserve: bool = Field(False, description="是否启用银币储备")
 
 
 class StuckDetectionConfig(BaseModel):

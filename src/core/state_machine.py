@@ -55,7 +55,7 @@ class StateMachine:
         
         # 状态模板映射
         self.state_templates_ = {
-            GameState.IN_END: ["pingjia.png","jie_suan_1.png","jie_suan_2.png","jie_suan_3.png"], # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
+            GameState.IN_END: ["pingjia.png","jie_suan_1.png","jie_suan_2.png","jie_suan_3.png", "jie_suan_4.png", "jie_suan_5.png"], # 被击毁时会出现 “评价窗口”，当出现评价窗口时，认为此时已经被击毁
             GameState.IN_GARAGE: ["in_garage.png"],
             GameState.IN_BATTLE: ["in_battle.png"],
         }

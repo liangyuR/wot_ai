@@ -25,6 +25,8 @@ class MapNameDetector:
     def detect(self, frame=None) -> Optional[str]:
         """
         使用模板匹配识别地图名称。
+        
+        优先匹配名称更长的地图（如"安斯克地区"优先于"安斯克"）。
 
         Args:
             frame: 兼容旧版接口的占位参数（当前实现未使用）。
@@ -32,7 +34,15 @@ class MapNameDetector:
 
         if not self.template_mapping_:
             return None
-        for map_name, template_files in self.template_mapping_.items():
+        
+        # 按地图名称长度降序排列，确保更长的名称优先匹配
+        sorted_maps = sorted(
+            self.template_mapping_.items(), 
+            key=lambda x: len(x[0]), 
+            reverse=True
+        )
+        
+        for map_name, template_files in sorted_maps:
             for template_name in template_files:
                 try:
                     center = self.template_matcher_.match_template(
