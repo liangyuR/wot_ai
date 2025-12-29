@@ -248,7 +248,11 @@ class BattleTask:
 
         logger.info("检测到战斗状态，开始启动导航...")
 
-        self._activateSilverReserve()
+        # 对局结束后开启比较合适，省一点点
+        if self._shouldActivateSilverReserve():
+            self._activateSilverReserve()
+        else:
+            logger.info("不需要激活银币储备")
 
         if not self.navigation_runtime_.start():
             logger.error("导航启动失败")
@@ -271,10 +275,6 @@ class BattleTask:
             # 等待键盘操作完全停止，避免与后续按键操作冲突
             time.sleep(0.5)
 
-        # TODO(@liangyu) 尝试改为开局启动检查是否需要激活银币储备
-        # if self._shouldActivateSilverReserve():
-        #     self._activateSilverReserve()
-
         # 关闭结算页面并返回车库
         if not self.enter_garage():
             logger.error("返回车库失败，将在下次循环重试")
@@ -286,18 +286,18 @@ class BattleTask:
 
     def _shouldActivateSilverReserve(self) -> bool:
         """检查是否需要激活银币储备"""
-        if not self._silver_reserve_enabled:
-            return False
+        return self._silver_reserve_enabled
+        # if not self._silver_reserve_enabled:
+        #     return False
         
-        if self._last_silver_reserve_time is None:
-            return True  # 首次激活
+        # if self._last_silver_reserve_time is None:
+        #     return True  # 首次激活
         
-        return (time.time() - self._last_silver_reserve_time) >= self._silver_reserve_interval
+        # return (time.time() - self._last_silver_reserve_time) >= self._silver_reserve_interval
 
     def _activateSilverReserve(self) -> bool:
         """激活银币储备"""
         logger.info("开始激活银币储备...")
-        
         
         # 按住 B 键打开储备界面
         self.key_controller_.press('b')
