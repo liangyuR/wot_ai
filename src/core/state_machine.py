@@ -173,5 +173,3 @@ if __name__ == "__main__":
     print(state_machine.current_state())
     state_machine.wait_state(GameState.IN_END)
     print(state_machine.current_state())
-    state_machine.wait_state(GameState.IN_RESULT_PAGE)
-    print(state_machine.current_state())
