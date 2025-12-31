@@ -32,8 +32,6 @@ a = Analysis(
         'src.navigation.path_planner',
         'src.navigation.service',
         'src.vision',
-        'src.attach',
-        'src.listeners',
         'src.utils',
         'loguru',
         'cv2',
