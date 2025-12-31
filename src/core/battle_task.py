@@ -241,20 +241,34 @@ class BattleTask:
     
     def _handle_battle_state(self) -> None:
         """
-        处理战斗状态：检测地图名称并启动导航AI
+        处理战斗状态：检查银币储备 -> 识别地图 -> 启动导航AI
         """
         if self.battle_handled_:
             return
 
-        logger.info("检测到战斗状态，开始启动导航...")
+        logger.info("检测到战斗状态，开始初始化...")
 
-        # 对局结束后开启比较合适，省一点点
+        # Step 1: 激活银币储备（如果启用）
         if self._shouldActivateSilverReserve():
             self._activateSilverReserve()
         else:
             logger.info("不需要激活银币储备")
 
-        if not self.navigation_runtime_.start():
+        # Step 2: 识别地图名称（在启动导航之前）
+        logger.info("识别地图名称...")
+        self.key_controller_.press('b')
+        time.sleep(2)
+        map_name = self.map_name_detector_.detect()
+        self.key_controller_.release('b')
+        
+        if not map_name:
+            logger.error("地图识别失败，无法启动导航")
+            return
+        
+        logger.info(f"地图识别成功: {map_name}")
+
+        # Step 3: 使用已识别的地图名称启动导航
+        if not self.navigation_runtime_.start(map_name=map_name):
             logger.error("导航启动失败")
             return
         
