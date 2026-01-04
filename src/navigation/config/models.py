@@ -299,6 +299,8 @@ class StuckDetectionConfig(BaseModel):
     """卡顿脱困配置"""
     reverse_duration_s: float = Field(0.8, description="脱困倒退时间（秒）")
     max_stuck_count: int = Field(3, description="连续卡顿帧数阈值")
+    check_interval_s: float = Field(5.0, description="检测间隔（秒）")
+    dist_threshold_px: float = Field(10.0, description="最小移动距离（像素）")
 
 
 class DetectionConfig(BaseModel):

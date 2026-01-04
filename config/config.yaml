@@ -118,10 +118,10 @@ angle_detection:
 
 # 卡死检测与脱困
 stuck_detection:
-  time_window_s: 15.0              # 检测窗口：大=更耐心，小=更快判卡
-  dist_threshold_px: 3.0           # 位移阈值：大=易视为移动，小=易视为卡住
-  reverse_duration_s: 2.0          # 倒退时间：大=退得更久，小=更快结束
-  max_stuck_count: 5               # 连续卡死次数：大=更晚随机转向，小=更早尝试随机转向
+  check_interval_s: 10.0            # 检测间隔：每隔多少秒检测一次（大=更耐心，小=更快判卡）
+  dist_threshold_px: 5.0            # 最小移动距离：小于此值判定卡顿
+  reverse_duration_s: 2.0           # 倒退时间：大=退得更久，小=更快结束
+  max_stuck_count: 3                # 连续卡死次数：大=更晚随机转向，小=更早尝试随机转向
 
 # 车辆配置
 vehicle:

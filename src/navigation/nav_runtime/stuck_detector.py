@@ -2,18 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-卡顿检测器 - 基于时间窗口内累计行程判断是否卡死
+卡顿检测器 - 基于固定时间间隔和直线距离判断是否卡死
 
 核心逻辑：
-- 记录时间窗口内的位置历史
-- 计算累计行程（相邻帧位移之和），而非首尾直线距离
-- 累计行程 < 阈值 → 判定卡顿
+- 记录检测起点坐标和时间戳
+- 固定时间间隔后，计算当前位置与起点的直线距离
+- 直线距离 < 阈值 → 判定卡顿
 """
 
 import math
 import time
-from typing import Tuple
-from collections import deque
+from typing import Tuple, Optional
 from loguru import logger
 from src.utils.global_path import GetGlobalConfig
 
@@ -21,41 +20,22 @@ from src.utils.global_path import GetGlobalConfig
 class StuckDetector:
     """卡顿检测器"""
 
-    # 最小检测时间（秒），历史数据不足此时间则不判定
-    MIN_DETECTION_TIME = 3.0
-
     def __init__(self):
-        config = GetGlobalConfig()
-        stuck_cfg = getattr(config, "stuck_detection", None)
+        stuck_cfg = GetGlobalConfig().stuck_detection
 
         # 配置参数
-        self.time_window_: float = self._getConfigValue(
-            stuck_cfg, "time_window_s", 30.0
-        )
-        self.dist_threshold_: float = self._getConfigValue(
-            stuck_cfg, "dist_threshold_px", 0.5
-        )
+        self.check_interval_: float = stuck_cfg.check_interval_s
+        self.dist_threshold_: float = stuck_cfg.dist_threshold_px
 
-        # 位置历史：[(x, y, timestamp), ...]
-        self._history: deque = deque()
+        # 检测起点
+        self._checkpoint_pos: Optional[Tuple[float, float]] = None
+        self._checkpoint_time: float = 0.0
 
         # 状态
         self._is_stuck: bool = False
         self._stuck_count: int = 0
-        self._last_travel: float = 0.0  # 上次计算的累计行程（调试用）
-
-    @staticmethod
-    def _getConfigValue(cfg, key: str, default):
-        """兼容 dict 和 object 两种配置访问方式"""
-        if cfg is None:
-            return default
-        if hasattr(cfg, key):
-            val = getattr(cfg, key, None)
-            return val if val is not None else default
-        if isinstance(cfg, dict):
-            return cfg.get(key, default)
-        return default
-
+        self._last_distance: float = 0.0  # 上次计算的直线距离（调试用）
+        
     def update(self, pos: Tuple[float, float]) -> bool:
         """
         更新位置并返回是否卡顿
@@ -67,47 +47,44 @@ class StuckDetector:
             True 如果检测到卡顿，否则 False
         """
         now = time.perf_counter()
-        x, y = pos
 
-        # 添加当前位置
-        self._history.append((x, y, now))
-
-        # 清理过期记录（保留时间窗口内的数据）
-        cutoff = now - self.time_window_
-        while self._history and self._history[0][2] < cutoff:
-            self._history.popleft()
-
-        # 数据不足，不判定
-        if len(self._history) < 2:
+        # 首次调用，设置检测起点
+        if self._checkpoint_pos is None:
+            self._checkpoint_pos = pos
+            self._checkpoint_time = now
             self._is_stuck = False
             return False
 
-        # 时间跨度不足最小检测时间，不判定
-        time_span = now - self._history[0][2]
-        if time_span < self.MIN_DETECTION_TIME:
+        # 未到检测时间，不判定
+        elapsed = now - self._checkpoint_time
+        if elapsed < self.check_interval_:
             self._is_stuck = False
             return False
 
-        # 计算累计行程（相邻点之间的距离之和）
-        travel = 0.0
-        prev = self._history[0]
-        for curr in list(self._history)[1:]:
-            dx = curr[0] - prev[0]
-            dy = curr[1] - prev[1]
-            travel += math.hypot(dx, dy)
-            prev = curr
+        # 计算直线距离
+        dx = pos[0] - self._checkpoint_pos[0]
+        dy = pos[1] - self._checkpoint_pos[1]
+        distance = math.hypot(dx, dy)
+        self._last_distance = distance
 
-        self._last_travel = travel
+        # 重置检测起点（无论是否卡顿）
+        self._checkpoint_pos = pos
+        self._checkpoint_time = now
 
-        # 判定：累计行程 < 阈值 → 卡顿
-        self._is_stuck = travel < self.dist_threshold_
+        # 判定：距离 < 阈值 → 卡顿
+        self._is_stuck = distance < self.dist_threshold_
+        if self._is_stuck:
+            logger.debug(
+                f"卡顿检测: 间隔={elapsed:.1f}s, 移动距离={distance:.1f}px < 阈值={self.dist_threshold_}px"
+            )
         return self._is_stuck
 
     def reset(self) -> None:
         """重置检测状态（路径重规划或脱困后调用）"""
-        self._history.clear()
+        self._checkpoint_pos = None
+        self._checkpoint_time = 0.0
         self._is_stuck = False
-        self._last_travel = 0.0
+        self._last_distance = 0.0
 
     def incrementStuckCount(self) -> None:
         """增加连续卡顿计数（由上层在处理卡顿后调用）"""
@@ -126,18 +103,18 @@ class StuckDetector:
 
     def getDebugInfo(self) -> dict:
         """获取调试信息"""
-        time_span = 0.0
-        if len(self._history) >= 2:
-            time_span = self._history[-1][2] - self._history[0][2]
+        elapsed = 0.0
+        if self._checkpoint_pos is not None:
+            elapsed = time.perf_counter() - self._checkpoint_time
 
         return {
             "is_stuck": self._is_stuck,
             "stuck_count": self._stuck_count,
-            "travel": self._last_travel,
+            "distance": self._last_distance,
             "threshold": self.dist_threshold_,
-            "time_span": time_span,
-            "time_window": self.time_window_,
-            "history_size": len(self._history),
+            "elapsed": elapsed,
+            "check_interval": self.check_interval_,
+            "checkpoint": self._checkpoint_pos,
         }
 
     @property
