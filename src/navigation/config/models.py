@@ -281,8 +281,6 @@ class ControlConfig(BaseModel):
 
 class UiConfig(BaseModel):
     """UI配置"""
-    overlay_fps: int = Field(30, description="覆盖层FPS")
-    overlay_alpha: int = Field(180, description="覆盖层透明度 (0-255)")
     enable: bool = Field(False, description="是否启用调试视图")
 
 

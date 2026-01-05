@@ -3,7 +3,7 @@
 
 # 检测配置
 detection:
-  max_fps: 30                                             # 检测帧率上限：大=更快但耗资源，小=更省资源
+  max_fps: 15                                             # 检测帧率上限：大=更快但耗资源，小=更省资源
 
 # 定时重启（防止长时间运行导致资源泄漏）
 scheduled_restart:
@@ -42,7 +42,7 @@ mask:
 
 # 检测失败样本保存（用于强化训练）
 failure_dump:
-  enable: true                                           # 开/关保存失败帧；true=保存，false=关闭
+  enable: true                                            # 开/关保存失败帧；true=保存，false=关闭
   interval_s: 10                                          # 失败保存冷却时间：大=更少样本，小=更频繁
   minimap_dir: "Logs/fail_minimap"                        # 小地图失败帧保存目录
   arrow_dir: "Logs/fail_arrow"                            # 箭头裁剪失败帧保存目录
@@ -134,8 +134,6 @@ vehicle:
 
 # UI配置
 ui:
-  overlay_fps: 30         # 覆盖层FPS：大=更流畅更耗资源，小=更省资源
-  overlay_alpha: 180      # 覆盖层透明度(0-255)：大=更不透明，小=更透明
   enable: true            # 是否启用调试视图
 
 # 屏幕捕获配置
