@@ -126,6 +126,12 @@ class NavigationRuntime:
         # Config cache
         self.reverse_duration_s_ = self.cfg_.stuck_detection.reverse_duration_s
         self.max_stuck_count_ = self.cfg_.stuck_detection.max_stuck_count
+        
+        # Periodic replan config
+        periodic_cfg = getattr(self.cfg_, "periodic_replan", None)
+        self.enable_periodic_replan_ = getattr(periodic_cfg, "enable", False) if periodic_cfg else False
+        self.periodic_replan_interval_ = getattr(periodic_cfg, "interval_s", 3.0) if periodic_cfg else 3.0
+        self._last_replan_time: float = 0.0
 
     # =========================================================================
     # Lifecycle: init / shutdown (one-time)
@@ -342,6 +348,9 @@ class NavigationRuntime:
         self.stuck_detector_.resetStuckCount()
         self.data_hub_.reset()
         self.minimap_detector_.Reset()
+        
+        # Initialize periodic replan timestamp
+        self._last_replan_time = time.perf_counter()
         
         # Start threads
         self._startThreads()
@@ -575,7 +584,7 @@ class NavigationRuntime:
         
         ctrl_fps = 30
         interval = 1.0 / ctrl_fps
-        view_update_interval = 3
+        view_update_interval = 1
         view_update_counter = 0
         
         while self._threads_running:
@@ -610,17 +619,29 @@ class NavigationRuntime:
             
             # Check if stuck
             is_stuck = self.stuck_detector_.update(pos)
+            
+            # Check if periodic replan is needed
+            now = time.perf_counter()
+            periodic_replan_needed = False
+            if self.enable_periodic_replan_ and self.session_.current_path_world_:
+                time_since_last_replan = now - self._last_replan_time
+                if time_since_last_replan >= self.periodic_replan_interval_:
+                    periodic_replan_needed = True
+                    logger.debug(f"定期重规划触发: 距上次规划 {time_since_last_replan:.1f}s")
+            
+            # Determine if replan is needed
             need_replan = (
                 not self.session_.current_path_world_
                 or is_stuck
+                or periodic_replan_needed
                 or self.session_.current_target_idx_ >= len(self.session_.current_path_world_) - 1
             )
             
             # Replan if needed
             if need_replan:
-                self.move_.stop()
-                
+                # 只在卡顿时才停止运动
                 if is_stuck:
+                    self.move_.stop()
                     self.stuck_detector_.incrementStuckCount()
                     stuck_count = self.stuck_detector_.getStuckCount()
                     
@@ -633,12 +654,18 @@ class NavigationRuntime:
                         turn_bias = 0.0
                         logger.info(f"Stuck #{stuck_count}, reversing")
                     
+                    # 倒退（阻塞执行，完成后自动停车）
                     self.move_.reverse(
                         duration_s=self.reverse_duration_s_,
                         turn_bias=turn_bias,
                     )
+                # 非卡顿场景（如到达终点、首次规划）：不停止，保持运动流畅
                 
+                # 重新规划（卡顿时倒退完成后，非卡顿时继续运动中）
                 grid_path, world_path = self.planner_service_.plan_path(det)
+                
+                # 更新重规划时间戳
+                self._last_replan_time = time.perf_counter()
                 
                 if not world_path:
                     self.move_.stop()

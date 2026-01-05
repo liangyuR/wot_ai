@@ -303,6 +303,20 @@ class StuckDetectionConfig(BaseModel):
     dist_threshold_px: float = Field(10.0, description="最小移动距离（像素）")
 
 
+class PeriodicReplanConfig(BaseModel):
+    """定期重规划配置"""
+    enable: bool = Field(False, description="是否启用定期重规划")
+    interval_s: float = Field(3.0, description="重规划间隔（秒）")
+    
+    @field_validator('interval_s')
+    @classmethod
+    def validate_interval_s(cls, v: float) -> float:
+        """验证重规划间隔"""
+        if v <= 0:
+            raise ValueError(f"重规划间隔必须大于0: {v}")
+        return v
+
+
 class DetectionConfig(BaseModel):
     """检测配置"""
     max_fps: float = Field(60.0, description="检测帧率上限")
@@ -343,6 +357,7 @@ class NavigationConfig(BaseModel):
     monitor_index: int = Field(..., description="屏幕捕获监视器索引")
     ui: UiConfig = Field(..., description="UI配置")
     stuck_detection: StuckDetectionConfig = Field(..., description="卡顿脱困配置")
+    periodic_replan: PeriodicReplanConfig = Field(default_factory=PeriodicReplanConfig, description="定期重规划配置")
     detection: DetectionConfig = Field(default_factory=DetectionConfig, description="检测配置")
     scheduled_restart: ScheduledRestartConfig = Field(default_factory=ScheduledRestartConfig, description="定时重启配置")
     
