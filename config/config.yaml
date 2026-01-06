@@ -3,7 +3,7 @@
 
 # 检测配置
 detection:
-  max_fps: 15                                             # 检测帧率上限：大=更快但耗资源，小=更省资源
+  max_fps: 60                                             # 检测帧率上限：大=更快但耗资源，小=更省资源
 
 # 定时重启（防止长时间运行导致资源泄漏）
 scheduled_restart:
@@ -100,8 +100,8 @@ control:
 
   # PathFollower
   max_lateral_error: 3.0                      # 允许横向误差：大=宽松，纠偏少；小=严格，纠偏多
-  lookahead_distance: 12.0                    # 前瞻距离：大=更平滑但可能切弯，路少转；小=谨慎贴点
-  waypoint_switch_radius: 6.0                 # 路点切换半径：大=提前切，路径更直；小=贴近切，曲率更大
+  lookahead_distance: 24.0                    # 前瞻距离：大=更平滑但可能切弯，路少转；小=谨慎贴点
+  waypoint_switch_radius: 12.0                 # 路点切换半径：大=提前切，路径更直；小=贴近切，曲率更大
 
 # 小地图角度检测
 angle_detection:
