@@ -34,7 +34,6 @@ class StuckDetector:
         # 状态
         self._is_stuck: bool = False
         self._stuck_count: int = 0
-        self._last_distance: float = 0.0  # 上次计算的直线距离（调试用）
         
     def update(self, pos: Tuple[float, float]) -> bool:
         """
@@ -65,7 +64,6 @@ class StuckDetector:
         dx = pos[0] - self._checkpoint_pos[0]
         dy = pos[1] - self._checkpoint_pos[1]
         distance = math.hypot(dx, dy)
-        self._last_distance = distance
 
         # 重置检测起点（无论是否卡顿）
         self._checkpoint_pos = pos
@@ -84,7 +82,6 @@ class StuckDetector:
         self._checkpoint_pos = None
         self._checkpoint_time = 0.0
         self._is_stuck = False
-        self._last_distance = 0.0
 
     def incrementStuckCount(self) -> None:
         """增加连续卡顿计数（由上层在处理卡顿后调用）"""
@@ -100,22 +97,6 @@ class StuckDetector:
     def getStuckCount(self) -> int:
         """获取连续卡顿次数"""
         return self._stuck_count
-
-    def getDebugInfo(self) -> dict:
-        """获取调试信息"""
-        elapsed = 0.0
-        if self._checkpoint_pos is not None:
-            elapsed = time.perf_counter() - self._checkpoint_time
-
-        return {
-            "is_stuck": self._is_stuck,
-            "stuck_count": self._stuck_count,
-            "distance": self._last_distance,
-            "threshold": self.dist_threshold_,
-            "elapsed": elapsed,
-            "check_interval": self.check_interval_,
-            "checkpoint": self._checkpoint_pos,
-        }
 
     @property
     def stuck_count_(self) -> int:

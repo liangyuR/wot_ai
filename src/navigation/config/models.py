@@ -342,6 +342,21 @@ class ScheduledRestartConfig(BaseModel):
         return v
 
 
+class AutoStopConfig(BaseModel):
+    """自动停止配置"""
+    enable: bool = Field(False, description="是否启用自动停止")
+    run_hours: float = Field(24.0, description="运行时长限制（小时）")
+    auto_shutdown: bool = Field(False, description="达到时长后是否自动关机")
+
+    @field_validator('run_hours')
+    @classmethod
+    def validate_run_hours(cls, v: float) -> float:
+        """验证运行时长"""
+        if v <= 0:
+            raise ValueError(f"运行时长必须大于0: {v}")
+        return v
+
+
 class NavigationConfig(BaseModel):
     """导航主配置"""
     model: ModelConfig = Field(..., description="YOLO模型配置")
@@ -358,6 +373,7 @@ class NavigationConfig(BaseModel):
     periodic_replan: PeriodicReplanConfig = Field(default_factory=PeriodicReplanConfig, description="定期重规划配置")
     detection: DetectionConfig = Field(default_factory=DetectionConfig, description="检测配置")
     scheduled_restart: ScheduledRestartConfig = Field(default_factory=ScheduledRestartConfig, description="定时重启配置")
+    auto_stop: AutoStopConfig = Field(default_factory=AutoStopConfig, description="自动停止配置")
     
     @field_validator('monitor_index')
     @classmethod

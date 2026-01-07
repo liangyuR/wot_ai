@@ -8,7 +8,13 @@ detection:
 # 定时重启（防止长时间运行导致资源泄漏）
 scheduled_restart:
   enable: false                                            # 是否启用定时重启
-  interval_hours: 1                                     # 重启间隔（小时）
+  interval_hours: 1                                        # 重启间隔（小时）
+
+# 自动停止配置
+auto_stop:
+  enable: false                                            # 是否启用自动停止
+  run_hours: 24.0                                          # 运行时长限制（小时），默认24小时
+  auto_shutdown: false                                     # 达到时长后是否自动关机（需要管理员权限）
 
 # YOLO 模型配置
 model:

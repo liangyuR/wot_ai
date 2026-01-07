@@ -39,9 +39,6 @@ class BattleTask:
         selection_retry_interval: float = 10.0,
         state_check_interval: float = 3,
         enable_silver_reserve: bool = False,
-        run_hours: int = 4,
-        auto_stop: bool = False,
-        auto_shutdown: bool = False,
     ):
         """
         初始化战斗任务
@@ -50,9 +47,6 @@ class BattleTask:
             selection_retry_interval: 选择失败后的重试间隔
             state_check_interval: 状态检测间隔（秒）
             enable_silver_reserve: 是否启用银币储备功能
-            run_hours: 运行时长限制（小时）
-            auto_stop: 达到时长后自动停止
-            auto_shutdown: 达到时长后自动关机（需要管理员权限）
         """
         self.tank_selector_ = TankSelector()
         self.state_machine_ = StateMachine()
@@ -76,9 +70,6 @@ class BattleTask:
         self.running_ = False
         self.event_thread_: Optional[threading.Thread] = None
         
-        # 状态处理标志，防止重复处理
-        self.battle_handled_ = False
-        
         # 选中的车辆
         self.selected_tank_: Optional[TankTemplate] = None
         
@@ -92,10 +83,11 @@ class BattleTask:
         self._silver_reserve_template = "silver_reserve.png"  # 模板名称
         self._last_silver_reserve_time: Optional[float] = None  # 上次激活时间
         
-        # 时间限制与自动停止/关机
-        self.run_hours_ = run_hours
-        self.auto_stop_ = auto_stop
-        self.auto_shutdown_ = auto_shutdown
+        # 自动停止配置（从配置文件读取）
+        auto_stop_cfg = config.auto_stop
+        self.auto_stop_ = auto_stop_cfg.enable
+        self.run_hours_ = auto_stop_cfg.run_hours
+        self.auto_shutdown_ = auto_stop_cfg.auto_shutdown
         self.start_time_: Optional[datetime] = None
         
         # 定时重启配置
@@ -116,10 +108,13 @@ class BattleTask:
         
         logger.info("启动事件驱动循环...")
         self.running_ = True
-        self.battle_handled_ = False  # 重置战斗状态标志
         self.start_time_ = datetime.now()  # 记录启动时间
         
         logger.info(f"任务启动，运行时长限制: {self.run_hours_} 小时")
+        if self.auto_stop_:
+            logger.info(f"自动停止已启用，将在 {self.run_hours_} 小时后停止")
+        if self.auto_shutdown_:
+            logger.info("自动关机已启用，达到时长后将关机")
         if self.scheduled_restart_enabled_:
             logger.info(f"定时重启已启用，间隔: {self.scheduled_restart_hours_} 小时")
         
@@ -243,7 +238,8 @@ class BattleTask:
         """
         处理战斗状态：检查银币储备 -> 识别地图 -> 启动导航AI
         """
-        if self.battle_handled_:
+        # 如果导航已经在运行，直接返回，避免重复处理
+        if self.navigation_runtime_.is_running():
             return
 
         logger.info("检测到战斗状态，开始初始化...")
@@ -272,9 +268,7 @@ class BattleTask:
             logger.error("导航启动失败")
             return
         
-        # 标记已处理
-        self.battle_handled_ = True
-        logger.info("战斗状态处理完成")
+        logger.info("战斗状态处理完成，导航AI已启动")
     
     def _handle_end_state(self) -> None:
         """
@@ -284,7 +278,7 @@ class BattleTask:
         logger.info("检测到战斗结束状态，停止导航AI运行循环...")
         
         # 停止导航AI运行循环（保留实例以便下次复用）
-        if  self.navigation_runtime_.is_running():
+        if self.navigation_runtime_.is_running():
             self.navigation_runtime_.stop()
             # 等待键盘操作完全停止，避免与后续按键操作冲突
             time.sleep(0.5)
@@ -294,8 +288,6 @@ class BattleTask:
             logger.error("返回车库失败，将在下次循环重试")
             return
         
-        # 重置战斗状态标志，为下一局做准备
-        self.battle_handled_ = False
         logger.info("结束状态处理完成")
 
     def _shouldActivateSilverReserve(self) -> bool:

@@ -59,11 +59,15 @@ class MainWindow:
         self._title: str = "坦克助手控制台"
         self._window_size: Tuple[int, int] = (self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
 
+        # 从配置文件读取自动停止配置
+        config = GetGlobalConfig()
+        auto_stop_cfg = config.auto_stop
+
         # State
         self._is_running: bool = False
-        self._run_hours: int = self.DEFAULT_RUN_HOURS
-        self._auto_stop: bool = False
-        self._auto_shutdown: bool = False
+        self._run_hours: float = auto_stop_cfg.run_hours
+        self._auto_stop: bool = auto_stop_cfg.enable
+        self._auto_shutdown: bool = auto_stop_cfg.auto_shutdown
         self._start_time: Optional[datetime] = None
 
         # UI Variables (Tkinter variables)
@@ -242,11 +246,11 @@ class MainWindow:
         hours_frame = ttk.Frame(duration_frame)
         hours_frame.pack(fill=tk.X, pady=2)
         ttk.Label(hours_frame, text="限制运行时长：").pack(side=tk.LEFT, padx=5)
-        hours_var = tk.IntVar(value=self._run_hours)
-        hours_spinbox = ttk.Spinbox(hours_frame, from_=1, to=24, width=10, textvariable=hours_var,
+        hours_var = tk.DoubleVar(value=self._run_hours)
+        hours_spinbox = ttk.Spinbox(hours_frame, from_=1, to=48, increment=1, width=10, textvariable=hours_var,
                                     command=lambda: setattr(self, '_run_hours', hours_var.get()))
         hours_spinbox.pack(side=tk.LEFT, padx=5)
-        ttk.Label(hours_frame, text="小时").pack(side=tk.LEFT, padx=5)
+        ttk.Label(hours_frame, text="小时 (从 config.yaml 读取)").pack(side=tk.LEFT, padx=5)
 
         self._auto_stop_var = tk.BooleanVar(value=self._auto_stop)
         ttk.Checkbutton(duration_frame, text="到达时长后自动停止",
@@ -376,9 +380,6 @@ class MainWindow:
 
         self._battle_task = BattleTask(
             enable_silver_reserve=self._silver_reserve.get(),
-            run_hours=self._run_hours,
-            auto_stop=self._auto_stop,
-            auto_shutdown=self._auto_shutdown,
         )
 
         self._is_running = True
