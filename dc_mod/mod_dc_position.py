@@ -9,6 +9,7 @@ MIN_MOVE_DISTANCE = 0.5  # meters
 
 _callback_id = None
 _last_pos = None
+_notice_scheduled = False
 
 
 def _log(msg):
@@ -64,10 +65,28 @@ def _tick():
         _callback_id = BigWorld.callback(REPORT_INTERVAL, _tick)
 
 
+def _try_show_message():
+    global _notice_scheduled
+    try:
+        import messenger
+        gui = messenger.MessengerEntry.g_instance.gui
+        if gui is not None:
+            gui.addClientMessage('dc.position loaded', True)
+            _notice_scheduled = False
+            return
+    except Exception:
+        pass
+
+    _notice_scheduled = True
+    BigWorld.callback(0.5, _try_show_message)
+
+
 def start():
     global _callback_id
     if _callback_id is None:
         _callback_id = BigWorld.callback(REPORT_INTERVAL, _tick)
+    if not _notice_scheduled:
+        _try_show_message()
 
 
 _log('loaded')

@@ -50,3 +50,5 @@ Open the game's `python.log` and search for:
 
 - Logging happens every second and only when the vehicle moved at least 0.5 m.
 - This mod only reads the local player's position and prints to `python.log`.
+- On load, the mod also posts a client message in the bottom-right chat/message
+  window: "dc.position loaded".
